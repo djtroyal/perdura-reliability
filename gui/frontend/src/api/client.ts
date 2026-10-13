@@ -1172,6 +1172,8 @@ export interface BOMMappingAssessment {
 }
 
 export interface PredictionPart {
+  /** Explicit definition profile selected by this scenario. */
+  profileId?: string
   /** Stable project-local identity used by cross-analysis links. */
   id?: string
   /** Canonical architecture reference; ignored by numerical prediction APIs. */
@@ -1254,6 +1256,8 @@ export interface EquationSymbolBinding {
 }
 
 export interface PredictionResult {
+  /** Stable canonical instance identity; independent of result ordering. */
+  part_id?: string
   name: string
   category: string
   quantity: number
@@ -1419,6 +1423,10 @@ export interface MethodologyDisclosure {
 }
 
 export interface PredictionResponse {
+  source_fingerprint?: string
+  request_sha256?: string
+  canonical_system_id?: string
+  scenario_version?: number
   standard: string
   environment: string
   vita_global: boolean
@@ -1906,11 +1914,16 @@ export interface StressStrengthResponse {
   probability_of_failure: number
   reliability: number
   curves: { x: number[]; stress_pdf: number[]; strength_pdf: number[] }
+  evaluation_quantity?: { kind: string; unit: string } | null
+  integration_error?: number
 }
 
 export const computeStressStrength = (req: {
   stress_distribution: string; stress_params: Record<string, number>
   strength_distribution: string; strength_params: Record<string, number>
+  stress_quantity?: import('../components/shared/datasetUnits').DatasetQuantity
+  strength_quantity?: import('../components/shared/datasetUnits').DatasetQuantity
+  evaluation_quantity?: import('../components/shared/datasetUnits').DatasetQuantity
 }) => api.post<StressStrengthResponse>('/life-data/stress-strength', req).then(r => r.data)
 
 // --- ALT Acceleration Factor ---

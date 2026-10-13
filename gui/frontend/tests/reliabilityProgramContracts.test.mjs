@@ -98,9 +98,9 @@ try {
   assert.match(blockDiagramSource, /> Out of scope/)
   assert.doesNotMatch(blockDiagramSource, /getSmoothStepPath/)
   assert.match(blockDiagramSource, /const DENSITY_LEVELS =/)
-  assert.match(blockDiagramSource, /const stepDensity =/)
-  assert.match(blockDiagramSource, /Decrease diagram spacing/)
-  assert.match(blockDiagramSource, /Increase diagram spacing/)
+  assert.match(blockDiagramSource, /<DiagramLayoutMenu/)
+  assert.match(blockDiagramSource, /Preserve assembly order/)
+  assert.match(blockDiagramSource, /Preserve block order/)
   assert.match(blockDiagramSource,
     /dense: \{ label: 'Dense', sizeScale: 0\.98, spacingScale: 0\.5 \}[\s\S]*?expanded: \{ label: 'Expanded', sizeScale: 1\.02, spacingScale: 1\.95 \}/,
     'density must emphasize spacing while preserving readable block dimensions')

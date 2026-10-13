@@ -30,13 +30,18 @@ import {
   SystemConversionReport, FTNode, FTEdge,
 } from '../../api/client'
 import { CanvasErrorBoundary, sanitizeNodeChanges, sanitizeNodes } from '../shared/CanvasErrorBoundary'
-import { createFolioState, useFolioState, useRevision, writeFolioState } from '../../store/project'
+import { createFolioState, useFolioState, useRevision, writeFolioState, getProjectState, beginFolioRequest, readFolioState } from '../../store/project'
 import FolioBar from '../shared/FolioBar'
 import LibraryPanel, { LibraryItem } from '../shared/LibraryPanel'
 import { computeCDF, DIST_OPTIONS, DIST_PARAMS } from '../FaultTree'
 import { useReliabilitySources } from '../shared/ldaFolios'
+import { resolveLinkedNodes, analysisSourceFingerprint, nodeSourceRef, sourceId, resolveReliabilitySource } from '../shared/reliabilitySources'
+import { rbdCalculationContext, clearRbdSourceMetadata } from './rbdRequest'
 import ExportDiagramButton from '../shared/ExportDiagramButton'
 import CanvasAssetControls from '../shared/CanvasAssetControls'
+import DiagramLayoutMenu from '../shared/DiagramLayoutMenu'
+import { useMeasuredDiagramLayout } from '../shared/useMeasuredDiagramLayout'
+import { normalizeLayoutOptions, layoutDensity, type DiagramLayoutOptions } from '../shared/adaptiveDiagramLayout.mjs'
 import { fitReactFlowForExport } from '../shared/exportDiagram'
 import ExportResultsButton from '../shared/ExportResultsButton'
 import { semanticNumericStep } from '../shared/numericSteps'
@@ -90,6 +95,7 @@ function componentReliabilityPreview(
   data: Record<string, unknown>,
   systemMissionTime: string,
 ): number | undefined {
+  if (data.sourceError) return undefined
   const distribution = String(data.distribution ?? '')
   if (!distribution || !DIST_PARAMS[distribution]) {
     const direct = Number(data.reliability)
@@ -157,7 +163,7 @@ function ComponentNode({ data, selected }: NodeProps) {
       {data.showNodeIds !== false && data.blockId != null && (
         <div className="mt-0.5 text-center font-mono text-[9px] opacity-45">{String(data.blockId)}</div>
       )}
-      <div className="mt-1 text-center font-mono text-[10px] opacity-70">R = {Number.isFinite(reliability) ? reliability.toFixed(6) : '—'}</div>
+      <div className="mt-1 text-center font-mono text-[10px] opacity-70">{data.sourceError ? 'Source unavailable' : `R = ${Number.isFinite(reliability) ? reliability.toFixed(6) : '—'}`}</div>
       {data.systemRef != null && (
         <div className="mt-1 truncate rounded bg-blue-100/80 px-1 py-0.5 text-center text-[9px] font-medium text-blue-800"
           title="Identity linked to the canonical System Definition">
@@ -282,8 +288,11 @@ interface CanvasState {
   edges: Edge[]
   annotations?: Node[]
   result?: RBDResponse | null
+  sourceStale?: boolean
+  sourceStaleReason?: string
   missionTime?: string
   density?: RBDDensity
+  layoutOptions?: DiagramLayoutOptions
   connectorStyle?: 'smoothstep' | 'bezier' | 'straight'
   snapToGrid?: boolean
   showNodeIds?: boolean
@@ -311,7 +320,7 @@ function isCanonicalSystemEdge(edge: Edge | null | undefined): boolean {
 
 const RELIABILITY_OVERRIDE_KEYS = new Set([
   'reliability', 'distribution', 'dist_params', 'mission_time',
-  'ldaSource', 'ldaSourceName', 'linkedAnalysisId', 'linkedAnalysisName',
+  'ldaSource', 'ldaSourceName', 'distributionSource', 'linkedAnalysisId', 'linkedAnalysisName',
   'linkedAnalysisMissionTime', 'linkedAnalysisDirty',
 ])
 
@@ -429,6 +438,8 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
   const [clipboard, setClipboard] = useState<RBDClipboard | null>(null)
   const [missionTime, setMissionTime] = useState(persisted.missionTime ?? '1000')
   const [density, setDensity] = useState<RBDDensity>(normalizeDensity(persisted.density))
+  const [layoutOptions, setLayoutOptions] = useState(() => normalizeLayoutOptions(persisted.layoutOptions, persisted.density))
+  const layoutPending = useRef(false)
   const [connectorStyle, setConnectorStyle] = useState<'smoothstep' | 'bezier' | 'straight'>(persisted.connectorStyle ?? 'smoothstep')
   const [snapToGrid, setSnapToGrid] = useState(Boolean(persisted.snapToGrid))
   const [showNodeIds, setShowNodeIds] = useState(persisted.showNodeIds !== false)
@@ -445,12 +456,12 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
   // corrupt the canvas and blank the page. Debouncing coalesces a drag into a
   // single write once motion settles, with a flush on unmount so nothing is lost.
   const latest = useRef<CanvasState>({
-    nodes, edges, annotations, result, missionTime, density, connectorStyle, snapToGrid, showNodeIds,
+    nodes, edges, annotations, result, missionTime, density, layoutOptions, connectorStyle, snapToGrid, showNodeIds,
     conversionProvenance: persisted.conversionProvenance,
     pendingSystemStarter: persisted.pendingSystemStarter,
   })
   latest.current = {
-    nodes, edges, annotations, result, missionTime, density, connectorStyle, snapToGrid, showNodeIds,
+    nodes, edges, annotations, result, missionTime, density, layoutOptions, connectorStyle, snapToGrid, showNodeIds,
     conversionProvenance: persisted.conversionProvenance,
     pendingSystemStarter: persisted.pendingSystemStarter,
   }
@@ -460,9 +471,10 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
   const flowInstanceRef = useRef<ReactFlowInstance<Node, Edge> | null>(null)
   const insertionSequenceRef = useRef(0)
   useEffect(() => {
+    if (layoutPending.current) return
     if (persistTimer.current) clearTimeout(persistTimer.current)
     persistTimer.current = setTimeout(() => setPersisted(latest.current), 250)
-  }, [nodes, edges, annotations, result, missionTime, density, connectorStyle, snapToGrid, showNodeIds]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [nodes, edges, annotations, result, missionTime, density, layoutOptions, connectorStyle, snapToGrid, showNodeIds]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => {
     if (persistTimer.current) clearTimeout(persistTimer.current)
     setPersisted(latest.current)
@@ -488,10 +500,15 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
       setResult(persisted.result ?? null)
       setMissionTime(persisted.missionTime ?? '1000')
       setDensity(normalizeDensity(persisted.density))
+      setLayoutOptions(normalizeLayoutOptions(persisted.layoutOptions, persisted.density))
       setConnectorStyle(persisted.connectorStyle ?? 'smoothstep')
       setSnapToGrid(Boolean(persisted.snapToGrid))
       setShowNodeIds(persisted.showNodeIds !== false)
       setRightPaneMode('results')
+      setLoading(false)
+      setError(null)
+      setValidation(null)
+      setShowValidationIssues(false)
     }
   }, [revision, folios.activeId]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -514,7 +531,9 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
       }
     })
   }, [folios.folios, folios.activeId])
-  const materializedNodes = useMemo(() => nodes.map(node => {
+  const materializedNodes = useMemo(() => nodes.map(original => {
+    let node = original
+    try { node = resolveLinkedNodes(getProjectState(), [original])[0] } catch (error) { node = { ...original, data: { ...original.data, sourceError: (error as Error).message } } }
     const linkedId = String(node.data.linkedAnalysisId ?? '')
     if (!linkedId) return node
     const target = transferTargets.find(item => item.id === linkedId)
@@ -529,10 +548,11 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
         linkedAnalysisDirty: target.dirty,
       },
     }
-  }), [nodes, transferTargets])
+  }), [nodes, transferTargets, ldaFolios])
   const linkedReferenceIssues = useMemo<RBDValidationResponse['issues']>(() => {
     const issues: RBDValidationResponse['issues'] = []
-    for (const node of nodes) {
+    for (const node of materializedNodes) {
+      if (node.data.sourceError) issues.push({ severity: 'error', code: 'INVALID_DISTRIBUTION_SOURCE', node_id: node.id, message: String(node.data.sourceError) })
       if (node.data.requiresReliabilityModel) issues.push({
         severity: 'error', code: 'MISSING_SYSTEM_RELIABILITY_MODEL', node_id: node.id,
         message: `${String(node.data.label ?? node.id)} needs a reliability model before analysis.`,
@@ -550,7 +570,7 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
         message: `Linked RBD analysis ${target.name} will be recalculated automatically because its inputs changed.` })
     }
     return issues
-  }, [nodes, transferTargets])
+  }, [materializedNodes, transferTargets])
   const resolvedBlockIds = useMemo(() => resolveBlockIds(nodes), [nodes])
   const resolvedVotingIds = useMemo(() => resolveVotingIds(nodes), [nodes])
   const votingInputCounts = useMemo(() => {
@@ -591,8 +611,9 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
         } : {}),
         displayDensity: density,
         showNodeIds,
-        computedReliability: componentReliabilities.get(node.id)
-          ?? componentReliabilityPreview(node.data as Record<string, unknown>, missionTime),
+        computedReliability: nodeSourceRef(node.data)
+          ? componentReliabilityPreview(node.data as Record<string, unknown>, missionTime)
+          : componentReliabilities.get(node.id) ?? componentReliabilityPreview(node.data as Record<string, unknown>, missionTime),
         validationIssue: validationNodeIds.has(node.id),
         highlighted: highlightedNodeIds.includes(node.id),
       },
@@ -885,7 +906,10 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
     setRightPaneMode('properties')
   }
 
-  const autoLayout = () => {
+  const applyLayout = (options: DiagramLayoutOptions) => {
+    const nextDensity = layoutDensity(options.mode)
+    setLayoutOptions(options)
+    setDensity(nextDensity)
     const layoutNodes = nodes.map(node => {
       const measuredHeight = Number(node.measured?.height ?? node.height)
       const estimatedHeight = node.type === 'component'
@@ -894,7 +918,8 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
         : node.type === 'kofn' ? 64 : 58
       return {
         id: node.id,
-        width: node.type === 'component' ? RBD_DENSITY[density].widthPx
+        kind: node.type === 'component' ? 'event' as const : 'gate' as const,
+        width: node.type === 'component' ? RBD_DENSITY[nextDensity].widthPx
           : node.type === 'kofn' ? 96 : 58,
         height: measuredHeight > 0 ? Math.max(measuredHeight, estimatedHeight) : estimatedHeight,
         x: node.position.x,
@@ -904,21 +929,22 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
     const adaptiveLayout = layoutHorizontalGraph({
       nodes: layoutNodes,
       edges: edges.map(edge => ({ id: edge.id, source: edge.source, target: edge.target })),
-      density,
+      density: nextDensity,
+      layoutOptions: options,
       connectorStyle,
       viewportHeight: Math.max(520, flowWrapperRef.current?.clientHeight ?? 0),
       snapToGrid,
     })
     const priorPositions = new Map(nodes.map(node => [node.id, node.position]))
-    setNodes(current => current.map(node => ({
+    const nextNodes = nodes.map(node => ({
       ...node,
       position: adaptiveLayout.positions[node.id] ?? node.position,
-    })))
-    setEdges(current => current.map(edge => ({
+    }))
+    const nextEdges = edges.map(edge => ({
       ...edge,
       data: { ...edge.data, adaptiveRoute: adaptiveLayout.routes[edge.id] },
-    })))
-    setAnnotations(current => current.map(annotation => {
+    }))
+    const nextAnnotations = annotations.map(annotation => {
       const targetId = String(annotation.data.targetNodeId ?? '')
       const prior = priorPositions.get(targetId)
       const next = adaptiveLayout.positions[targetId]
@@ -930,9 +956,21 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
           y: annotation.position.y + next.y - prior.y,
         },
       }
-    }))
+    })
+    setNodes(nextNodes); setEdges(nextEdges); setAnnotations(nextAnnotations)
+    if (persistTimer.current) clearTimeout(persistTimer.current)
+    const committed = { ...latest.current, nodes: nextNodes, edges: nextEdges,
+      annotations: nextAnnotations, density: nextDensity, layoutOptions: options }
+    latest.current = committed
+    writeFolioState('system', folios.activeId, committed, `layout-${Date.now()}`)
     window.setTimeout(() => flowInstanceRef.current?.fitView({ padding: 0.18, duration: 350 }), 30)
   }
+  const scheduleLayout = useMeasuredDiagramLayout(applyLayout, options => {
+    if (persistTimer.current) clearTimeout(persistTimer.current)
+    setLayoutOptions(options); setDensity(layoutDensity(options.mode))
+  }, folios.activeId, layoutPending)
+  const autoLayout = (options: DiagramLayoutOptions = layoutOptions) => scheduleLayout(options)
+
 
   const deleteSelected = () => {
     const selectedAnnotationIds = new Set(
@@ -1165,6 +1203,7 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
 
   const updateSelectedDataMulti = (updates: Record<string, unknown>) => {
     if (!selectedNode) return
+    updates = clearRbdSourceMetadata(updates)
     invalidateResult()
     const componentKey = String(selectedNode.data.component_key ?? selectedNode.id)
     setNodes(nds => nds.map(n =>
@@ -1261,6 +1300,7 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
   ])
 
   useEffect(() => {
+    let cancelled = false
     const timer = window.setTimeout(async () => {
       try {
         const mission = Number(missionTime)
@@ -1269,19 +1309,25 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
           edges.map(edge => ({ id: edge.id, source: edge.source, target: edge.target })),
           Number.isFinite(mission) && mission > 0 ? { mission_time: mission } : undefined,
         )
+        if (cancelled) return
         const linkedBlocking = linkedReferenceIssues.some(issue => issue.severity === 'error')
         setValidation(linkedReferenceIssues.length ? {
           ...checked, valid: checked.valid && !linkedBlocking,
           issues: [...linkedReferenceIssues, ...checked.issues],
         } : checked)
-      } catch { setValidation(null) }
+      } catch { if (!cancelled) setValidation(null) }
     }, 300)
-    return () => window.clearTimeout(timer)
+    return () => { cancelled = true; window.clearTimeout(timer) }
   }, [materializedNodes, edges, missionTime, linkedReferenceIssues])
 
   const compute = async () => {
     setError(null)
     setLoading(true)
+    writeFolioState('system', folios.activeId, latest.current)
+    const projectSnapshot = getProjectState()
+    const sourceFingerprint = analysisSourceFingerprint(projectSnapshot, 'system', folios.activeId, latest.current)
+    const guard = beginFolioRequest('system', folios.activeId, readFolioState<CanvasState>('system', folios.activeId) ?? latest.current, 'rbd',
+      () => rbdCalculationContext(getProjectState(), folios.activeId))
     try {
       const resultCache = new Map<string, RBDResponse>()
       const calculateDependency = async (analysisId: string, trail: string[]): Promise<RBDResponse> => {
@@ -1291,8 +1337,8 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
         const folio = folios.folios.find(item => item.id === analysisId)
         const state = folio?.state as CanvasState | undefined
         if (!folio || !state) throw new Error(`Linked RBD analysis ${analysisId} no longer exists.`)
-        const resolvedNodes = []
-        for (const node of state.nodes ?? []) {
+        const resolvedNodes: Node[] = []
+        for (const node of resolveLinkedNodes(projectSnapshot, state.nodes ?? [])) {
           const linkedId = String(node.data.linkedAnalysisId ?? '')
           if (!linkedId) { resolvedNodes.push(node); continue }
           const dependency = await calculateDependency(linkedId, [...trail, analysisId])
@@ -1316,13 +1362,21 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
             ? ` ${described.issues.map(issue => issue.message).join(' ')}` : ''
           throw new Error(`Linked RBD analysis “${folio.name}” could not be calculated: ${described.message}${findings}`)
         }
-        resultCache.set(analysisId, dependencyResult)
-        writeFolioState('system', analysisId, { ...state, result: dependencyResult })
+        const recorded = { ...dependencyResult,
+          _sourceFingerprint: analysisSourceFingerprint(projectSnapshot, 'system', analysisId),
+          _sourceSnapshots: resolvedNodes.flatMap(node => node.data.sourceSnapshot ? [node.data.sourceSnapshot] : []) }
+        resultCache.set(analysisId, recorded)
+        if (!guard.isCurrent()) throw new Error('Inputs or linked sources changed during calculation. Recalculate.')
+        // Preserve current presentation rather than replaying the request's
+        // old node positions, annotations, and layout preferences.
+        const currentChild = readFolioState<CanvasState>('system', analysisId)
+        if (!currentChild) throw new Error(`Linked RBD analysis ${analysisId} no longer exists.`)
+        writeFolioState('system', analysisId, { ...currentChild, result: recorded })
         return dependencyResult
       }
 
-      const recursivelyMaterializedNodes = []
-      for (const node of nodes) {
+      const recursivelyMaterializedNodes: Node[] = []
+      for (const node of resolveLinkedNodes(projectSnapshot, nodes)) {
         const linkedId = String(node.data.linkedAnalysisId ?? '')
         if (!linkedId) { recursivelyMaterializedNodes.push(node); continue }
         const dependency = await calculateDependency(linkedId, [folios.activeId])
@@ -1342,6 +1396,9 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
       const mission = Number(missionTime)
       const options = Number.isFinite(mission) && mission > 0 ? { mission_time: mission, time_points: 101 } : undefined
       const checked = await validateRBD(apiNodes, apiEdges, options)
+      if (!guard.isActive()) return
+      writeFolioState('system', folios.activeId, latest.current)
+      if (!guard.isCurrent()) throw new Error('Inputs or linked sources changed during calculation. Recalculate.')
       const currentLinkedIssues = linkedReferenceIssues.filter(issue => issue.severity === 'error')
       const combined = currentLinkedIssues.length ? {
         ...checked, valid: false, issues: [...currentLinkedIssues, ...checked.issues],
@@ -1352,12 +1409,18 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
         setError(`Resolve ${combined.issues.filter(issue => issue.severity === 'error').length} model issue(s) before analysis.`)
         return
       }
-      const res = await computeRBD(apiNodes, apiEdges, options)
+      const response = await computeRBD(apiNodes, apiEdges, options)
+      if (!guard.isActive()) return
+      writeFolioState('system', folios.activeId, latest.current)
+      if (!guard.isCurrent()) throw new Error('Inputs or linked sources changed during calculation. Recalculate.')
+      const res = { ...response, _sourceFingerprint: sourceFingerprint,
+        _sourceSnapshots: recursivelyMaterializedNodes.flatMap(node => node.data.sourceSnapshot ? [node.data.sourceSnapshot] : []) }
       setResult(res)
       setRightPaneMode('results')
       setResultTab('overview')
       setPersisted({ ...latest.current, result: res })
     } catch (e: unknown) {
+      if (!guard.isActive()) return
       const described = describeRBDRequestError(e)
       if (described.issues) {
         setValidation({ valid: false, issues: described.issues, summary: {
@@ -1370,7 +1433,8 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
       }
       setError(described.message)
     } finally {
-      setLoading(false)
+      if (guard.isActive()) setLoading(false)
+      guard.finish()
     }
   }
 
@@ -1440,15 +1504,19 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
 
   const componentProperties = selectedNode?.type === 'component' ? (() => {
     const linkedSystemBlock = isCanonicalSystemNode(selectedNode)
-    const dist = String(selectedNode.data.distribution ?? '')
-    const distParams = (selectedNode.data.dist_params ?? {}) as Record<string, number>
+    const sourceRef = nodeSourceRef(selectedNode.data)
+    let liveSource: ReturnType<typeof resolveReliabilitySource> | undefined
+    let sourceError = ''
+    if (sourceRef) try { liveSource = resolveReliabilitySource(getProjectState(), sourceRef) } catch (error) { sourceError = (error as Error).message }
+    const dist = liveSource?.dist ?? String(selectedNode.data.distribution ?? '')
+    const distParams = liveSource?.dist_params ?? (selectedNode.data.dist_params ?? {}) as Record<string, number>
     const hasMissionTimeOverride = selectedNode.data.mission_time != null
       && String(selectedNode.data.mission_time).trim() !== ''
     const inheritedMissionTime = Number(missionTime)
     const componentMissionTime = hasMissionTimeOverride
       ? Number(selectedNode.data.mission_time)
       : inheritedMissionTime
-    const computedR = dist && Number.isFinite(componentMissionTime) && componentMissionTime >= 0
+    const computedR = !sourceError && dist && Number.isFinite(componentMissionTime) && componentMissionTime >= 0
       ? 1 - computeCDF(dist, distParams, componentMissionTime) : null
     const linkedTarget = transferTargets.find(target => target.id === String(selectedNode.data.linkedAnalysisId ?? ''))
     const componentKey = String(selectedNode.data.component_key ?? selectedNode.id)
@@ -1532,23 +1600,26 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
         ) : <>
         <div className="border-t border-slate-100 pt-3">
           <label className="block text-xs text-slate-600">Reliability source
-            <select className="field mt-1" value={String(selectedNode.data.ldaSource ?? '')}
+            <select className="field mt-1" value={sourceRef ? sourceId(sourceRef) : String(selectedNode.data.ldaSource ?? '')}
               onChange={event => {
                 const source = ldaFolios.find(item => item.id === event.target.value)
-                if (!source) updateSelectedDataMulti({ ldaSource: undefined, ldaSourceName: undefined })
+                if (!source) updateSelectedDataMulti({ ldaSource: undefined, ldaSourceName: undefined, distributionSource: undefined })
                 else updateSelectedDataMulti({
-                  distribution: source.dist, dist_params: source.dist_params, ldaSource: source.id,
+                  distribution: source.dist, dist_params: source.dist_params, ldaSource: source.id, distributionSource: source.sourceRef,
                   ldaSourceName: `${source.name} (${source.moduleLabel})`,
                   requiresReliabilityModel: false, starterPlaceholder: false,
                 })
               }}>
               <option value="">Manual / distribution</option>
+              {sourceRef && !liveSource && <option value={sourceId(sourceRef)}>Unavailable or incompatible source</option>}
               {ldaFolios.map(source => <option key={source.id} value={source.id}>{source.name} — {source.label}</option>)}
             </select>
           </label>
         </div>
+        {sourceError && <p role="alert" className="text-xs text-red-700">{sourceError}</p>}
+        {sourceRef && <button type="button" className="mini-button" onClick={() => updateSelectedDataMulti({ ldaSource: undefined, ldaSourceName: undefined, distributionSource: undefined, distribution: dist, dist_params: distParams })}>Use as manual copy</button>}
         <label className="block text-xs text-slate-600">Reliability model
-          <select className="field mt-1" value={dist} onChange={event => {
+          <select disabled={Boolean(sourceRef)} className="field mt-1" value={dist} onChange={event => {
             const distribution = event.target.value
             if (!distribution || !DIST_PARAMS[distribution]) {
               updateSelectedDataMulti({ distribution: undefined, dist_params: undefined,
@@ -1569,7 +1640,7 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
           <div className="grid grid-cols-2 gap-2">
             {DIST_PARAMS[dist].map(parameter => (
               <label key={parameter.key} className="text-[11px] text-slate-500">{parameter.label}
-                <input className="field mt-1" type="number"
+                <input disabled={Boolean(sourceRef)} className="field mt-1" type="number"
                   step={semanticNumericStep(parameter.label, Number(distParams[parameter.key] ?? parameter.default))}
                   value={distParams[parameter.key] ?? parameter.default} onChange={event => {
                     const nextParams = { ...distParams, [parameter.key]: Number(event.target.value) }
@@ -1825,7 +1896,7 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
       })
       if (linkedSource) Object.assign(projected, {
         distribution: linkedSource.dist, dist_params: linkedSource.dist_params,
-        ldaSource: linkedSource.id,
+        ldaSource: linkedSource.id, distributionSource: linkedSource.sourceRef,
         ldaSourceName: `${linkedSource.name} (${linkedSource.moduleLabel})`,
         requiresReliabilityModel: false,
       })
@@ -1880,6 +1951,7 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
   const modernView = (
     <div className="flex min-h-0 flex-1 flex-col">
       <FolioBar api={folios} />
+      {persisted.sourceStale && <p role="status" className="border-b border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">Historical result — {persisted.sourceStaleReason} Recalculate to refresh.</p>}
       {persisted.pendingSystemStarter && <div className="flex items-center gap-3 border-b border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
         <span className="font-medium">System Definition starter ready</span>
         <span className="text-blue-600">Reviewable topology; reliability and redundancy are not inferred.</span>
@@ -1891,12 +1963,6 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
           <div className="border-b border-slate-100 p-3">
             <div className="mb-2 flex items-center justify-between">
               <div><p className="text-xs font-semibold text-slate-700">Block Library</p><p className="text-[10px] text-slate-400">Success-path building blocks</p></div>
-              <div className="flex items-center gap-1" title={`Block size: ${RBD_DENSITY[density].label}. Use Auto Layout to reflow spacing and routes.`}>
-                <button className="mini-button !px-1" aria-label="Decrease block size" disabled={density === 'dense'}
-                  onClick={() => setDensity(RBD_DENSITY_LEVELS[Math.max(0, RBD_DENSITY_LEVELS.indexOf(density) - 1)])}><Minus size={12} /></button>
-                <button className="mini-button !px-1" aria-label="Increase block size" disabled={density === 'expanded'}
-                  onClick={() => setDensity(RBD_DENSITY_LEVELS[Math.min(RBD_DENSITY_LEVELS.length - 1, RBD_DENSITY_LEVELS.indexOf(density) + 1)])}><Plus size={12} /></button>
-              </div>
             </div>
             <div className="grid grid-cols-2 gap-1.5">
               <button onClick={addComponent} className="primary-button min-w-0 px-2">
@@ -1913,7 +1979,7 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
             <LibraryPanel mode="reliability" selectedLabel={selectedNode?.type === 'component' ? String(selectedNode.data.label) : null}
               onApply={(item: LibraryItem, value: number) => {
                 if (!selectedNode || selectedNode.type !== 'component') return
-                updateSelectedDataMulti({ reliability: Math.round(value * 1e6) / 1e6, linkedTo: item.name })
+                updateSelectedDataMulti({ reliability: value, linkedTo: item.name, distributionSource: item.sourceRef, ldaSource: item.sourceId, ldaSourceName: item.sourceRef ? item.name : undefined, distribution: item.resolvedSource?.dist, dist_params: item.resolvedSource?.dist_params })
               }} />
             {transferTargets.length > 0 && (
               <details className="mt-3 rounded-lg border border-cyan-200 bg-cyan-50/60" data-rbd-project-library>
@@ -1988,8 +2054,7 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
                   analysisName={folios.folios.find(
                     folio => folio.id === folios.activeId)?.name
                     ?? 'RBD Analysis'} />
-                <button className="flex h-8 items-center gap-1 whitespace-nowrap rounded border border-slate-300 bg-white px-2 text-[10px] font-medium text-slate-700 hover:bg-slate-50"
-                  onClick={autoLayout} title="Optimize success-flow layout"><LayoutGrid size={12} /> Auto Layout</button>
+                <DiagramLayoutMenu value={layoutOptions} onChange={setLayoutOptions} onApply={autoLayout} />
                 <button className="flex h-8 items-center gap-1 rounded border border-slate-300 bg-white px-2 text-[10px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-35"
                   onClick={() => copySelected(false)} disabled={!selectedNodeIds.length}><Copy size={12} /> Copy</button>
                 <button className="flex h-8 items-center gap-1 rounded border border-slate-300 bg-white px-2 text-[10px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-35"

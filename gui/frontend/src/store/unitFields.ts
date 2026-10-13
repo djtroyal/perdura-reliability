@@ -14,11 +14,12 @@
  */
 import { convert } from './units'
 
-export type FieldMode = 'mul' | 'inv' | 'mcf_wide'
+export type FieldMode = 'mul' | 'inv' | 'mcf_wide' | 'distribution' | 'transition'
 export interface FieldRule { path: string; mode: FieldMode }
 
 export const UNIT_RULES: Record<string, FieldRule[]> = {
-  lifeData: [{ path: 'rows[].time', mode: 'mul' }],
+  // LDA observations and adopted models own explicit dataset units.
+  lifeData: [],
   alt: [{ path: 'dataRows[].time', mode: 'mul' }],
   degradation: [
     { path: 'nd.rows[].time', mode: 'mul' }, { path: 'nd.relTime', mode: 'mul' },
@@ -38,7 +39,16 @@ export const UNIT_RULES: Record<string, FieldRule[]> = {
     { path: 'spares.opHours', mode: 'mul' }, { path: 'spares.mtbf', mode: 'mul' },
     { path: 'spares.rate', mode: 'inv' },
   ],
-  markov: [{ path: 'tMax', mode: 'mul' }, { path: 'transitions[].rate', mode: 'inv' }],
+  faultTree: [
+    { path: 'exposureTime', mode: 'mul' }, { path: 'nodes[].data.exposure_time', mode: 'mul' },
+    { path: 'nodes[].data', mode: 'distribution' },
+  ],
+  system: [
+    { path: 'missionTime', mode: 'mul' }, { path: 'nodes[].data.mission_time', mode: 'mul' },
+    { path: 'nodes[].data', mode: 'distribution' },
+  ],
+  markov: [{ path: 'tMax', mode: 'mul' }, { path: 'transitions[]', mode: 'transition' },
+    { path: 'canvasEdges[].data', mode: 'transition' }],
   // Maintenance module (flat slices). Weibull α (scale) is time-valued; β is a
   // dimensionless shape and costs are money, so neither is converted.
   maintReplacement: [{ path: 'alpha', mode: 'mul' }],
@@ -51,7 +61,8 @@ export const UNIT_RULES: Record<string, FieldRule[]> = {
     { path: 'admin', mode: 'mul' }, { path: 'logistics', mode: 'mul' },
   ],
   reliabilityAllocation: [{ path: 'missionTime', mode: 'mul' }, { path: 'targetMtbf', mode: 'mul' }],
-  prediction: [{ path: 'missionHours', mode: 'mul' }],
+  // Prediction's handbook rates and mission inputs explicitly use hours.
+  prediction: [],
 }
 
 type Transform = (v: unknown) => unknown
@@ -59,6 +70,37 @@ type Transform = (v: unknown) => unknown
 function makeTransform(from: string, to: string, mode: FieldMode): Transform {
   return (v: unknown) => {
     if (v == null || v === '') return v
+    if (mode === 'transition') {
+      if (!v || typeof v !== 'object' || Array.isArray(v)) return v
+      const data = v as Record<string, unknown>
+      return data.sourceId ? v : { ...data, rate: makeTransform(from, to, 'inv')(data.rate) }
+    }
+    if (mode === 'distribution') {
+      if (!v || typeof v !== 'object' || Array.isArray(v)) return v
+      const data = v as Record<string, unknown>
+      // Live links resolve from source-owned units at the calculation boundary.
+      if (data.distributionSource != null || data.ldaFolioId || data.ldaSource || data.sourceId) return v
+      const distribution = String(data.distribution ?? '')
+      if (!['exponential', 'weibull', 'normal', 'lognormal', 'gamma', 'loglogistic', 'gumbel', 'beta'].includes(distribution)) return v
+      // Conversion cannot repair missing/invalid required inputs by inventing a model.
+      const parameters = { ...(data.dist_params as Record<string, unknown> ?? {}) }
+      if (distribution === 'beta' && parameters.support_scale === undefined) parameters.support_scale = 1
+      const mul = makeTransform(from, to, 'mul')
+      if (distribution === 'exponential') parameters.lambda = makeTransform(from, to, 'inv')(parameters.lambda)
+      else if (distribution === 'lognormal') {
+        const value = parameters.mu, numeric = typeof value === 'string' ? Number(value) : value
+        if (typeof numeric === 'number' && Number.isFinite(numeric)) {
+          const converted = numeric + Math.log(convert(1, from, to))
+          parameters.mu = typeof value === 'string' ? String(converted) : converted
+        }
+      } else if (distribution === 'normal' || distribution === 'gumbel') {
+        parameters.mu = mul(parameters.mu); parameters.sigma = mul(parameters.sigma)
+      } else if (distribution === 'gamma') parameters.beta = mul(parameters.beta)
+      else if (distribution === 'beta') parameters.support_scale = mul(parameters.support_scale)
+      else parameters.alpha = mul(parameters.alpha)
+      if (parameters.gamma !== undefined) parameters.gamma = mul(parameters.gamma)
+      return { ...data, dist_params: parameters }
+    }
     if (mode === 'mcf_wide') {
       if (typeof v !== 'string') return v
       const numberToken = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/
@@ -71,18 +113,17 @@ function makeTransform(from: string, to: string, mode: FieldMode): Transform {
         const events = eventText ? eventText.split(/[\s,]+/).filter(Boolean) : []
         const end = parts[1].trim()
         if (!events.every(token => numberToken.test(token)) || !numberToken.test(end)) return v
-        const scale = (token: string) => String(parseFloat(
-          convert(Number(token), from, to).toPrecision(8)))
+        const scale = (token: string) => String(convert(Number(token), from, to))
         converted.push(`${events.map(scale).join(', ')} | ${scale(end)}`)
       }
       return converted.join('\n')
     }
     const isStr = typeof v === 'string'
-    const n = isStr ? parseFloat(v) : (v as number)
+    if (isStr && !v.trim()) return v
+    const n = isStr ? Number(v) : (v as number)
     if (typeof n !== 'number' || !isFinite(n)) return v
     const out = mode === 'inv' ? convert(n, to, from) : convert(n, from, to)
-    const formatted = parseFloat(out.toPrecision(8))   // strip float noise
-    return isStr ? String(formatted) : formatted
+    return isStr ? String(out) : out
   }
 }
 

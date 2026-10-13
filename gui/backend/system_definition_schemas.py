@@ -125,6 +125,7 @@ class SystemBlockDefinition(StrictModel):
     part_number: str = Field(default="", max_length=512)
     manufacturer: str = Field(default="", max_length=512)
     category: str = Field(default="", max_length=512)
+    part_metadata: dict[str, Any] = Field(default_factory=dict)
     properties: dict[str, SystemParameterValue] = Field(default_factory=dict)
     analysis_profiles: list[SystemAnalysisProfile] = Field(
         default_factory=list, max_length=1000)
@@ -159,6 +160,7 @@ class SystemBlockInstance(StrictModel):
     name: str = Field(default="", max_length=512)
     quantity: int = Field(default=1, ge=1, le=100000)
     reference_designators: list[str] = Field(default_factory=list, max_length=10000)
+    source_metadata: dict[str, Any] = Field(default_factory=dict)
     mode_ids: list[str] = Field(default_factory=list, max_length=100)
     function_overrides: list[FunctionOverride] = Field(
         default_factory=list, max_length=1000)
@@ -291,11 +293,19 @@ class SystemDiagramViewport(StrictModel):
     zoom: float = Field(default=1, ge=0.01, le=10)
 
 
+class SystemDiagramLayoutOptions(StrictModel):
+    mode: Literal["compact", "normal", "expanded"] = "normal"
+    preserveGateOrder: bool = True
+    preserveEventOrder: bool = True
+    optimizeLabelGeometry: bool = False
+
+
 class SystemDiagram(StrictModel):
     id: str = Field(min_length=1, max_length=128)
     name: str = Field(min_length=1, max_length=512)
     scope_instance_id: Optional[str] = Field(None, max_length=128)
     density: Literal["compact", "standard", "detailed"] = "standard"
+    layoutOptions: Optional[SystemDiagramLayoutOptions] = None
     boundary: SystemDiagramBoundary = Field(default_factory=SystemDiagramBoundary)
     viewport: SystemDiagramViewport = Field(default_factory=SystemDiagramViewport)
     snap_to_grid: bool = True
@@ -306,6 +316,7 @@ class SystemDiagram(StrictModel):
 class SystemDefinitionModel(StrictModel):
     version: Literal[1, 2] = 2
     id: str = Field(min_length=1, max_length=128)
+    root_instance_id: Optional[str] = Field(None, max_length=128)
     name: str = Field(min_length=1, max_length=512)
     revision: str = Field(default="A", max_length=128)
     modes: list[SystemMode] = Field(default_factory=list, max_length=1000)
@@ -394,3 +405,10 @@ class SystemDefinitionProjectionRequest(StrictModel):
 class SystemDefinitionImpactRequest(StrictModel):
     model: SystemDefinitionModel
     bindings: list[SystemAnalysisBinding] = Field(default_factory=list, max_length=10000)
+
+
+class SharedSystemPredictionRequest(StrictModel):
+    """Canonical structure plus scenario-owned inputs; no copied hierarchy."""
+    model: SystemDefinitionModel
+    scenario: dict[str, Any]
+    source_fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")

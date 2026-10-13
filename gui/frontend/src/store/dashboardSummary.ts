@@ -3,7 +3,8 @@
 // many carry results. Reads the live store (getProjectState) and reuses
 // hasComputedResults; call inside a useStoreVersion()-reactive render.
 
-import { getProjectState, hasComputedResults } from './project'
+import { analysisInputSnapshot, getProjectState, hasComputedResults } from './project'
+import { isLifeDataFitCurrent, resolveAdoptedDistribution } from '../components/shared/adoptedDistribution'
 
 export interface AreaSummary {
   tabId: string
@@ -85,6 +86,8 @@ function sliceHasInput(slice: unknown): boolean {
     if (found || o == null || typeof o !== 'object' || depth > 6) return
     for (const [k, v] of Object.entries(o as Record<string, unknown>)) {
       if (Array.isArray(v) && INPUT_KEYS.test(k) && v.some(hasScalar)) { found = true; return }
+      if ((k === 'partInputs' || k === 'blockInputs') && v && typeof v === 'object'
+          && Object.keys(v).length > 0) { found = true; return }
       walk(v, depth + 1)
     }
   }
@@ -134,14 +137,28 @@ function staleDetailsForSlice(areaLabel: string, sliceKey: string, slice: unknow
 
   if (sliceKey === 'lifeData') {
     for (const folio of foliosOf(slice)) {
-      const rows = Array.isArray(folio?.rows) ? folio.rows : []
-      const currentSignature = JSON.stringify(rows.map((row: { time?: unknown; state?: unknown }) => ({
-        t: row?.time,
-        s: row?.state,
-      })))
-      if (hasComputedResults(folio) && folio?.dataSig != null && folio.dataSig !== currentSignature) {
+      const name = `${label} — ${folio.name || 'Untitled dataset'}`
+      if (folio.ssResult || folio.spec?.mcRunProvenance) {
+        const snapshot = analysisInputSnapshot(folio, 'lifeData', getProjectState()) as {
+          resolvedSources?: Record<string, { status: string; fingerprint?: string }>
+        }
+        const sources = snapshot.resolvedSources
+        if (folio.ssResult && (sources?.stressStrength?.status !== 'current'
+            || sources.stressStrength.fingerprint !== folio.ssProvenance?.fingerprint)) {
+          details.push(`${name}: stress or strength inputs changed since interference was calculated.`)
+        }
+        if (folio.spec?.mcRunProvenance && (sources?.monteCarlo?.status !== 'current'
+            || sources.monteCarlo.fingerprint !== folio.spec.mcRunProvenance.fingerprint)) {
+          details.push(`${name}: Monte Carlo inputs changed since the sample was generated.`)
+        }
+      }
+      const resolved = folio.adoptedDistribution
+        ? resolveAdoptedDistribution(folio, { projectUnit: getProjectState().units }) : null
+      if (resolved && resolved.status !== 'current') {
+        details.push(`${label} — ${folio.name || 'Untitled dataset'}: ${resolved.reason}`)
+      } else if (folio.result && !isLifeDataFitCurrent(folio, { projectUnit: getProjectState().units })) {
         details.push(
-          `${label} — ${folio.name || 'Untitled folio'}: dataset rows changed since distributions were last fitted.`,
+          `${label} — ${folio.name || 'Untitled dataset'}: observations or units differ from the fitted results.`,
         )
       }
     }
@@ -149,11 +166,16 @@ function staleDetailsForSlice(areaLabel: string, sliceKey: string, slice: unknow
   }
 
   for (const folio of foliosOf(slice)) {
-    if (folio && typeof folio === 'object' && (folio as { dirty?: boolean }).dirty) {
+    const value = folioState(folio) as { sourceStale?: boolean; sourceStaleReason?: string } | undefined
+    if (folio && typeof folio === 'object' && ((folio as { dirty?: boolean }).dirty || value?.sourceStale)) {
       details.push(
-        `${label} — ${String((folio as { name?: unknown }).name ?? 'Untitled analysis')}: inputs changed since results were last calculated.`,
+        `${label} — ${String((folio as { name?: unknown }).name ?? 'Untitled analysis')}: ${value?.sourceStaleReason || 'inputs changed since results were last calculated.'}`,
       )
     }
+  }
+  const flat = slice as { sourceStale?: boolean; sourceStaleReason?: string }
+  if (flat.sourceStale) {
+    details.push(`${label}: ${flat.sourceStaleReason || 'a linked source changed since calculation.'}`)
   }
   return details
 }

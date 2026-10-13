@@ -38,21 +38,21 @@ try {
 
   assert.throws(
     () => project.importPayload({ ...payload, schemaVersion: 1 }),
-    /Unsupported project schema 1.*accepts schemas 6, 7 or 8/,
+    /Unsupported project schema 1.*accepts schemas 6, 7 or 9/,
     'schemas older than the explicit migration boundary must fail closed',
   )
   assert.throws(
     () => project.importPayload({ ...payload, schemaVersion: 999 }),
-    /Unsupported project schema 999.*accepts schemas 6, 7 or 8/,
+    /Unsupported project schema 999.*accepts schemas 6, 7 or 9/,
     'newer schemas must fail closed instead of being interpreted approximately',
   )
-  project.importPayload({
-    ...payload,
-    schemaVersion: 6,
+  const beforeLegacyImport = project.getProjectState()
+  assert.throws(() => project.importPayload({
+    ...payload, schemaVersion: 6,
     modules: { ...payload.modules, prediction: { blocks: [], parts: [] } },
-  })
-  assert.ok(project.getProjectState().modules.systemDefinition,
-    'schema 6 projects with hierarchy data must receive the canonical System Definition slice')
+  }), /shared-system scenario format/)
+  assert.equal(project.getProjectState(), beforeLegacyImport,
+    'unsupported copied prediction hierarchies must not erase or replace the current project')
   assert.throws(
     () => project.importPayload({ ...payload, subtitle: 'Unknown software' }),
     /metadata is incomplete/,
@@ -88,8 +88,8 @@ try {
   project.newProject('Existing hours project')
   project.setModuleState('warranty', { times: [100, 200], result: { estimate: 1 } })
   project.importPayload({ ...payload, units: 'days' })
-  assert.deepEqual(Object.keys(project.getProjectState().modules), ['growth'],
-    'full imports must remove modules absent from the imported project')
+  assert.deepEqual(Object.keys(project.getProjectState().modules).sort(), ['growth', 'systemDefinition'],
+    'full imports remove absent analyses and retain the mandatory canonical system')
   assert.equal(project.getProjectState().units, 'days')
   assert.equal(project.getProjectState().identity.projectId, payload.identity.projectId)
   assert.equal(project.isDirty(), false, 'the imported project is a clean baseline')
@@ -120,17 +120,17 @@ try {
   const initial = { parts: [{ id: 'part-1', value: 1 }], result: null }
   const setupFolios = () => {
     project.newProject('Request origin')
-    project.setModuleState('prediction', {
+    project.setModuleState('growth', {
       _folioWrap: true, activeId: 'a', folios: [
         { id: 'a', name: 'A', state: initial },
         { id: 'b', name: 'B', state: { ...initial, parts: [{ id: 'part-2', value: 2 }] } },
       ],
     })
   }
-  const select = id => project.setModuleState('prediction', {
-    ...project.getProjectState().modules.prediction, activeId: id,
+  const select = id => project.setModuleState('growth', {
+    ...project.getProjectState().modules.growth, activeId: id,
   })
-  const request = channel => project.beginFolioRequest('prediction', 'a', initial, channel)
+  const request = channel => project.beginFolioRequest('growth', 'a', initial, channel)
   const publish = pending => pending.commit(current => ({ ...current, result: { estimate: 7 } }))
   setupFolios()
   let pending = request()
@@ -139,11 +139,11 @@ try {
   select('a')
   assert.equal(publish(pending), false, 'returning to the original folio must not revive a stale request')
   pending.finish()
-  assert.equal(project.getProjectState().modules.prediction.folios[1].state.result, null)
+  assert.equal(project.getProjectState().modules.growth.folios[1].state.result, null)
 
   pending = request()
-  project.writeFolioState('prediction', 'a', { ...initial, parts: [{ id: 'part-1', value: 3 }] })
-  project.writeFolioState('prediction', 'a', initial)
+  project.writeFolioState('growth', 'a', { ...initial, parts: [{ id: 'part-1', value: 3 }] })
+  project.writeFolioState('growth', 'a', initial)
   assert.equal(publish(pending), false, 'an edit-and-revert must invalidate the pending input snapshot')
   pending.finish()
 
@@ -168,7 +168,7 @@ try {
   older.finish()
   newer.finish()
   const resultOnly = request()
-  project.writeFolioState('prediction', 'a', { ...initial, result: { estimate: 8 } })
+  project.writeFolioState('growth', 'a', { ...initial, result: { estimate: 8 } })
   assert.equal(publish(resultOnly), true, 'independent result updates must not invalidate unchanged inputs')
   resultOnly.finish()
 
@@ -176,10 +176,10 @@ try {
   cancelled.finish()
   assert.equal(publish(cancelled), false, 'unmount cleanup must reject all subsequent writes')
   project.newProject('Unwrapped legacy analysis')
-  project.setModuleState('prediction', initial)
-  pending = project.beginFolioRequest('prediction', 'f0', initial)
+  project.setModuleState('growth', initial)
+  pending = project.beginFolioRequest('growth', 'f0', initial)
   assert.equal(publish(pending), true, 'legacy raw slices must still accept their own calculation')
-  assert.equal(project.getProjectState().modules.prediction.folios[0].state.result.estimate, 7)
+  assert.equal(project.getProjectState().modules.growth.folios[0].state.result.estimate, 7)
   pending.finish()
 
   // Exercise both sides of the provenance async boundary without wall-clock sleeps.

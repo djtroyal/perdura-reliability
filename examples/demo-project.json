@@ -1299,26 +1299,13 @@
             "environment": "GB",
             "vitaGlobal": false,
             "missionHours": "8760",
-            "blocks": [
-              {
-                "id": "b1",
-                "name": "Controller Board Assembly",
-                "parentId": null,
-                "quantity": 1,
-                "operatingFraction": 0.75,
-                "environment": "GF",
-                "nonoperatingEnvironment": "GB",
-                "nonoperatingTemperatureC": 25,
-                "powerCyclesPer1000NonoperatingHours": 0.5,
-                "notes": "Representative 75% operating / 25% nonoperating exposure. Operating rates use MIL-HDBK-217F; nonoperating rates use the selected RADC-TR-85-91 models."
-              }
-            ],
-            "blockSeq": 1,
-            "parts": [
-              {
+            "contributionScope": "system",
+            "contributionBlockIds": [],
+            "standard": "MIL-HDBK-217F",
+            "scenarioVersion": 1,
+            "partInputs": {
+              "demo-part-1": {
                 "category": "microcircuit",
-                "name": "Microprocessor",
-                "quantity": 1,
                 "params": {
                   "device_type": "microprocessor",
                   "technology": "mos",
@@ -1331,7 +1318,6 @@
                 },
                 "apply_vita": null,
                 "environment": null,
-                "parentId": "b1",
                 "nonoperating_params": {
                   "model": "microelectronic_device",
                   "device_type": "digital",
@@ -1341,10 +1327,8 @@
                   "quality": "C-1"
                 }
               },
-              {
+              "demo-part-2": {
                 "category": "resistor",
-                "name": "Bias Resistors",
-                "quantity": 24,
                 "params": {
                   "style": "RL",
                   "rated_power": 0.25,
@@ -1354,37 +1338,50 @@
                 },
                 "apply_vita": null,
                 "environment": null,
-                "parentId": "b1",
                 "nonoperating_params": {
                   "model": "resistor",
                   "style": "RL",
                   "quality": "Lower"
                 }
               },
-              {
+              "demo-part-3": {
                 "category": "capacitor",
-                "name": "Decoupling Caps",
-                "quantity": 16,
                 "params": {
                   "style": "CK",
                   "capacitance_microfarads": 0.1,
                   "voltage_stress": 0.4,
                   "T_ambient": 40,
-                  "circuit_resistance_ohm_per_volt": 1.0,
+                  "circuit_resistance_ohm_per_volt": 1,
                   "quality": "commercial"
                 },
                 "apply_vita": null,
                 "environment": null,
-                "parentId": "b1",
                 "nonoperating_params": {
                   "model": "capacitor",
                   "style": "CK",
                   "quality": "Lower"
                 }
               }
-            ],
-            "contributionScope": "system",
-            "contributionBlockIds": []
+            },
+            "blockInputs": {
+              "pump-a": {
+                "operatingFraction": 1,
+                "environment": null
+              },
+              "pump-b": {
+                "operatingFraction": 1,
+                "environment": null
+              },
+              "b1": {
+                "operatingFraction": 0.75,
+                "environment": "GF",
+                "nonoperatingEnvironment": "GB",
+                "nonoperatingTemperatureC": 25,
+                "powerCyclesPer1000NonoperatingHours": 0.5,
+                "notes": "Representative 75% operating / 25% nonoperating exposure. Operating rates use MIL-HDBK-217F; nonoperating rates use the selected RADC-TR-85-91 models."
+              }
+            },
+            "sourceSystemFingerprint": "c7055a54036726ddcf5a70dd4992e1feb8465b5e2e03482b6a1b6dbb55a07d25"
           }
         }
       ]
@@ -2572,9 +2569,470 @@
         "max_generated_jobs": 100000
       },
       "result": null
+    },
+    "systemDefinition": {
+      "model": {
+        "version": 2,
+        "id": "system-demo-pumps",
+        "name": "Redundant Pump System",
+        "revision": "A",
+        "modes": [
+          {
+            "id": "run",
+            "name": "Run",
+            "description": "Normal fluid delivery operation"
+          }
+        ],
+        "definitions": [
+          {
+            "id": "def-pump-system",
+            "name": "Pump System",
+            "kind": "system",
+            "classification": "system",
+            "revision": "A",
+            "description": "Redundant pumps supplying a common demand",
+            "part_number": "",
+            "manufacturer": "",
+            "category": "fluid system",
+            "properties": {},
+            "analysis_profiles": [],
+            "ports": [
+              {
+                "id": "supply-in",
+                "name": "Supply input",
+                "interface_type": "material",
+                "direction": "input",
+                "description": "Combined fluid supply",
+                "properties": {}
+              }
+            ],
+            "functions": [
+              {
+                "id": "supply-demand",
+                "description": "Supply fluid to demand",
+                "function_type": "primary",
+                "mode_ids": [
+                  "run"
+                ],
+                "port_ids": [
+                  "supply-in"
+                ]
+              }
+            ],
+            "failure_modes": [],
+            "child_slots": [
+              {
+                "id": "pump-a-slot",
+                "definition_id": "def-pump",
+                "name": "Pump A",
+                "quantity": 1
+              },
+              {
+                "id": "pump-b-slot",
+                "definition_id": "def-pump",
+                "name": "Pump B",
+                "quantity": 1
+              }
+            ]
+          },
+          {
+            "id": "def-pump",
+            "name": "Pump",
+            "kind": "component",
+            "classification": "component",
+            "revision": "A",
+            "description": "Reusable pump component type",
+            "part_number": "P-100",
+            "manufacturer": "Demo Industries",
+            "category": "pump",
+            "properties": {},
+            "analysis_profiles": [
+              {
+                "id": "pump-reliability",
+                "name": "Pump constant-hazard model",
+                "domain": "reliability",
+                "adapter_id": "reliability.constant-hazard",
+                "adapter_version": 1,
+                "status": "reviewed",
+                "mode_ids": [
+                  "run"
+                ],
+                "values": {
+                  "failure_rate": {
+                    "kind": "number",
+                    "value": 2e-05,
+                    "unit": "failures/hour"
+                  }
+                }
+              }
+            ],
+            "ports": [
+              {
+                "id": "discharge",
+                "name": "Discharge",
+                "interface_type": "material",
+                "direction": "output",
+                "description": "Pressurized fluid output",
+                "properties": {}
+              }
+            ],
+            "functions": [
+              {
+                "id": "move-fluid",
+                "description": "Move fluid to the common outlet",
+                "function_type": "primary",
+                "mode_ids": [
+                  "run"
+                ],
+                "port_ids": [
+                  "discharge"
+                ]
+              }
+            ],
+            "failure_modes": [
+              {
+                "id": "no-flow",
+                "function_id": "move-fluid",
+                "description": "No fluid flow",
+                "deviation_id": "absent",
+                "mode_ids": [
+                  "run"
+                ]
+              }
+            ],
+            "child_slots": []
+          },
+          {
+            "id": "definition-b1",
+            "name": "Controller Board Assembly",
+            "kind": "assembly",
+            "classification": "assembly",
+            "description": "",
+            "part_number": "",
+            "manufacturer": "",
+            "category": "",
+            "ports": [],
+            "functions": [],
+            "failure_modes": [],
+            "child_slots": [],
+            "properties": {},
+            "analysis_profiles": []
+          },
+          {
+            "id": "definition-demo-part-1",
+            "name": "Microprocessor",
+            "kind": "piece_part",
+            "classification": "piece_part",
+            "description": "",
+            "part_number": "",
+            "manufacturer": "",
+            "category": "",
+            "ports": [],
+            "functions": [],
+            "failure_modes": [],
+            "child_slots": [],
+            "properties": {},
+            "analysis_profiles": [],
+            "part_metadata": {}
+          },
+          {
+            "id": "definition-demo-part-2",
+            "name": "Bias Resistors",
+            "kind": "piece_part",
+            "classification": "piece_part",
+            "description": "",
+            "part_number": "",
+            "manufacturer": "",
+            "category": "",
+            "ports": [],
+            "functions": [],
+            "failure_modes": [],
+            "child_slots": [],
+            "properties": {},
+            "analysis_profiles": [],
+            "part_metadata": {}
+          },
+          {
+            "id": "definition-demo-part-3",
+            "name": "Decoupling Caps",
+            "kind": "piece_part",
+            "classification": "piece_part",
+            "description": "",
+            "part_number": "",
+            "manufacturer": "",
+            "category": "",
+            "ports": [],
+            "functions": [],
+            "failure_modes": [],
+            "child_slots": [],
+            "properties": {},
+            "analysis_profiles": [],
+            "part_metadata": {}
+          }
+        ],
+        "instances": [
+          {
+            "id": "pump-system",
+            "definition_id": "def-pump-system",
+            "name": "Redundant Pump System",
+            "quantity": 1,
+            "reference_designators": [],
+            "mode_ids": [
+              "run"
+            ],
+            "function_overrides": [],
+            "failure_mode_overrides": [],
+            "legacy_refs": [],
+            "origin": "ad_hoc",
+            "definition_revision": "A",
+            "properties": {},
+            "profile_overrides": []
+          },
+          {
+            "id": "pump-a",
+            "definition_id": "def-pump",
+            "parent_instance_id": "pump-system",
+            "slot_id": "pump-a-slot",
+            "name": "Pump A",
+            "quantity": 1,
+            "reference_designators": [
+              "P-A"
+            ],
+            "mode_ids": [
+              "run"
+            ],
+            "function_overrides": [],
+            "failure_mode_overrides": [],
+            "legacy_refs": [
+              "rbd:f0:component:c3"
+            ],
+            "origin": "definition_slot",
+            "definition_revision": "A",
+            "properties": {},
+            "profile_overrides": []
+          },
+          {
+            "id": "pump-b",
+            "definition_id": "def-pump",
+            "parent_instance_id": "pump-system",
+            "slot_id": "pump-b-slot",
+            "name": "Pump B",
+            "quantity": 1,
+            "reference_designators": [
+              "P-B"
+            ],
+            "mode_ids": [
+              "run"
+            ],
+            "function_overrides": [],
+            "failure_mode_overrides": [],
+            "legacy_refs": [
+              "rbd:f0:component:c4"
+            ],
+            "origin": "definition_slot",
+            "definition_revision": "A",
+            "properties": {},
+            "profile_overrides": []
+          },
+          {
+            "id": "b1",
+            "name": "Controller Board Assembly",
+            "definition_id": "definition-b1",
+            "quantity": 1,
+            "parent_instance_id": "pump-system",
+            "reference_designators": [],
+            "mode_ids": [],
+            "function_overrides": [],
+            "failure_mode_overrides": [],
+            "legacy_refs": []
+          },
+          {
+            "id": "demo-part-1",
+            "name": "Microprocessor",
+            "definition_id": "definition-demo-part-1",
+            "quantity": 1,
+            "parent_instance_id": "b1",
+            "reference_designators": [],
+            "mode_ids": [],
+            "function_overrides": [],
+            "failure_mode_overrides": [],
+            "legacy_refs": [],
+            "source_metadata": {}
+          },
+          {
+            "id": "demo-part-2",
+            "name": "Bias Resistors",
+            "definition_id": "definition-demo-part-2",
+            "quantity": 24,
+            "parent_instance_id": "b1",
+            "reference_designators": [],
+            "mode_ids": [],
+            "function_overrides": [],
+            "failure_mode_overrides": [],
+            "legacy_refs": [],
+            "source_metadata": {}
+          },
+          {
+            "id": "demo-part-3",
+            "name": "Decoupling Caps",
+            "definition_id": "definition-demo-part-3",
+            "quantity": 16,
+            "parent_instance_id": "b1",
+            "reference_designators": [],
+            "mode_ids": [],
+            "function_overrides": [],
+            "failure_mode_overrides": [],
+            "legacy_refs": [],
+            "source_metadata": {}
+          }
+        ],
+        "externals": [],
+        "interfaces": [
+          {
+            "id": "if-pump-a-supply",
+            "name": "Pump A discharge",
+            "interface_type": "material",
+            "source": {
+              "instance_id": "pump-a",
+              "port_id": "discharge"
+            },
+            "target": {
+              "instance_id": "pump-system",
+              "port_id": "supply-in"
+            },
+            "directionality": "directed",
+            "linkage": "direct",
+            "strength": "strong",
+            "nature": "required",
+            "interface_detail": "",
+            "flow_description": "Pressurized fluid",
+            "operating_condition": "Normal operation",
+            "source_function_ids": [
+              "move-fluid"
+            ],
+            "target_function_ids": [
+              "supply-demand"
+            ],
+            "mode_ids": [
+              "run"
+            ],
+            "properties": {}
+          },
+          {
+            "id": "if-pump-b-supply",
+            "name": "Pump B discharge",
+            "interface_type": "material",
+            "source": {
+              "instance_id": "pump-b",
+              "port_id": "discharge"
+            },
+            "target": {
+              "instance_id": "pump-system",
+              "port_id": "supply-in"
+            },
+            "directionality": "directed",
+            "linkage": "direct",
+            "strength": "strong",
+            "nature": "required",
+            "interface_detail": "",
+            "flow_description": "Pressurized fluid",
+            "operating_condition": "Normal operation",
+            "source_function_ids": [
+              "move-fluid"
+            ],
+            "target_function_ids": [
+              "supply-demand"
+            ],
+            "mode_ids": [
+              "run"
+            ],
+            "properties": {}
+          }
+        ],
+        "function_links": [],
+        "propagation_rules": [
+          {
+            "id": "rule-no-flow",
+            "action": "transform",
+            "source_deviation_id": "absent",
+            "result_deviation_id": "insufficient",
+            "result_description": "System fluid supply is degraded",
+            "mode_ids": [
+              "run"
+            ],
+            "rationale": "Loss of either pump challenges the common supply function."
+          }
+        ],
+        "propagation_assertions": [],
+        "diagrams": [
+          {
+            "id": "diagram-1",
+            "name": "Pump architecture",
+            "density": "standard",
+            "boundary": {
+              "label": "Redundant Pump System",
+              "x": -40,
+              "y": -40,
+              "width": 1200,
+              "height": 700
+            },
+            "viewport": {
+              "x": 0,
+              "y": 0,
+              "zoom": 1
+            },
+            "snap_to_grid": true,
+            "mode_ids": [
+              "run"
+            ],
+            "nodes": [
+              {
+                "instance_id": "pump-system",
+                "x": 520,
+                "y": 170,
+                "width": 210,
+                "height": 80,
+                "expanded": true
+              },
+              {
+                "instance_id": "pump-a",
+                "x": 100,
+                "y": 80,
+                "width": 180,
+                "height": 72,
+                "expanded": false
+              },
+              {
+                "instance_id": "pump-b",
+                "x": 100,
+                "y": 260,
+                "width": 180,
+                "height": 72,
+                "expanded": false
+              }
+            ]
+          }
+        ],
+        "root_instance_id": "pump-system"
+      },
+      "selectedModeId": "run",
+      "selectedInstanceId": "pump-system",
+      "view": "structure",
+      "decisions": [],
+      "propagation": null,
+      "analysisBindings": [],
+      "projectionPreview": null,
+      "migration": {
+        "source_schema": 7,
+        "migrated_at": "",
+        "source_modules": [
+          "demo"
+        ],
+        "issues": []
+      }
     }
   },
-  "schemaVersion": 7,
+  "schemaVersion": 9,
   "createdWith": {
     "version": "0.7.0",
     "commit": "bundled",
@@ -2587,7 +3045,7 @@
     "system": 1,
     "faultTree": 1,
     "markov": 2,
-    "prediction": 1,
+    "prediction": 2,
     "pof": 1,
     "growth": 1,
     "warranty": 3,
@@ -2617,7 +3075,8 @@
     "expChiSquared": 1,
     "rdtBayesian": 1,
     "differenceDetection": 1,
-    "maintTaskAnalysis": 1
+    "maintTaskAnalysis": 1,
+    "systemDefinition": 2
   },
   "identity": {
     "projectId": "prj-example-demo-project"

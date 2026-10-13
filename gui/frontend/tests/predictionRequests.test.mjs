@@ -104,8 +104,10 @@ try {
   origin = reset()
   parent = project.beginFolioRequest('prediction', 'a', initial)
   project.convertProjectUnits('hours', 'days')
-  assert.equal(beginDeratingCalculation(origin, parent), null,
-    'converted inputs must invalidate automatic follow-up from the old calculation')
+  calculation = beginDeratingCalculation(origin, parent)
+  assert.ok(calculation, 'conversion of project-valued modules must not alter explicitly hour-based Prediction inputs')
+  assert.equal(calculation.snapshot.missionHours, 120)
+  calculation.request.finish()
   parent.finish()
 
   origin = reset()
@@ -113,9 +115,22 @@ try {
     'a closure using different project units must not start a new request')
 
   origin = reset()
+  const shared = await vite.ssrLoadModule('/src/store/sharedSystemModel.ts')
+  const view = { ...initial, blocks: [{ id: 'block-a', name: 'Assembly', parentId: null }], blockSeq: 1 }
+  const converted = shared.splitPredictionUpdate(shared.createProjectSystem(), shared.emptyPredictionScenario(view), view)
+  project.writeModuleSlices({ systemDefinition: converted.system, prediction: {
+    _folioWrap: true, activeId: 'a', folios: [{ id: 'a', name: 'A', state: converted.scenario }],
+  } })
+  const sharedAdapter = {
+    materialize: raw => shared.materializePrediction(converted.system, raw, view),
+    beginRequest: () => project.beginFolioRequest('prediction', 'a', converted.scenario, 'derating'),
+  }
+  calculation = beginDeratingCalculation(origin, undefined, sharedAdapter)
+  assert.ok(calculation, 'canonical scenario inputs can start a derating calculation before reopening')
+  calculation.request.finish()
   const sameProject = project.buildExport(undefined, true)
   project.importPayload(sameProject)
-  assert.equal(beginDeratingCalculation(origin), null,
+  assert.equal(beginDeratingCalculation(origin, undefined, sharedAdapter), null,
     'reopening the same project identity must invalidate the previous generation')
   project.newProject('Replacement project')
   project.setModuleState('prediction', initial)

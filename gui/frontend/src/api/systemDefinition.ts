@@ -1,4 +1,4 @@
-import { api } from './client'
+import { api, type PredictionResponse } from './client'
 
 export type SystemInterfaceType =
   'physical'|'energy'|'information'|'material'|'human_machine'|'clearance'
@@ -54,6 +54,7 @@ export interface SystemBlockDefinition {
   id: string; name: string; classification: string; description: string
   kind?: SystemBlockKind; revision?: string
   part_number: string; manufacturer: string; category: string
+  part_metadata?: Record<string, unknown>
   properties?: Record<string, SystemParameterValue>
   analysis_profiles?: SystemAnalysisProfile[]
   ports: SystemPort[]; functions: SystemFunction[]
@@ -65,6 +66,7 @@ export interface SystemBlockInstance {
   id: string; definition_id: string; parent_instance_id?: string
   slot_id?: string; name: string; quantity: number
   reference_designators: string[]; mode_ids: string[]
+  source_metadata?: Record<string, unknown>
   function_overrides: {
     function_id: string; enabled: boolean; description?: string; mode_ids?: string[]
   }[]
@@ -108,6 +110,7 @@ export interface SystemPropagationAssertion {
 }
 
 export interface SystemDefinitionModel {
+  root_instance_id?: string
   version: 1|2; id: string; name: string; revision: string
   modes: SystemMode[]; definitions: SystemBlockDefinition[]
   instances: SystemBlockInstance[]
@@ -128,6 +131,7 @@ export interface SystemDefinitionModel {
   diagrams: {
     id: string; name: string; scope_instance_id?: string
     density?: 'compact'|'standard'|'detailed'
+    layoutOptions?: import('../components/shared/adaptiveDiagramLayout.mjs').DiagramLayoutOptions
     boundary?: { label: string; x: number; y: number; width: number; height: number }
     viewport?: { x: number; y: number; zoom: number }
     snap_to_grid?: boolean; mode_ids?: string[]
@@ -255,3 +259,9 @@ export const generateSystemStarter = (
 ) => api.post<SystemStarterResult>('/system-definition/generate-starter', {
   model, target, ...options,
 }).then(response => response.data)
+
+
+export const predictSharedSystem = (model: SystemDefinitionModel,
+  scenario: Record<string, unknown>, sourceFingerprint: string) =>
+  api.post<PredictionResponse & { source_fingerprint: string; canonical_system_id: string; scenario_version: 1 }>(
+    '/prediction/predict-system', { model, scenario, source_fingerprint: sourceFingerprint }).then(response => response.data)

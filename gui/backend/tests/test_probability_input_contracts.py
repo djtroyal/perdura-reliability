@@ -63,6 +63,8 @@ def _fault_tree_payload(data, exposure_time=None):
         ("loglogistic", {"alpha": 2.0, "beta": 2.0}, 2.0, 0.5),
         ("gumbel", {"mu": 2.0, "sigma": 1.0}, 2.0, math.exp(-1.0)),
         ("beta", {"alpha": 2.0, "beta": 2.0}, 0.5, 0.5),
+        # Beta's bounded support must scale with its dataset's unit conversion.
+        ("beta", {"alpha": 2.0, "beta": 2.0, "support_scale": 24.0}, 12.0, 0.5),
     ],
 )
 def test_rbd_public_router_evaluates_every_supported_typed_distribution(
@@ -135,6 +137,23 @@ def test_fault_tree_public_router_uses_typed_distribution_and_global_time():
     assert status == 200, result
     assert result["top_event_probability"] == pytest.approx(
         1.0 - math.exp(-0.2))
+
+
+def test_beta_unit_conversion_preserves_fault_probability_and_maintenance_life():
+    from routers.maintenance import _build_dist
+
+    params = {"alpha": 2.0, "beta": 2.0, "support_scale": 24.0}
+    status, result = _post(
+        "/api/v1/fault-tree/analyze",
+        _fault_tree_payload({"distribution": "beta", "dist_params": params}, 6.0),
+    )
+    assert status == 200
+    # Beta(2, 2) CDF = 3*x**2 - 2*x**3, x = 6 hours / 24 hours.
+    assert result["top_event_probability"] == pytest.approx(0.15625)
+    distribution = _build_dist("beta", params)
+    assert distribution.mean == pytest.approx(12.0)
+    assert distribution.quantile(0.5) == pytest.approx(12.0)
+    assert float(distribution.SF([6.0])[0]) == pytest.approx(0.84375)
 
 
 @pytest.mark.parametrize(

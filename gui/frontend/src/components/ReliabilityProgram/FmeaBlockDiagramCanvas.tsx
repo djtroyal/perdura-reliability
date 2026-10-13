@@ -45,6 +45,8 @@ import type {
   FMEAInterface,
 } from '../../api/reliabilityProgram'
 import CanvasAssetControls from '../shared/CanvasAssetControls'
+import DiagramLayoutMenu from '../shared/DiagramLayoutMenu'
+import { normalizeLayoutOptions, layoutDensity, orderLayoutNodes, layoutLargeNestedBlocks, clearCurveOffset, LAYOUT_PROFILES, type DiagramLayoutOptions } from '../shared/adaptiveDiagramLayout.mjs'
 import ExportDiagramButton from '../shared/ExportDiagramButton'
 import { fitReactFlowForExport } from '../shared/exportDiagram'
 import { useShortcuts } from '../shared/KeyboardShortcuts'
@@ -409,7 +411,7 @@ export default function FmeaBlockDiagramCanvas({
   const density = DENSITY_LEVELS.includes(diagram.density)
     ? diagram.density : 'comfortable'
   const densityPreset = DENSITY_PRESETS[density]
-  const densityIndex = DENSITY_LEVELS.indexOf(density)
+  const layoutOptions = normalizeLayoutOptions(diagram.layoutOptions, density)
   const [selectedNodeId, setSelectedNodeId] = useState('')
   const [selectedInterfaceId, setSelectedInterfaceId] = useState('')
   const [selectedInterfaceGroupId, setSelectedInterfaceGroupId] = useState('')
@@ -872,7 +874,7 @@ export default function FmeaBlockDiagramCanvas({
         .sort().join('\u0000')
       const siblings = projectedGroupsByEndpoint.get(endpointKey) ?? [group]
       const index = siblings.findIndex(value => value.id === group.id)
-      const offset = (index - (siblings.length - 1) / 2) * 18
+      let offset = (index - (siblings.length - 1) / 2) * LAYOUT_PROFILES[layoutOptions.mode].corridor * 0.45
       const marker = {
         type: MarkerType.ArrowClosed,
         color: style.color,
@@ -909,6 +911,17 @@ export default function FmeaBlockDiagramCanvas({
       const projectedTargetHandle = horizontal
         ? String(dx >= 0 ? Position.Left : Position.Right)
         : String(dy >= 0 ? Position.Top : Position.Bottom)
+      if (projectedInterfaceGroups.length <= 2000) {
+        const anchor = (node: FMEABlockDiagramNode, size: {width:number;height:number}, side:string) => ({
+          x: node.x + (side === Position.Left ? 0 : side === Position.Right ? size.width : size.width / 2),
+          y: node.y + (side === Position.Top ? 0 : side === Position.Bottom ? size.height : size.height / 2),
+        })
+        offset = clearCurveOffset(anchor(group.source, sourceSize, projectedSourceHandle),
+          anchor(group.target, targetSize, projectedTargetHandle),
+          diagram.nodes.filter(node => visibleBlockIds.has(node.id)).map(node => ({ x: node.x, y: node.y,
+            ...(projectedSizeById.get(node.id) ?? {width:node.width,height:node.height}) })),
+          offset, LAYOUT_PROFILES[layoutOptions.mode].corridor)
+      }
       return {
         id: group.id,
         type: 'fmeaInterface',
@@ -940,7 +953,7 @@ export default function FmeaBlockDiagramCanvas({
       }
     }), [
       projectedGroupsByEndpoint,
-      projectedInterfaceGroups,
+      projectedInterfaceGroups, layoutOptions.mode,
       projectedSizeById,
       selectedInterfaceGroupId,
       selectedInterfaceId,
@@ -1143,28 +1156,44 @@ export default function FmeaBlockDiagramCanvas({
     setSelectedNodeId('')
   }
 
-  const autoLayout = (layoutDensity: DiagramDensity = density) => {
-    const layoutPreset = DENSITY_PRESETS[layoutDensity]
+  const autoLayout = (options: DiagramLayoutOptions = layoutOptions) => {
+    const selectedDensity = layoutDensity(options.mode)
+    const layoutPreset = DENSITY_PRESETS[selectedDensity]
+    const profile = LAYOUT_PROFILES[options.mode]
+    if (diagram.nodes.length > 500 || analysis.interfaces.length > 2000) {
+      const parents = new Set(diagram.nodes.map(node => node.container_parent_block_id))
+      const placed = layoutLargeNestedBlocks(diagram.nodes.map(node => ({
+        id: node.id, x: node.x, y: node.y, width: node.width, height: node.height,
+        parentId: node.container_parent_block_id, expanded: node.expanded,
+        insideBoundary: node.inside_boundary, kind: parents.has(node.id) ? 'gate' : 'event',
+      })), diagram.boundary, options)
+      update({ block_diagram: { ...diagram, density: selectedDensity, layoutOptions: options,
+        boundary: placed.boundary, nodes: diagram.nodes.map(node => ({ ...node, ...placed.positions[node.id] })) } })
+      window.requestAnimationFrame(() => { void flowRef.current?.fitView({ padding: 0.14, duration: 350 }) })
+      return
+    }
     const sizeScale = layoutPreset.sizeScale
     const spacingScale = layoutPreset.spacingScale
     const next = diagram.nodes.map(node => ({ ...node }))
+    const visualById = new Map(diagram.nodes.map(node => [node.id, node]))
     const indexById = new Map(next.map((node, index) => [node.id, index]))
     const nodeFor = (id: string) => {
       const index = indexById.get(id)
       return index == null ? undefined : next[index]
     }
-    const childrenOf = (parentId: string) => next.filter(
-      item => item.container_parent_block_id === parentId)
+    const childIds = new Map<string, string[]>()
+    next.forEach(node => {
+      if (node.container_parent_block_id) childIds.set(node.container_parent_block_id,
+        [...(childIds.get(node.container_parent_block_id) ?? []), node.id])
+    })
+    const childrenOf = (parentId: string) => (childIds.get(parentId) ?? []).map(id => nodeFor(id)!)
     const descendants = (rootId: string) => {
       const result = new Set<string>()
-      const visit = (id: string) => {
-        for (const child of childrenOf(id)) {
-          if (result.has(child.id)) continue
-          result.add(child.id)
-          visit(child.id)
-        }
+      const stack = [rootId]
+      while (stack.length) for (const child of childrenOf(stack.pop()!)) {
+        if (result.has(child.id) || child.id === rootId) continue
+        result.add(child.id); stack.push(child.id)
       }
-      visit(rootId)
       return result
     }
     const moveBranch = (node: FMEABlockDiagramNode, x: number, y: number) => {
@@ -1259,7 +1288,21 @@ export default function FmeaBlockDiagramCanvas({
     const layoutRanks = (ids: string[], edges: Array<[string, string]>) => {
       const rank = new Map(ids.map(id => [id, 0]))
       if (!edges.length) {
-        const columns = Math.max(1, Math.ceil(Math.sqrt(ids.length)))
+        let columns = Math.max(1, Math.ceil(Math.sqrt(ids.length)))
+        if (options.optimizeLabelGeometry && ids.length <= 500) {
+          let best = Infinity
+          for (let count = 1; count <= Math.min(12, ids.length); count++) {
+            const rows = Math.ceil(ids.length / count)
+            let width = 0, height = 0
+            for (let start = 0; start < ids.length; start += rows) {
+              const sizes = ids.slice(start, start + rows).map(id => branchSize(id))
+              width += Math.max(...sizes.map(size => size.width)) + (start ? profile.layerGap : 0)
+              height = Math.max(height, sizes.reduce((sum, size) => sum + size.height, 0) + profile.nodeGap * (sizes.length - 1))
+            }
+            const cost = width * height + 0.3 * (width - height) ** 2
+            if (cost < best) { best = cost; columns = count }
+          }
+        }
         const rows = Math.max(1, Math.ceil(ids.length / columns))
         ids.forEach((id, index) => rank.set(id, Math.floor(index / rows)))
         return rank
@@ -1309,15 +1352,11 @@ export default function FmeaBlockDiagramCanvas({
       }
       return [...columns.entries()]
         .sort(([left], [right]) => left - right)
-        .map(([, column]) => column.sort((left, right) => {
-          const leftNode = nodeFor(left)
-          const rightNode = nodeFor(right)
-          const leftScore = orderScore?.(left)
-          const rightScore = orderScore?.(right)
-          return (leftScore ?? leftNode?.y ?? 0)
-            - (rightScore ?? rightNode?.y ?? 0)
-            || left.localeCompare(right)
-        }))
+        .map(([, column]) => orderLayoutNodes(column.map(id => {
+          const node = visualById.get(id)!
+          return { id, x: node.x, y: node.y, width: node.width, height: node.height,
+            kind: childrenOf(id).length ? 'gate' as const : 'event' as const }
+        }), options, true, id => orderScore?.(id) ?? visualById.get(id)?.y ?? 0).map(node => node.id))
     }
     const columnMetrics = (columns: string[][], gapX: number, gapY: number) => ({
       width: columns.reduce((sum, column, index) =>
@@ -1359,8 +1398,7 @@ export default function FmeaBlockDiagramCanvas({
       if (!parent || trail.has(parentId)) return
       const children = childrenOf(parentId)
       const nextTrail = new Set(trail).add(parentId)
-      children.forEach(child =>
-        layoutContainer(child.id, nextTrail, alignCrossAssembly))
+
       if (!parent.expanded || !children.length) return
       const ids = children.map(child => child.id)
       const edges = directedEdges(
@@ -1408,13 +1446,14 @@ export default function FmeaBlockDiagramCanvas({
           outgoing.has(id) && !incoming.has(id))
         columns = [inputs, through, outputs]
           .filter(column => column.length)
-          .map(column => column.sort((left, right) =>
-            (score(left) ?? nodeFor(left)?.y ?? 0)
-              - (score(right) ?? nodeFor(right)?.y ?? 0)
-            || left.localeCompare(right)))
+          .map(column => orderLayoutNodes(column.map(id => {
+            const node = visualById.get(id)!
+            return { id, x: node.x, y: node.y, width: node.width, height: node.height,
+              kind: childrenOf(id).length ? 'gate' as const : 'event' as const }
+          }), options, true, score).map(node => node.id))
       }
-      const childGapX = 28 * spacingScale
-      const childGapY = 22 * spacingScale
+      const childGapX = profile.layerGap
+      const childGapY = profile.nodeGap
       const metrics = columnMetrics(columns, childGapX, childGapY)
       placeColumns(
         columns,
@@ -1428,7 +1467,17 @@ export default function FmeaBlockDiagramCanvas({
     const roots = next.filter(node =>
       !node.container_parent_block_id
       || !indexById.has(node.container_parent_block_id))
-    roots.forEach(root => layoutContainer(root.id))
+    const visitedContainers = new Set<string>()
+    const containerOrder: string[] = []
+    const stack = roots.map(node => ({ id: node.id, done: false }))
+    while (stack.length) {
+      const entry = stack.pop()!
+      if (entry.done) { containerOrder.push(entry.id); continue }
+      if (visitedContainers.has(entry.id)) continue
+      visitedContainers.add(entry.id); stack.push({ id: entry.id, done: true })
+      childrenOf(entry.id).forEach(child => stack.push({ id: child.id, done: false }))
+    }
+    containerOrder.forEach(id => layoutContainer(id))
     const inside = roots.filter(node => node.inside_boundary)
     const outside = roots.filter(node => !node.inside_boundary)
     const insideIds = inside.map(node => node.id)
@@ -1437,8 +1486,8 @@ export default function FmeaBlockDiagramCanvas({
       endpointId => rootOf(endpointId),
     )
     const insideColumns = rankedColumns(insideIds, insideEdges)
-    const rootGapX = 56 * spacingScale
-    const rootGapY = 38 * spacingScale
+    const rootGapX = profile.layerGap
+    const rootGapY = profile.nodeGap
     const insideMetrics = columnMetrics(insideColumns, rootGapX, rootGapY)
     const horizontalPadding = 55 * spacingScale
     const topPadding = 70 * spacingScale
@@ -1446,11 +1495,11 @@ export default function FmeaBlockDiagramCanvas({
     const nextBoundary = {
       ...diagram.boundary,
       width: Math.max(
-        diagram.boundary.width,
+        300,
         insideMetrics.width + horizontalPadding * 2,
       ),
       height: Math.max(
-        diagram.boundary.height,
+        200,
         insideMetrics.height + topPadding + bottomPadding,
       ),
     }
@@ -1554,12 +1603,13 @@ export default function FmeaBlockDiagramCanvas({
     // positions, then make one final outside pass against the updated child
     // endpoints. These two inexpensive barycentric sweeps reduce crossings
     // without replacing the familiar curved interface style.
-    roots.forEach(root => layoutContainer(root.id, new Set<string>(), true))
+    if (next.length <= 500 && analysis.interfaces.length <= 2000) containerOrder.forEach(id => layoutContainer(id, new Set<string>(), true))
     sortOutside()
     placeOutside()
     update({ block_diagram: {
       ...diagram,
-      density: layoutDensity,
+      density: selectedDensity,
+      layoutOptions: options,
       boundary: nextBoundary,
       nodes: next,
     } })
@@ -1567,14 +1617,7 @@ export default function FmeaBlockDiagramCanvas({
       void flowRef.current?.fitView({ padding: 0.14, duration: 350 })
     })
   }
-  const stepDensity = (direction: -1|1) => {
-    const nextIndex = Math.max(
-      0,
-      Math.min(DENSITY_LEVELS.length - 1, densityIndex + direction),
-    )
-    if (nextIndex === densityIndex) return
-    autoLayout(DENSITY_LEVELS[nextIndex])
-  }
+
 
   const selectedDiagramNode = diagramById.get(selectedNodeId)
   const selectedInterface = analysis.interfaces.find(
@@ -1691,10 +1734,9 @@ export default function FmeaBlockDiagramCanvas({
             group={analysis.name}
             analysisName={analysis.name}
             targetView={`fmea:${encodeURIComponent(analysis.id)}:structure:block_diagram`} />
-          <button type="button" onClick={() => autoLayout()}
-            className="flex h-8 items-center gap-1 rounded border border-slate-200 px-2 text-[10px] text-slate-600 hover:bg-slate-50">
-            <LayoutGrid size={12} /> Auto Layout
-          </button>
+          <DiagramLayoutMenu value={layoutOptions} onApply={autoLayout}
+            onChange={options => update({ block_diagram: { ...diagram, layoutOptions: options } })}
+            gateLabel="Preserve assembly order" eventLabel="Preserve block order" />
           <button type="button" onClick={() => update({ block_diagram: {
             ...diagram,
             snap_to_grid: !diagram.snap_to_grid,
@@ -1707,21 +1749,6 @@ export default function FmeaBlockDiagramCanvas({
           </button>
         </div>
         <div className="pointer-events-auto flex items-center gap-1 rounded-lg bg-white/95 p-1 shadow-xs">
-          <div className="flex h-8 items-center rounded border border-slate-200 bg-white p-0.5"
-            title={`Diagram density: ${densityPreset.label} (${densityIndex + 1} of ${DENSITY_LEVELS.length}). Primarily adjusts layout spacing, with only a subtle block-size change.`}>
-            <button type="button" onClick={() => stepDensity(-1)}
-              disabled={densityIndex === 0}
-              aria-label="Decrease diagram spacing"
-              className="flex h-6 w-6 items-center justify-center rounded text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-300">
-              <Minus size={11} />
-            </button>
-            <button type="button" onClick={() => stepDensity(1)}
-              disabled={densityIndex === DENSITY_LEVELS.length - 1}
-              aria-label="Increase diagram spacing"
-              className="flex h-6 w-6 items-center justify-center rounded text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-300">
-              <Plus size={11} />
-            </button>
-          </div>
           <button type="button" onClick={() =>
             void flowRef.current?.fitView({ padding: 0.14, duration: 300 })}
             title="Fit the complete diagram in view"

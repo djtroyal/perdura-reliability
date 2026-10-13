@@ -38,7 +38,7 @@ def distribution_cdf(distribution: str, params: dict, time: float) -> float:
     elif distribution == "gumbel":
         value = stats.gumbel_l.cdf(t, loc=p["mu"], scale=p["sigma"])
     elif distribution == "beta":
-        value = stats.beta.cdf(min(1.0, max(0.0, t)), p["alpha"], p["beta"])
+        value = stats.beta.cdf(t / p["support_scale"], p["alpha"], p["beta"])
     else:  # pragma: no cover - schema validation owns this branch
         raise ValueError(f"unsupported distribution: {distribution!r}")
 

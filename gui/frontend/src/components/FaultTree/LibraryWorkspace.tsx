@@ -1,6 +1,7 @@
+import { useSharedSystemDefinition } from '../../store/sharedSystem'
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ComponentType, type KeyboardEvent } from 'react'
 import { ChevronDown, ChevronRight, GitFork, Library, Plus, Search, X, FileText, Download, Upload, Link2, ArrowUpRight, PanelLeftClose, PanelLeftOpen, AlertTriangle } from 'lucide-react'
-import { flushProjectEditors, getProjectState, useFolioState, useModuleState, useModuleFolios, useProjectIdentity, writeFtaLibrary } from '../../store/project'
+import { flushProjectEditors, getProjectState, useFolioState, useModuleState, useProjectIdentity, writeFtaLibrary } from '../../store/project'
 import { useBookmarkNavigationTarget } from '../../store/bookmarks'
 import { CURRENT_ENGINE_REVISIONS } from '../../version'
 import { downloadArtifact } from '../../store/artifactExport'
@@ -230,8 +231,8 @@ function TreeMetadata({ tree, metadata, systems, onSave }: {
     <label className="block text-sm font-medium text-slate-700">Description<textarea className={`${field} mt-1 min-h-24`} value={description} onChange={event => setDescription(event.target.value)} /></label>
     <label className="block text-sm font-medium text-slate-700">Tags <span className="font-normal">(comma separated)</span><input className={`${field} mt-1`} value={tags} onChange={event => setTags(event.target.value)} /></label>
     <div><label className="block text-sm font-medium text-slate-700">System Definition association<select className={`${field} mt-1`} value={choice} onChange={event => setChoice(event.target.value)}><option value="">Choose an optional system item…</option>{systems.flatMap(system => (system.state.model?.instances ?? []).map(item => <option key={`${system.id}:${item.id}`} value={JSON.stringify([system.id, item.id])}>{system.name} › {item.name || item.id}</option>))}</select></label>
-      <button type="button" className={`${button} mt-2`} disabled={!choice} onClick={() => { const [systemAnalysisId, itemId] = JSON.parse(choice) as string[]; setLinks(previous => previous.some(link => link.systemAnalysisId === systemAnalysisId && link.itemId === itemId) ? previous : [...previous, { systemAnalysisId, itemId }]); setChoice('') }}><Link2 size={14} /> Associate item</button>
-      <ul className="mt-2 space-y-2">{links.map(link => { const system = systems.find(item => item.id === link.systemAnalysisId); const item = system?.state.model?.instances.find(instance => instance.id === link.itemId); return <li key={`${link.systemAnalysisId}:${link.itemId}`} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700"><span>{system?.name ?? 'Missing system'} › {item?.name || link.itemId}</span><button type="button" className={button} aria-label={`Remove association ${item?.name ?? link.itemId}`} onClick={() => setLinks(previous => previous.filter(value => value !== link))}><X size={14} /></button></li> })}</ul>
+      <button type="button" className={`${button} mt-2`} disabled={!choice} onClick={() => { const [systemModelId, instanceId] = JSON.parse(choice) as string[]; setLinks(previous => previous.some(link => link.systemModelId === systemModelId && link.instanceId === instanceId) ? previous : [...previous, { systemModelId, instanceId }]); setChoice('') }}><Link2 size={14} /> Associate item</button>
+      <ul className="mt-2 space-y-2">{links.map(link => { const system = systems.find(item => item.id === link.systemModelId); const item = system?.state.model?.instances.find(instance => instance.id === link.instanceId); return <li key={`${link.systemModelId}:${link.instanceId}`} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700"><span>{system?.name ?? 'Missing system'} › {item?.name || `Missing item (${link.instanceId})`}</span><button type="button" className={button} aria-label={`Remove association ${item?.name ?? link.instanceId}`} onClick={() => setLinks(previous => previous.filter(value => value !== link))}><X size={14} /></button></li> })}</ul>
     </div>
     <button type="submit" className={button}>Save details</button>
   </form>
@@ -244,7 +245,8 @@ export default function LibraryWorkspace({ initial, Editor, onNavigate }: {
   const [, , api] = useFolioState('faultTree', initial)
   const [rawCatalog] = useModuleState('faultTreeCatalog', EMPTY_CATALOG)
   const [identity] = useProjectIdentity()
-  const systems = useModuleFolios<SystemDefinitionState>('systemDefinition')
+  const [sharedSystem] = useSharedSystemDefinition()
+  const systems = [{ id: sharedSystem.model.id, name: sharedSystem.model.name, state: sharedSystem }]
   const normalized = useMemo(() => normalizeFtaLibrary(api.folios, rawCatalog), [api.folios, rawCatalog])
   const { folios, catalog } = normalized
   const index = useMemo(() => buildFtaReferenceIndex(folios), [folios])

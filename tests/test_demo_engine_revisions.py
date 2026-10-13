@@ -13,7 +13,7 @@ refresh = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(refresh)
 
 
-@pytest.mark.parametrize("key,revision", [("warranty", 3), ("reliabilityTestingTools", 2)])
+@pytest.mark.parametrize("key,revision", [("warranty", 3), ("reliabilityTestingTools", 2), ("prediction", 2)])
 def test_input_only_demo_adopts_engine_revision_without_changing_inputs(key, revision):
     demo = {"modules": {key: {"_folioWrap": True, "folios": [
         {"id": "saved", "state": {"rows": [{"time": 12, "status": "right_censored"}], "result": None}},
@@ -24,7 +24,7 @@ def test_input_only_demo_adopts_engine_revision_without_changing_inputs(key, rev
 
 
 @pytest.mark.parametrize("result", [{"estimate": 12}, [1, 2], 0])
-@pytest.mark.parametrize("key,revision", [("warranty", 3), ("reliabilityTestingTools", 2)])
+@pytest.mark.parametrize("key,revision", [("warranty", 3), ("reliabilityTestingTools", 2), ("prediction", 2)])
 def test_historical_outputs_cannot_be_relabelled(key, revision, result):
     demo = {"modules": {key: {"nested": {"forecastResult": result}}},
             "engineRevisions": {key: revision - 1}}

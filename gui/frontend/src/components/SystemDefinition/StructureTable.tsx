@@ -5,11 +5,12 @@ import { instanceLabel } from './model'
 const typeLabel = (value: string) => value.replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase())
 
 export default function StructureTable({
-  model, selectedId, collapsedIds, onSelect, onToggle, onChangeParent,
+  model, selectedId, collapsedIds, onSelect, onToggle, onChangeParent, showPieceParts = false,
 }: {
   model: SystemDefinitionModel
   selectedId: string
   collapsedIds: string[]
+  showPieceParts?: boolean
   onSelect: (id: string) => void
   onToggle: (id: string) => void
   onChangeParent: (id: string, parentId?: string) => void
@@ -27,7 +28,8 @@ export default function StructureTable({
   const visit = (instance: SystemBlockInstance, depth: number, hidden = false) => {
     if (visited.has(instance.id)) return
     visited.add(instance.id)
-    if (!hidden) rows.push({ instance, depth })
+    const piecePart = model.definitions.find(item => item.id === instance.definition_id)?.kind === 'piece_part'
+    if (!hidden && (showPieceParts || !piecePart)) rows.push({ instance, depth })
     for (const child of byParent.get(instance.id) ?? []) visit(child, depth + 1, hidden || collapsed.has(instance.id))
   }
   for (const root of byParent.get('') ?? []) visit(root, 0)
@@ -69,10 +71,12 @@ export default function StructureTable({
           <td className="capitalize text-slate-600">{typeLabel(definition?.kind ?? definition?.classification ?? 'component')}</td>
           <td className="tabular-nums">{instance.quantity}</td>
           <td className="text-slate-600">{definition?.part_number || '—'}</td>
-          <td><select value={instance.parent_instance_id ?? ''} aria-label={`Parent of ${label}`}
+          <td><select value={instance.parent_instance_id ?? ''} disabled={instance.id === model.root_instance_id} aria-label={`Parent of ${label}`}
             onChange={event => onChangeParent(instance.id, event.target.value || undefined)} className="field">
             <option value="">Top level</option>
-            {model.instances.filter(item => !excluded.has(item.id)).map(item => <option key={item.id} value={item.id}>{instanceLabel(model, item)}</option>)}
+            {model.instances.filter(item => !excluded.has(item.id)
+              && model.definitions.find(definition => definition.id === item.definition_id)?.kind !== 'piece_part')
+              .map(item => <option key={item.id} value={item.id}>{instanceLabel(model, item)}</option>)}
           </select></td>
         </tr>
       })}</tbody>

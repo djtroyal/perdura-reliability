@@ -1,8 +1,9 @@
 import { useState, useRef } from 'react'
 import Plot from '../shared/ExportablePlot'
 import { computeReplacementPolicy, ReplacementPolicyResponse } from '../../api/client'
-import { useUnits, useModuleState } from '../../store/project'
+import { useUnits, useModuleState, getProjectState, beginFolioRequest, readFolioState } from '../../store/project'
 import { useReliabilitySources } from '../shared/ldaFolios'
+import { resolveReliabilitySource, linkedSourcesFingerprint } from '../shared/reliabilitySources'
 import { ToolLayout, detail, Card } from '../ALT/toolkit'
 import InfoLabel from '../shared/InfoLabel'
 import ExportResultsButton from '../shared/ExportResultsButton'
@@ -11,6 +12,7 @@ import { inputCls } from '../shared/styles'
 import { fmtNum } from '../shared/format'
 
 interface State {
+  sourceId?: string; sourceStale?: boolean; sourceStaleReason?: string
   costPM: string; costCM: string; alpha: string; beta: string
   result: ReplacementPolicyResponse | null
 }
@@ -27,35 +29,38 @@ export default function ReplacementPolicy() {
   const [error, setError] = useState<string | null>(null)
   const resultsRef = useRef<HTMLDivElement>(null)
 
-  const weibullSources = useReliabilitySources().filter(s => s.dist === 'weibull')
-  const [sourceId, setSourceId] = useState('')
-  const [sourceName, setSourceName] = useState<string | null>(null)
-  const pickSource = (id: string) => {
-    const src = weibullSources.find(s => s.id === id)
-    if (!src) { setSourceId(''); setSourceName(null); return }
-    setSourceId(id); setSourceName(`${src.name} (${src.moduleLabel})`)
-    if (src.dist_params.alpha != null) patch({ alpha: String(src.dist_params.alpha) })
-    if (src.dist_params.beta != null) patch({ beta: String(src.dist_params.beta) })
-  }
-  const editAlpha = (v: string) => { patch({ alpha: v }); setSourceId(''); setSourceName(null) }
-  const editBeta = (v: string) => { patch({ beta: v }); setSourceId(''); setSourceName(null) }
+  const weibullSources = useReliabilitySources('weibull-2p')
+  const sourceId = st.sourceId ?? ''
+  const activeSource = weibullSources.find(source => source.id === sourceId)
+  const sourceName = activeSource?.name ?? (sourceId ? 'Unavailable source' : null)
+  const pickSource = (id: string) => patch({ sourceId: id })
+  const detach = () => patch({ sourceId: '', alpha: String(activeSource?.dist_params.alpha ?? st.alpha), beta: String(activeSource?.dist_params.beta ?? st.beta) })
+  const editAlpha = (v: string) => patch({ alpha: v })
+  const editBeta = (v: string) => patch({ beta: v })
 
   const run = async () => {
     setError(null); setLoading(true)
+    const project = getProjectState()
+    const fingerprint = linkedSourcesFingerprint(project, st)
+    const guard = beginFolioRequest('maintReplacement', 'f0', readFolioState<State>('maintReplacement', 'f0') ?? st, 'maintenance',
+      () => linkedSourcesFingerprint(getProjectState(), st))
     try {
+      const source = sourceId ? resolveReliabilitySource(project, sourceId, 'weibull-2p') : null
       const r = await computeReplacementPolicy({
         cost_PM: parseFloat(st.costPM), cost_CM: parseFloat(st.costCM),
-        weibull_alpha: parseFloat(st.alpha), weibull_beta: parseFloat(st.beta),
+        weibull_alpha: source?.dist_params.alpha ?? parseFloat(st.alpha), weibull_beta: source?.dist_params.beta ?? parseFloat(st.beta),
       })
-      patch({ result: r })
+      if (!guard.isCurrent()) throw new Error('Inputs or linked sources changed during calculation. Recalculate.')
+      const recorded = { ...r, _sourceFingerprint: fingerprint, _sourceSnapshots: source ? [source.snapshot] : [] }
+      patch({ result: recorded })
     } catch (e) { setError(detail(e, 'Error comparing replacement policies.')) }
-    finally { setLoading(false) }
+    finally { guard.finish(); setLoading(false) }
   }
 
   const controls = (
     <>
       <div className="flex justify-end -mb-1">
-        <ExampleButton hasData={res != null} onLoad={() => { setSt(EXAMPLE); setSourceId(''); setSourceName(null) }} />
+        <ExampleButton hasData={res != null} onLoad={() => setSt(EXAMPLE)} />
       </div>
       <div>
         <InfoLabel tip="Cost of a planned preventive replacement. Must be less than the corrective cost.">Cost of preventive maintenance (PM)</InfoLabel>
@@ -65,23 +70,27 @@ export default function ReplacementPolicy() {
         <InfoLabel tip="Cost of an unplanned corrective replacement after a failure.">Cost of corrective maintenance (CM)</InfoLabel>
         <input type="number" min="0" step="1" value={st.costCM} onChange={e => patch({ costCM: e.target.value })} className={inputCls} />
       </div>
-      {weibullSources.length > 0 && (
+      {(weibullSources.length > 0 || sourceId) && (
         <div>
           <InfoLabel tip="Optionally pull the Weibull α/β from a fitted Life-Data distribution instead of typing them.">Weibull source</InfoLabel>
-          <select value={sourceId} onChange={e => pickSource(e.target.value)} className={inputCls}>
+          <select aria-label="Weibull source" value={sourceId} onChange={e => pickSource(e.target.value)} className={inputCls}>
             <option value="">Manual entry</option>
+            {sourceId && !activeSource && <option value={sourceId}>Unavailable or incompatible source</option>}
             {weibullSources.map(s => <option key={s.id} value={s.id}>{s.name} — {s.label}</option>)}
           </select>
-          {sourceName && <p className="text-[10px] text-blue-500 mt-0.5 truncate" title={sourceName}>↳ α/β linked to {sourceName}</p>}
+          {sourceName && <p className="text-xs text-blue-700 mt-0.5 truncate" title={sourceName}>↳ α/β linked to {sourceName}</p>}
         </div>
       )}
+      {sourceId && <button type="button" className="mini-button" onClick={detach}>Use as manual copy</button>}
+      {sourceId && !activeSource && <p role="alert" className="text-xs text-red-700">The linked distribution is unavailable or incompatible. Adopt a current zero-location Weibull model, relink, or use a manual copy.</p>}
+      {st.sourceStale && <p role="status" className="text-xs text-amber-800">Historical result — {st.sourceStaleReason}</p>}
       <div>
         <InfoLabel tip="Weibull scale parameter (characteristic life) of the failure distribution.">Weibull α (scale)</InfoLabel>
-        <input type="number" min="0" step="1" value={st.alpha} onChange={e => editAlpha(e.target.value)} className={inputCls} />
+        <input type="number" min="0" step="1" disabled={Boolean(sourceId)} value={activeSource ? String(activeSource.dist_params.alpha) : st.alpha} onChange={e => editAlpha(e.target.value)} className={inputCls} />
       </div>
       <div>
         <InfoLabel tip="Weibull shape parameter. Preventive replacement only pays off when β > 1 (wear-out).">Weibull β (shape)</InfoLabel>
-        <input type="number" min="0" step="0.1" value={st.beta} onChange={e => editBeta(e.target.value)} className={inputCls} />
+        <input type="number" min="0" step="0.1" disabled={Boolean(sourceId)} value={activeSource ? String(activeSource.dist_params.beta) : st.beta} onChange={e => editBeta(e.target.value)} className={inputCls} />
       </div>
     </>
   )

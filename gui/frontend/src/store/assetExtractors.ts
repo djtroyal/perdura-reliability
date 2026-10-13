@@ -1,3 +1,5 @@
+import { materializePrediction, systemInputFingerprint, type PredictionScenario } from './sharedSystemModel'
+import type { SystemDefinitionState } from '../components/SystemDefinition/model'
 import { CURRENT_ENGINE_REVISIONS } from '../version'
 import { buildFtaReferenceIndex, createFtaResultProvenance, ftaResultFreshness, normalizeFtaLibrary, sha256FtaText, semanticFtaFingerprint, type FtaFolio } from '../components/FaultTree/libraryModel'
 import {
@@ -2334,8 +2336,9 @@ function extractReliabilityAllocation(modules: Record<string, unknown>, out: Ass
 // Prediction
 // ---------------------------------------------------------------------------
 
-function extractPrediction(modules: Record<string, unknown>, out: AssetDescriptor[]) {
+function extractPrediction(modules: Record<string, unknown>, allAssets: AssetDescriptor[]) {
   const folio = extractFolioResult<{
+    id?: string; dirty?: boolean; sourceStale?: boolean
     result?: PredictionResponse | null
     deratingResult?: DeratingResponse | null
     parts?: Any[]
@@ -2357,8 +2360,42 @@ function extractPrediction(modules: Record<string, unknown>, out: AssetDescripto
     contributionSankeyCutoffPercent?: number
     contributionLabelBy?: ContributionGroupBy
   }>(modules, 'prediction')
-  for (const { gp, st } of folio) {
-    const derating = st.deratingResult
+  for (const { gp, st: stored } of folio) {
+    const st = (stored as unknown as PredictionScenario).scenarioVersion === 1
+      ? materializePrediction(modules.systemDefinition as SystemDefinitionState,
+        stored as unknown as PredictionScenario, { ...stored, parts: [], blocks: [], blockSeq: 0 }) : stored
+    const out: AssetDescriptor[] = []
+    const analysisId = stored.id ?? 'default'
+    const fingerprint = modules.systemDefinition
+      ? systemInputFingerprint((modules.systemDefinition as SystemDefinitionState).model) : undefined
+    const stale = !!stored.dirty || !!stored.sourceStale
+    const resultStatus = !st.result ? 'not-calculated' : stale ? 'stale'
+      : !st.result.source_fingerprint ? 'unverified'
+        : st.result.source_fingerprint === fingerprint ? 'current' : 'stale'
+    const attachContext = () => {
+      for (const asset of out) {
+        asset.analysisId = analysisId
+        asset.source = { module: 'prediction', tab: 'prediction', analysisId, analysisName: gp, assetKey: '',
+          evaluationContext: `Shared system ${(modules.systemDefinition as SystemDefinitionState | undefined)?.model.id ?? 'unknown'}; scenario ${analysisId}`,
+          inputFingerprint: fingerprint, resultFingerprint: st.result?.request_sha256,
+          engineRevision: CURRENT_ENGINE_REVISIONS.prediction, resultStatus }
+      }
+      allAssets.push(...out)
+    }
+    out.push({ id: mkId('pred_inputs'), module: 'prediction', moduleLabel: 'Failure Rate Prediction',
+      group: gp, label: 'Shared System Inputs', type: 'table', getData: () => ({
+        tableHeaders: ['Item ID', 'Parent ID', 'Name', 'Kind', 'Quantity per parent', 'Model / category', 'Profile ID', 'Model parameters', 'Calculation status'],
+        tableRows: [
+          ...(st.blocks ?? []).map(block => [block.id, block.parentId ?? '(project root)', block.name, 'Assembly', block.quantity ?? 1, '—', '—', '—', '—']),
+          ...(st.parts ?? []).map(part => [part.id, part.parentId ?? '(project root)', part.name, 'Piece part', part.quantity ?? 1,
+            part.category || 'Unmapped', part.profileId ?? '—', JSON.stringify(part.params ?? {}),
+            part.calculation_enabled === false ? part.calculation_exclusion_reason ?? 'Excluded' : 'Included']),
+        ],
+      }) })
+    if (resultStatus !== 'current') out.push({ id: mkId('pred_context'), module: 'prediction', moduleLabel: 'Failure Rate Prediction',
+      group: gp, label: 'Calculation Status', type: 'metrics', getData: () => ({ metrics: [{ label: 'Result status', value: resultStatus },
+        { label: 'Action', value: 'Recalculate this scenario before reporting current numerical outputs.' }] }) })
+    const derating = stale ? undefined : st.deratingResult
     if (derating) {
       const formatValue = (value: number | boolean | string | null | undefined) => {
         if (value == null) return '—'
@@ -2504,7 +2541,7 @@ function extractPrediction(modules: Record<string, unknown>, out: AssetDescripto
     }
 
     const r = st.result
-    if (!r) continue
+    if (!r || resultStatus !== 'current') { attachContext(); continue }
     const parts = r.results.filter(p => !p.incompatible)
     const nonoperatingStatus = (part: PredictionResponse['results'][number]) => {
       const status = part.nonoperating_calculation?.status
@@ -3029,6 +3066,7 @@ function extractPrediction(modules: Record<string, unknown>, out: AssetDescripto
         ],
       }),
     })
+    attachContext()
   }
 }
 
@@ -5268,7 +5306,7 @@ export function enumerateAssets(): AssetDescriptor[] {
   for (const runtime of listRuntimePlotAssets()) {
     // FTA runtime registrations are name-based and cannot establish context/freshness.
     // Use the saved, provenance-checked descriptor instead.
-    if (runtime.module === 'faultTree') continue
+    if (runtime.module === 'faultTree' || runtime.module === 'prediction') continue
     const identity = assetIdentity(runtime.moduleLabel, runtime.group, runtime.label)
     const descriptor: AssetDescriptor = {
       id: runtime.id,
