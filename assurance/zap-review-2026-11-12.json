@@ -19,5 +19,5 @@
     {"rule": "90004", "reason": "Observed rule covers COEP, COOP and CORP. Existing cross-origin isolation compatibility limitation remains; rationale now names the full rule scope."},
     {"rule": "90005", "reason": "Observed Sec-Fetch-Dest/Mode/Site/User findings describe scanner-generated request headers, not missing response defenses."}
   ],
-  "limitations": "This reviews retained exceptions, not independent penetration-test or full application-security assurance. The integration PR must pass a fresh passive ZAP scan and the other required checks before merge; active API scans remain required by the existing main/weekly workflow."
+  "limitations": "This reviews retained exceptions, not independent penetration-test or full application-security assurance. Before merge, the final integration commit must pass the PR passive ZAP scan, a manually dispatched full Product assurance run including active OpenAPI scanning, and the other required checks. Active API scans also run on main and weekly."
 }

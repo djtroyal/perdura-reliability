@@ -182,7 +182,7 @@ jobs:
           path: .performance-base
           persist-credentials: false
 
-      - name: Run scientific performance smoke and compatible-base comparison
+      - name: Run scientific performance smoke and locked-release comparison
         id: performance
         if: always() && matrix.python-version == '3.13'
         shell: bash
@@ -190,7 +190,7 @@ jobs:
           set -o pipefail
           BASELINE_ARGS=()
           if [ '${{ github.event_name }}' = 'pull_request' ]; then
-            BASELINE_ARGS+=(--compare-source-root .performance-base)
+            BASELINE_ARGS+=(--compare-source-root .performance-base --compare-locked-environments)
           fi
           uv run --no-sync python tools/run_performance_baseline.py \
             --repeats 3 "${BASELINE_ARGS[@]}" \
