@@ -74,7 +74,7 @@
     "lucide-react": "^1.52.0",
     "papaparse": "^5.7.0",
     "plotly.js": "^4.1.2",
-    "re2js": "^2.8.6",
+    "re2js": "^2.8.7",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-markdown": "^10.1.0",
