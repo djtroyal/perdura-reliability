@@ -1,9 +1,10 @@
 {
   "schema": "perdura.accessibility-baseline/v1",
-  "captured_at": "2026-09-14",
-  "review_by": "2026-10-31",
+  "captured_at": "2026-11-12",
+  "review_by": "2026-12-31",
   "owner": "Perdura maintainers",
   "policy": "No serious or critical findings are currently allowed in the sampled module journeys. New serious or critical findings fail CI.",
   "remediation": "Historical allowances were removed after the September full-catalog remediation. Keep the empty baseline; fix regressions instead of adding allowances. Automated results do not replace manual WCAG evaluation.",
-  "entries": []
+  "entries": [],
+  "review_evidence": "docs/audit/evidence/security-integration-2026-11-12/accessibility-review.json"
 }

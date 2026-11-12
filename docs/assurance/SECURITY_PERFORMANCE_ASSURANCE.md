@@ -291,6 +291,14 @@ top-level modules and fails any serious or critical finding in those journeys.
 The empty baseline remains owned and dated. These sampled automated checks do
 not establish accessibility or WCAG conformance for every application state.
 
+The [2026-11-12 baseline review](../audit/evidence/security-integration-2026-11-12/accessibility-review.json)
+retains zero allowances after all 18 Chromium module journeys and the shared
+keyboard, focus, forced-color and reflow regressions passed. Its evidence records
+the tested working-tree dependency hashes and the local Firefox/WebKit setup
+limitations. The review is due again on 2026-12-31. The unchanged GitHub browser
+jobs must still pass against the committed integration candidate; the local
+review does not waive those checks or claim complete manual WCAG evaluation.
+
 ## Independent assessment package
 
 An independent assessor should receive the exact release artifacts and

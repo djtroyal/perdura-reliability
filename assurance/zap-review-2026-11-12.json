@@ -1,0 +1,23 @@
+{
+  "schema": "perdura.zap-suppression-review/v1",
+  "reviewed_at": "2026-11-12",
+  "review_by": "2026-12-31",
+  "reviewer": "Codex automated source and scan-evidence review",
+  "scope": "Existing suppression rationales and actual observations in the latest completed main-branch passive and active scans. No new rule IDs are suppressed.",
+  "scan_commit": "bead86fa7e0e17b13b87b74caee1f36642b9d03e",
+  "evidence": [
+    "https://github.com/djtroyal/perdura-reliability/actions/runs/42840359523/artifacts/13775472248",
+    "https://github.com/djtroyal/perdura-reliability/actions/runs/42840359523/artifacts/13777693274"
+  ],
+  "source_files": ["gui/backend/main.py", "gui/backend/api_contract.py", "deploy/Caddyfile"],
+  "decisions": [
+    {"rule": "10049", "reason": "Reports classify cache behavior. Source retains no-store for sensitive responses and immutable caching for hashed assets."},
+    {"rule": "10055", "reason": "Observed CSP allows inline styles for renderers, while script-src remains self-only. No script execution exception is added."},
+    {"rule": "10094", "reason": "Observed matches include a public reference-document path and a static rolldown runtime path; these are public bundle content, not credentials."},
+    {"rule": "10096", "reason": "Observed numeric values occur in the vendor PDF asset, with no demonstrated sensitive application timestamp."},
+    {"rule": "10109", "reason": "Informational classification identifies the existing single-page application."},
+    {"rule": "90004", "reason": "Observed rule covers COEP, COOP and CORP. Existing cross-origin isolation compatibility limitation remains; rationale now names the full rule scope."},
+    {"rule": "90005", "reason": "Observed Sec-Fetch-Dest/Mode/Site/User findings describe scanner-generated request headers, not missing response defenses."}
+  ],
+  "limitations": "This reviews retained exceptions, not independent penetration-test or full application-security assurance. The integration PR must pass a fresh passive ZAP scan and the other required checks before merge; active API scans remain required by the existing main/weekly workflow."
+}
