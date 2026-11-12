@@ -46,7 +46,7 @@ release = ["pyinstaller>=6.21"]
 required-version = "==0.11.29"
 # Editable/source builds are the only builds allowed in release preparation;
 # pin their PEP 517 backend instead of resolving a future setuptools release.
-build-constraint-dependencies = ["setuptools==83.0.0"]
+build-constraint-dependencies = ["setuptools==84.1.0"]
 # This is the complete environment matrix exercised by CI and used for
 # desktop/container releases. Entries are intentionally disjoint.
 environments = [

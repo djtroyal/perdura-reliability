@@ -9,7 +9,7 @@ scanner results, and independent assessment decisions remain separate evidence.
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 import hashlib
 import json
 from pathlib import Path
@@ -55,6 +55,42 @@ def _check(identifier: str, description: str, passed: bool, detail: str) -> dict
 
 def _read(relative: str) -> str:
     return (ROOT / relative).read_text(encoding="utf-8")
+
+
+def _zap_suppression_check(rules: str, today: date | None = None) -> tuple[bool, str]:
+    """Validate the actual review deadlines rather than accepting one old date."""
+    current_date = today or datetime.now(timezone.utc).date()
+    failures: list[str] = []
+    deadlines: list[date] = []
+    for number, raw in enumerate(rules.splitlines(), start=1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        fields = line.split("\t", 2)
+        if len(fields) != 3 or not fields[0].isdigit() or fields[1] not in {"IGNORE", "WARN", "FAIL"}:
+            failures.append(f"line {number}: malformed ZAP rule")
+            continue
+        rule_id, action, reason = fields
+        if action != "IGNORE":
+            continue
+        match = re.fullmatch(r"(.+?)\s+Review by (\d{4}-\d{2}-\d{2})\.", reason.strip())
+        if not match or not match.group(1).strip():
+            failures.append(f"rule {rule_id}: suppression needs a reason and review date")
+            continue
+        try:
+            deadline = date.fromisoformat(match.group(2))
+        except ValueError:
+            failures.append(f"rule {rule_id}: invalid review date")
+            continue
+        deadlines.append(deadline)
+        if deadline < current_date:
+            failures.append(f"rule {rule_id}: review expired {deadline.isoformat()}")
+    if failures:
+        return False, "; ".join(failures)
+    if not deadlines:
+        return True, "No ZAP findings are suppressed."
+    return True, (f"{len(deadlines)} reasoned suppressions inspected; "
+                  f"earliest review due {min(deadlines).isoformat()}.")
 
 
 def _workflow_pin_check() -> tuple[bool, str]:
@@ -215,17 +251,12 @@ def evaluate() -> dict[str, Any]:
         + "; request-body outer bound: 100 MB",
     ))
 
-    zap_rules = _read("assurance/zap-rules.tsv")
-    ignored_zap_rules = [
-        line for line in zap_rules.splitlines()
-        if line and not line.startswith("#") and "\tIGNORE\t" in line
-    ]
+    zap_valid, zap_detail = _zap_suppression_check(_read("assurance/zap-rules.tsv"))
     checks.append(_check(
         "zaproxy-suppressions",
         "Every ZAP suppression is narrow, reasoned, and time-limited.",
-        bool(ignored_zap_rules)
-        and all("Review by 2026-10-31." in line for line in ignored_zap_rules),
-        f"{len(ignored_zap_rules)} explicit rule suppressions inspected; all require review by 2026-10-31.",
+        zap_valid,
+        zap_detail,
     ))
 
     dockerfile = _read("Dockerfile")

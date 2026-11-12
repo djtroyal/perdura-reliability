@@ -1,0 +1,45 @@
+{
+  "status": "passed",
+  "reflow": [
+    {
+      "scale": 200,
+      "width": 640,
+      "height": 450,
+      "documentWidth": 640,
+      "localTableScroll": true
+    },
+    {
+      "scale": 400,
+      "width": 320,
+      "height": 225,
+      "documentWidth": 320,
+      "localTableScroll": true
+    }
+  ],
+  "checks": [
+    "keyboard tables",
+    "linked tabs",
+    "folio switch/close/new focus",
+    "nested modal focus/inert",
+    "hierarchy disclosure",
+    "chart supplied values/uncertainty/pagination/fullscreen",
+    "density persistence",
+    "forced colors",
+    "scoped axe",
+    "actual module manual activation",
+    "Life Data keyboard editor/analysis focus",
+    "virtual model-grid sorted Enter/mount/focus and Tab exit",
+    "DataAnalysis/ReportBuilder new/close keyboard focus",
+    "200%/400% equivalent shared-control reflow with local table scrolling"
+  ],
+  "screenshots": [
+    "compact.png",
+    "comfortable.png",
+    "chart-fullscreen.png",
+    "life-data-keyboard.png",
+    "modeling-keyboard.png",
+    "reports-keyboard.png",
+    "reflow-200.png",
+    "reflow-400.png"
+  ]
+}

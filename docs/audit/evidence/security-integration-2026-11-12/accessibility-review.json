@@ -1,0 +1,67 @@
+{
+  "schema": "perdura.accessibility-review/v1",
+  "reviewed_at": "2026-11-12T16:24:45.623472+00:00",
+  "review_by": "2026-12-31",
+  "method": "Automated baseline review and inspection of the shared-control reflow screenshots; not a manual WCAG conformance evaluation.",
+  "source": {
+    "head_commit_before_review": "136274e08c4236f5f077e8ccf14f20818b3f1d37",
+    "working_tree_changes_included": true,
+    "interpretation": "These are local working-tree results. Required GitHub checks must run against the committed integration candidate before merge.",
+    "input_sha256": {
+      "gui/frontend/package.json": "391df335b885972c7d9840b45f6e344ca8b3ff54d78009de905a8e57ceaaffee",
+      "gui/frontend/package-lock.json": "765126219f198c5a77a97bb71fa23ebff4391b825d6a4157e91e4d9ee276786b",
+      "gui/frontend/src/App.tsx": "e45fdd98835eafa13e61ba491efc698a1625731dadbfed7640c6d9c9bc0da33c",
+      "gui/frontend/src/index.css": "b865e81766e3ef5696b664a6bd25cb2d138e49534c9b5590991863aa79e6bb1f",
+      "gui/backend/main.py": "f2ccb68f8e96f37683412bfb89b4538cc8e6332eef56de70364ca6792db4bca2",
+      "pyproject.toml": "4f0a5bf51e8b1a54fd5e95167cca136412d34f8fdb5e5dbdeb61ad96eb3c0058",
+      "uv.lock": "ce40b98725aef0e4218d1a85f542e355db126ab42287b99c6efda3446d5de5a4"
+    }
+  },
+  "previous_baseline": {
+    "captured_at": "2026-09-14",
+    "review_by": "2026-10-31",
+    "entries": []
+  },
+  "decision": {
+    "entries": [],
+    "serious_or_critical_allowances_added": 0,
+    "reason": "All 18 module journeys and the shared-control regression passed; keep the empty baseline and the existing severity gate."
+  },
+  "checks": [
+    {
+      "id": "chromium-full-catalog",
+      "status": "passed",
+      "report": "browser-assurance.json",
+      "modules": 18,
+      "violations": 0,
+      "api_compatibility_scenarios": 4
+    },
+    {
+      "id": "shared-controls",
+      "status": "passed",
+      "report": "shared-ui.json",
+      "check_groups": 14,
+      "reflow_equivalent_percent": [
+        200,
+        400
+      ]
+    },
+    {
+      "id": "firefox-local",
+      "status": "incomplete",
+      "reason": "The required Playwright Firefox1543 executable was not installed on this host. No scan ran."
+    },
+    {
+      "id": "webkit-local",
+      "status": "incomplete",
+      "reason": "The host lacks libicu74 and libflite1. No scan ran."
+    }
+  ],
+  "required_follow_up": "The unchanged GitHub browser-compatibility jobs must pass Firefox and WebKit scans on the integration commit before merge. Local setup limitations are not passes or waivers.",
+  "evidence_sha256": {
+    "browser-assurance.json": "f8f705d81388e345d688cc35b4c13a919b442b1b85d811f8d881bec92ff5e6fd",
+    "browser-assurance.xml": "f946f162330568790b8bb8a182c51714e4e35683e879b73e9c39ed8b5d366af5",
+    "shared-ui.json": "f09efd735c5c15e1cd257416ffb93c72e032fe6023ef57861419ff19f3a5992b"
+  },
+  "limits": "Automated axe and scripted keyboard/reflow coverage does not establish complete WCAG conformance. The browser report retains the old baseline dates because it was run before this review renewed them. Shared-control screenshots referenced by the raw report remain local test artifacts; they are not included in this committed evidence subset."
+}
