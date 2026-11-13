@@ -142,6 +142,13 @@ def component_command(args: argparse.Namespace) -> int:
         "kind": args.kind,
         "status": status,
         "generated_at": utc_now(),
+        "provenance": {
+            "repository": os.environ.get("GITHUB_REPOSITORY", ""),
+            "commit": os.environ.get("GITHUB_SHA", ""),
+            "run_id": os.environ.get("GITHUB_RUN_ID", ""),
+            "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", ""),
+            "job_name": args.job_name or os.environ.get("GITHUB_JOB", ""),
+        },
         "results": [
             {"id": name, "status": value, "optional": name in optional_ids}
             for name, value in sorted(results.items())
@@ -271,7 +278,7 @@ def parse_workflow_execution(paths: list[Path]) -> list[dict[str, Any]]:
     jobs = []
     for job in data.get("jobs", []):
         steps = []
-        for step in job.get("steps", []):
+        for step in job.get("steps") or []:
             steps.append({
                 "name": redact(str(step.get("name", ""))),
                 "status": step.get("status"), "conclusion": step.get("conclusion"),
@@ -553,12 +560,101 @@ def all_files(roots: list[Path]) -> list[Path]:
     return paths
 
 
+def select_attempt_evidence(inputs: list[Path], paths: list[Path], args,
+                            issues: list[str]) -> tuple[list[Path], dict, dict]:
+    """Select whole artifacts, never a successful subset of a failed attempt.
+
+    GitHub retains successful jobs' outputs on a selective rerun. Their copied
+    job records have the new attempt number but the original execution times.
+    Use the newest available artifact and verify it belongs to that execution.
+    Superseded raw evidence remains archived, but cannot inflate test totals or
+    keep a repaired test failed in the current report.
+    """
+    pattern = re.compile(r"Perdura-CI-raw-(.+)-(\d+)-(\d+)")
+    roots = {path for source in inputs for path in
+             ([source] if source.is_dir() else []) + list(source.rglob("*"))
+             if path.is_dir() and path.name.startswith("Perdura-CI-raw-")}
+    selected_paths = [path for path in paths if not any(root in path.parents for root in roots)]
+    selection = {"selected": [], "superseded": []}
+    jobs_by_component = {}
+    groups = defaultdict(list)
+    for root in sorted(roots):
+        match = pattern.fullmatch(root.name)
+        if not match or match[2] != args.run_id or not 0 < int(match[3]) <= int(args.run_attempt):
+            issues.append(f"Raw evidence artifact has invalid run provenance: {root.name}")
+            continue
+        groups[match[1]].append((int(match[3]), root))
+    job_files = [path for path in selected_paths if path.name == "workflow-jobs.json"]
+    jobs = []
+    try:
+        if len(job_files) != 1:
+            raise ValueError("exactly one workflow-jobs.json is required")
+        jobs = json.loads(job_files[0].read_text(encoding="utf-8"))["jobs"]
+        if not isinstance(jobs, list) or any(not isinstance(job, dict) for job in jobs):
+            raise ValueError("jobs must be an array")
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        jobs = []
+        issues.append(f"Workflow job provenance is unavailable: {exc}")
+    for candidates in groups.values():
+        candidates.sort(key=lambda item: (item[0], str(item[1])))
+        attempt, root = candidates[-1]
+        selection["superseded"].extend(item.name for _, item in candidates[:-1])
+        if len(candidates) > 1 and candidates[-2][0] == attempt:
+            issues.append(f"Duplicate evidence artifacts for attempt {attempt}: {root.name}")
+        current = [path for path in paths if root in path.parents]
+        selected_paths.extend(current)
+        record = {"artifact": root.name, "run_attempt": attempt}
+        selection["selected"].append(record)
+        manifests = [path for path in current if path.name.startswith("component") and path.suffix == ".json"]
+        try:
+            if len(manifests) != 1:
+                raise ValueError("exactly one component manifest is required")
+            component = json.loads(manifests[0].read_text(encoding="utf-8"))
+            if not isinstance(component, dict) or not isinstance(component.get("provenance"), dict):
+                raise ValueError("component provenance must be an object")
+            provenance = component["provenance"]
+            if component.get("schema") != COMPONENT_SCHEMA or any(
+                provenance.get(key) != expected for key, expected in {
+                    "repository": args.repository, "commit": args.commit,
+                    "run_id": args.run_id, "run_attempt": str(attempt),
+                }.items()
+            ):
+                raise ValueError("component repository, commit, run or attempt does not match")
+            component_id = component["component_id"]
+            record["component_id"] = component_id
+            # Reusable workflow calls prefix display names, e.g. "test / python
+            # (3.13)". Accept a unique full name, never choose between callers.
+            matching_jobs = [job for job in jobs if isinstance(job.get("name"), str)
+                             and job["name"].rsplit(" / ", 1)[-1] == provenance.get("job_name")
+                             and str(job.get("run_id")) == args.run_id
+                             and 0 < int(job.get("run_attempt", 0)) <= int(args.run_attempt)]
+            if not matching_jobs:
+                raise ValueError("the component's workflow job is missing")
+            if len({job["name"] for job in matching_jobs}) != 1:
+                raise ValueError("the component's workflow job is ambiguous across callers")
+            job = max(matching_jobs, key=lambda item: (int(item["run_attempt"]), int(item["id"])))
+            record["job_id"] = job["id"]
+            jobs_by_component[component_id] = job
+            generated = datetime.fromisoformat(component["generated_at"].replace("Z", "+00:00"))
+            started = datetime.fromisoformat(job["started_at"].replace("Z", "+00:00"))
+            if generated < started:
+                raise ValueError("artifact predates the latest execution; its replacement evidence is missing")
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            issues.append(f"Invalid current evidence {root.name}: {exc}")
+    if not groups:
+        issues.append("No raw evidence artifacts were found for this workflow run.")
+    return selected_paths, selection, jobs_by_component
+
+
 def compile_command(args: argparse.Namespace) -> int:
     inputs = [Path(value) for value in args.input]
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=True)
     paths = all_files(inputs)
     issues: list[str] = []
+    selection, component_jobs = None, {}
+    if args.select_latest_attempts:
+        paths, selection, component_jobs = select_attempt_evidence(inputs, paths, args, issues)
     components: list[dict[str, Any]] = []
     for path in sorted(paths):
         if not path.name.startswith("component") or path.suffix != ".json":
@@ -568,12 +664,33 @@ def compile_command(args: argparse.Namespace) -> int:
         except (OSError, json.JSONDecodeError) as exc:
             issues.append(f"Malformed component manifest {path.name}: {exc}")
             continue
+        if not isinstance(value, dict):
+            issues.append(f"Malformed component manifest {path.name}: expected an object")
+            continue
         if value.get("schema") != COMPONENT_SCHEMA:
+            continue
+        if (any(not isinstance(value.get(key), str) or not value[key]
+                for key in ("component_id", "label", "kind"))
+                or not isinstance(value.get("status"), str)
+                or value["status"] not in {"passed", "failed", "incomplete"}):
+            issues.append(f"Malformed component manifest {path.name}: invalid identity or status")
             continue
         # Component manifests are incorporated into the canonical report, so
         # apply the same secret/path redaction used for copied raw evidence.
         value = json.loads(redact(json.dumps(value)))
         value["source"] = path.name
+        if any(item["component_id"] == value["component_id"] for item in components):
+            issues.append(f"Duplicate current evidence component: {value['component_id']}")
+        job = component_jobs.get(value["component_id"])
+        if job:
+            job_status = normalize_status(job.get("conclusion"))
+            if job.get("status") != "completed" or job_status == "skipped":
+                job_status = "incomplete"
+            value["workflow_job"] = {"id": job["id"], "run_attempt": job["run_attempt"], "status": job_status}
+            if job_status == "failed" or value.get("status") == "failed":
+                value["status"] = "failed"
+            elif job_status != "passed":
+                value["status"] = "incomplete"
         components.append(value)
     component_ids = {component["component_id"] for component in components}
     for expected in args.expected:
@@ -581,7 +698,15 @@ def compile_command(args: argparse.Namespace) -> int:
             issues.append(f"Expected evidence component is missing: {expected}")
     job_results = parse_pairs(args.job_result, normalized=True)
     for job_id, status in sorted(job_results.items()):
-        if job_id not in component_ids:
+        existing = next((component for component in components if component["component_id"] == job_id), None)
+        if existing:
+            # A final upload/post step can fail after a passing manifest was
+            # written. The job's actual conclusion must still block the gate.
+            if status == "failed":
+                existing["status"] = "failed"
+            elif status != "passed" and existing.get("status") != "failed":
+                existing["status"] = "incomplete"
+        else:
             components.append({
                 "schema": COMPONENT_SCHEMA,
                 "component_id": job_id,
@@ -639,6 +764,7 @@ def compile_command(args: argparse.Namespace) -> int:
             "run_url": args.run_url,
         },
         "components": sorted(components, key=lambda item: item["component_id"]),
+        "artifact_selection": selection,
         "tests": {
             "totals": {
                 "total": len(cases), "passed": totals["passed"],
@@ -914,6 +1040,7 @@ def build_parser() -> argparse.ArgumentParser:
     component.add_argument("--id", required=True)
     component.add_argument("--label")
     component.add_argument("--kind", default="test")
+    component.add_argument("--job-name", help="Exact GitHub job name, including matrix values")
     component.add_argument("--status", default="success")
     component.add_argument("--result", action="append", default=[])
     component.add_argument(
@@ -928,6 +1055,8 @@ def build_parser() -> argparse.ArgumentParser:
     compile_parser.add_argument("--output", required=True)
     compile_parser.add_argument("--expected", action="append", default=[])
     compile_parser.add_argument("--job-result", action="append", default=[])
+    compile_parser.add_argument("--select-latest-attempts", action="store_true",
+                                help="Select and validate the latest raw artifacts from this workflow run")
     compile_parser.add_argument("--baseline")
     compile_parser.add_argument("--repository", default="")
     compile_parser.add_argument("--commit", default="")
