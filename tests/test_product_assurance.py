@@ -32,6 +32,68 @@ def _steps(workflow):
     ]
 
 
+def test_ci_computation_survives_failure_but_respects_cancellation():
+    jobs = _workflow("ci.yml")["jobs"]
+    # A status function prevents GitHub from adding its default success() guard;
+    # !cancelled() still runs after failures but releases superseded CI runs.
+    for job_id in ("python", "release-environment"):
+        assert jobs[job_id]["if"] == "${{ !cancelled() }}"
+    for job_id, step_ids in {
+        "python": {"version", "library", "backend", "smoke"},
+        "release-environment": {"environment-smoke", "application-wheel"},
+        "frontend": {"build", "contracts"},
+    }.items():
+        steps = {step.get("id"): step for step in jobs[job_id]["steps"]}
+        for step_id in step_ids:
+            assert steps[step_id]["if"] == "${{ !cancelled() }}"
+
+    python_steps = {step.get("id"): step for step in jobs["python"]["steps"]}
+    for step_id in ("api-contract", "assurance", "crow", "product-assurance", "performance"):
+        assert python_steps[step_id]["if"] == (
+            "${{ !cancelled() && matrix.python-version == '3.13' }}"
+        )
+    base_checkout = next(
+        step for step in jobs["python"]["steps"]
+        if step.get("with", {}).get("path") == ".performance-base"
+    )
+    assert base_checkout["if"] == (
+        "${{ !cancelled() && matrix.python-version == '3.13' "
+        "&& github.event_name == 'pull_request' }}"
+    )
+
+
+def test_ci_keeps_partial_evidence_and_enforces_every_job_after_cancellation():
+    jobs = _workflow("ci.yml")["jobs"]
+    publisher = jobs["verification-report"]
+    assert publisher["if"] == "always()"
+    assert set(publisher["needs"]) == set(jobs) - {"verification-report"}
+    gate = next(
+        step for step in publisher["steps"]
+        if step.get("name") == "Enforce complete verification evidence"
+    )
+    assert gate["if"] == "always()"
+    assert "continue-on-error" not in gate
+    assert "build_verification_evidence.py gate" in gate["run"]
+
+    for job_id, job in jobs.items():
+        if job_id == "verification-report":
+            continue
+        # Record outcomes and upload partial evidence even when computation was
+        # interrupted. Cancellation must not turn a partial report into a pass.
+        recorders = [
+            step for step in job["steps"]
+            if "build_verification_evidence.py component" in step.get("run", "")
+        ]
+        uploads = [
+            step for step in job["steps"]
+            if step.get("with", {}).get("name", "").startswith("Perdura-CI-raw-")
+        ]
+        assert len(recorders) == len(uploads) == 1, job_id
+        assert recorders[0]["if"] == uploads[0]["if"] == "always()"
+    coverage = next(step for step in jobs["python"]["steps"] if step.get("id") == "coverage")
+    assert coverage["if"] == "always() && matrix.python-version == '3.13'"
+
+
 def test_local_product_assurance_controls_pass():
     report = MODULE.evaluate()
 

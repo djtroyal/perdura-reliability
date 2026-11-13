@@ -53,7 +53,8 @@ jobs:
   python:
     runs-on: ubuntu-24.04
     needs: dependency-lock
-    if: always()
+    # Preserve checks after failures, but let superseded runs release the runner.
+    if: ${{ !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
@@ -89,7 +90,7 @@ jobs:
 
       - name: Verify Perdura version declarations
         id: version
-        if: always()
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
           set -o pipefail
@@ -97,7 +98,7 @@ jobs:
 
       - name: Run library tests with structured evidence
         id: library
-        if: always()
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
           set -o pipefail
@@ -111,7 +112,7 @@ jobs:
 
       - name: Run backend tests with structured evidence
         id: backend
-        if: always()
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
           set -o pipefail
@@ -125,7 +126,7 @@ jobs:
 
       - name: Generate public API contract evidence
         id: api-contract
-        if: always() && matrix.python-version == '3.13'
+        if: ${{ !cancelled() && matrix.python-version == '3.13' }}
         shell: bash
         run: |
           set -o pipefail
@@ -147,7 +148,7 @@ jobs:
 
       - name: Validate scientific assurance inventory
         id: assurance
-        if: always() && matrix.python-version == '3.13'
+        if: ${{ !cancelled() && matrix.python-version == '3.13' }}
         shell: bash
         run: |
           set -o pipefail
@@ -156,7 +157,7 @@ jobs:
 
       - name: Run Crow-AMSAA independent validation profile
         id: crow
-        if: always() && matrix.python-version == '3.13'
+        if: ${{ !cancelled() && matrix.python-version == '3.13' }}
         shell: bash
         run: |
           set -o pipefail
@@ -165,7 +166,7 @@ jobs:
 
       - name: Validate product-assurance controls
         id: product-assurance
-        if: always() && matrix.python-version == '3.13'
+        if: ${{ !cancelled() && matrix.python-version == '3.13' }}
         shell: bash
         run: |
           set -o pipefail
@@ -175,7 +176,7 @@ jobs:
             2>&1 | tee evidence/python-3.13/logs/product-assurance.log
 
       - name: Check out the exact PR base for performance comparison
-        if: always() && matrix.python-version == '3.13' && github.event_name == 'pull_request'
+        if: ${{ !cancelled() && matrix.python-version == '3.13' && github.event_name == 'pull_request' }}
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.event.pull_request.base.sha }}
@@ -184,7 +185,7 @@ jobs:
 
       - name: Run scientific performance smoke and locked-release comparison
         id: performance
-        if: always() && matrix.python-version == '3.13'
+        if: ${{ !cancelled() && matrix.python-version == '3.13' }}
         shell: bash
         run: |
           set -o pipefail
@@ -200,7 +201,7 @@ jobs:
 
       - name: Backend import smoke test
         id: smoke
-        if: always()
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
           set -o pipefail
@@ -302,7 +303,7 @@ jobs:
   release-environment:
     name: Locked release environment (${{ matrix.target }})
     needs: [dependency-lock, application-wheel]
-    if: always()
+    if: ${{ !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
@@ -352,7 +353,7 @@ jobs:
 
       - name: Validate native imports and ONNX inference
         id: environment-smoke
-        if: always()
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
           set -o pipefail
@@ -363,7 +364,7 @@ jobs:
 
       - name: Install and inspect the candidate application wheel
         id: application-wheel
-        if: always()
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
           set -o pipefail
@@ -427,7 +428,7 @@ jobs:
 
       - name: Build frontend (TypeScript + Vite)
         id: build
-        if: always()
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
           set -o pipefail
@@ -435,7 +436,7 @@ jobs:
 
       - name: Run every frontend contract with structured evidence
         id: contracts
-        if: always()
+        if: ${{ !cancelled() }}
         run: npm run test:contracts --prefix gui/frontend -- --output-dir ../../evidence/frontend
 
       - name: Record frontend evidence component
