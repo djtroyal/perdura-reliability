@@ -765,6 +765,19 @@ try {
     group => group.label === 'No linked hazard').chains.length, 1)
   assert.equal(fmesByHazard.find(
     group => group.label === 'HZ-1').subgroups.length, 2)
+  const unnamedId = 'FN-<img src=x onerror=alert(1)>'
+  const missingId = 'FN-</script><script>unexpected()</script>'
+  const fallbackAnalysis = structuredClone(fmesAnalysis)
+  fallbackAnalysis.functions[0] = { ...fallbackAnalysis.functions[0], id: unnamedId, description: '' }
+  fallbackAnalysis.failure_chains[0].function_id = unnamedId
+  fallbackAnalysis.failure_chains[1].function_id = missingId
+  fallbackAnalysis.failure_chains[2].function_id = ''
+  const fallbackGroups = fmeaModel.buildFmesSummary(fallbackAnalysis, 'function')
+  assert.deepEqual(Object.fromEntries(fallbackGroups.map(group => [group.label, group.chains.map(chain => chain.id)])), {
+    [`Unnamed function [${unnamedId}]`]: ['FC-FMES-1'],
+    [`Unknown function [${missingId}]`]: ['FC-FMES-2'],
+    'No function linked': ['FC-FMES-3'],
+  }, 'Unnamed, missing and unlinked functions keep distinct groups and preserve their literal identifiers')
   const classicProjection = fmeaInterop.classicRowsFromAiag(
     [fmesAnalysis], [{
       id: 'FC-FMES-1', failureRate: '1e-6', modeRatio: '0.25',

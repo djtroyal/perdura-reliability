@@ -113,16 +113,18 @@ try {
   const artifact = await vite.ssrLoadModule('/src/store/artifactExport.ts')
   const originals = { fetch: globalThis.fetch, document: globalThis.document,
     localStorage: globalThis.localStorage, createObjectURL: URL.createObjectURL }
-  const svg = '<svg xmlns="http://www.w3.org/2000/svg"><text>μ ± 95% + # 中文</text></svg>'
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg"><text>μ ± 95% + # 中文 # repeated</text></svg>'
   const urls = [
     `data:image/svg+xml,${encodeURIComponent(svg)}`,
-    `data:image/svg+xml;charset=utf-8,${svg.replace('#', '%23')}`,
+    `data:image/svg+xml;charset=utf-8,${svg.replaceAll('#', '%23')}`,
     `data:image/png;base64,${Buffer.from([137, 80, 78, 71, 0, 255, 128]).toString('base64')}`,
     'data:application/octet-stream,%00%FF%80%25+%2B%ZZ#ignored-fragment',
     'data:image/png;BASE64,AA%2B%2FAA%3D%3D',
   ]
   const expected = await Promise.all(urls.map(async url =>
     new Uint8Array(await (await originals.fetch(url)).arrayBuffer())))
+  assert.equal(new TextDecoder().decode(expected[1]), svg,
+    'Every literal hash in an unescaped SVG data URL must survive as payload, not become a fragment')
   const blobs = []
   const downloadedNames = []
   let networkCalls = 0

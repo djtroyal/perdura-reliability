@@ -163,9 +163,9 @@ function fmesMemberships(
   }
   if (dimension === 'function') {
     return [fn
-      ? fmesText(fn.description, `Unnamed function (${fn.id})`)
+      ? fmesText(fn.description, `Unnamed function [${fn.id}]`)
       : chain.function_id
-        ? `Unknown function (${chain.function_id})`
+        ? `Unknown function [${chain.function_id}]`
         : 'No function linked']
   }
   if (dimension === 'structure') {
@@ -223,7 +223,7 @@ function fmesAggregate(
     return fn?.description
       ? fn.description
       : chain.function_id
-        ? `Unknown function (${chain.function_id})`
+        ? `Unknown function [${chain.function_id}]`
         : 'No function linked'
   })
   return {

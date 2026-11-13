@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { createServer as createHttpServer } from 'node:http'
 import { createSsrTestServer } from './viteTestLifecycle.mjs'
+import domino from '@mixmark-io/domino'
 import viteConfig from '../vite.config.ts'
 
 assert.ok(viteConfig.optimizeDeps?.include?.includes('react-plotly.js/factory'),
@@ -98,16 +99,18 @@ try {
     'HTML exports must support exactly the trace families present in the custom runtime')
 
   const exportedData = EXPORTED_PLOT_TRACE_TYPES.map(type => ({ type, name: `Trace ${type}` }))
-  const exportedLayout = { title: { text: 'Test </script> figure' }, scene: { camera: { eye: { x: 2 } } } }
+  const exportedLayout = { title: { text: 'Test </sCrIpT><ScRiPt>unexpected()</ScRiPt> figure' }, scene: { camera: { eye: { x: 2 } } } }
   const html = buildInteractivePlotHtml(exportedData, exportedLayout, '<Exported>')
   assert.ok(html.includes('<title>&lt;Exported&gt;</title>'))
   const installedPlotly = JSON.parse(await import('node:fs/promises').then(fs => fs.readFile(
     new URL('../node_modules/plotly.js/package.json', import.meta.url), 'utf8'))).version
   assert.ok(html.includes(`https://cdn.plot.ly/plotly-${installedPlotly}.min.js`))
-  assert.ok(!html.includes('Test </script> figure'))
+  assert.ok(!html.includes(exportedLayout.title.text))
+  const inlineScripts = domino.createWindow(html).document.querySelectorAll('script:not([src])')
+  assert.equal(inlineScripts.length, 1, 'Plot data containing mixed-case script tags must not create another script element')
   const { runInNewContext } = await import('node:vm')
   let plotArguments
-  runInNewContext(html.match(/<script>([\s\S]*?)<\/script>/)[1], {
+  runInNewContext(inlineScripts[0].textContent, {
     Plotly: { newPlot: (...args) => { plotArguments = args } },
   })
   assert.deepEqual(JSON.parse(JSON.stringify(plotArguments[1])), exportedData,
