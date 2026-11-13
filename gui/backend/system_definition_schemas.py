@@ -7,6 +7,10 @@ formats are intentionally rejected instead of silently migrating analyses.
 from typing import Annotated, Any, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+if __package__:
+    from .requirement_schemas import SystemRequirement, SystemVerificationCase, SystemVerificationEvidence, SystemVerificationSource
+else:
+    from requirement_schemas import SystemRequirement, SystemVerificationCase, SystemVerificationEvidence, SystemVerificationSource
 
 
 class StrictModel(BaseModel):
@@ -410,6 +414,9 @@ class SystemDiagram(StrictModel):
 
 class SystemDefinitionModel(StrictModel):
     version: Literal[4]
+    requirements: list[SystemRequirement] = Field(default_factory=list, max_length=10000)
+    verification_cases: list[SystemVerificationCase] = Field(default_factory=list, max_length=10000)
+    verification_evidence: list[SystemVerificationEvidence] = Field(default_factory=list, max_length=10000)
     resources: list[SystemResource] = Field(default_factory=list, max_length=10000)
     id: str = Field(min_length=1, max_length=128)
     root_instance_id: Optional[str] = Field(None, max_length=128)
@@ -508,3 +515,14 @@ class SharedSystemPredictionRequest(StrictModel):
     model: SystemDefinitionModel
     scenario: dict[str, Any]
     source_fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class SystemRequirementsAssessRequest(StrictModel):
+    model: SystemDefinitionModel
+    sources: list[SystemVerificationSource] = Field(default_factory=list, max_length=10000)
+
+
+class SystemRequirementsReviewRequest(SystemRequirementsAssessRequest):
+    case_id: str = Field(min_length=1, max_length=128)
+    reviewer: str = Field(min_length=1, max_length=512)
+    reviewed_at: Optional[str] = Field(None, max_length=64)

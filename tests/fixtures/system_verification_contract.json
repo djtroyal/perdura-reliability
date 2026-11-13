@@ -1,0 +1,385 @@
+{
+  "model": {
+    "version": 4,
+    "id": "project-system",
+    "name": "Aircraft",
+    "revision": "A",
+    "modes": [
+      {
+        "id": "cruise",
+        "name": "Cruise",
+        "description": ""
+      },
+      {
+        "id": "takeoff",
+        "name": "Takeoff",
+        "description": ""
+      }
+    ],
+    "resources": [
+      {
+        "id": "thrust-resource",
+        "name": "Thrust",
+        "category": "physical",
+        "unit": "N"
+      }
+    ],
+    "definitions": [
+      {
+        "id": "project-root-definition",
+        "name": "Aircraft",
+        "kind": "system",
+        "classification": "system",
+        "revision": "A",
+        "description": "",
+        "part_number": "",
+        "manufacturer": "",
+        "category": "",
+        "ports": [],
+        "functions": [],
+        "failure_modes": [],
+        "child_slots": [],
+        "analysis_profiles": [],
+        "properties": {}
+      },
+      {
+        "id": "propulsion-def",
+        "name": "Propulsion",
+        "kind": "subsystem",
+        "classification": "system",
+        "revision": "A",
+        "description": "",
+        "part_number": "",
+        "manufacturer": "",
+        "category": "",
+        "ports": [],
+        "functions": [
+          {
+            "id": "thrust",
+            "description": "Provide thrust",
+            "function_type": "primary",
+            "mode_ids": [],
+            "definition": {
+              "role": "source",
+              "action": "Provide thrust",
+              "io": [
+                {
+                  "id": "thrust-out",
+                  "resource_id": "thrust-resource",
+                  "direction": "output"
+                }
+              ]
+            }
+          }
+        ],
+        "failure_modes": [],
+        "child_slots": [],
+        "analysis_profiles": [],
+        "properties": {}
+      },
+      {
+        "id": "lighting-def",
+        "name": "Lighting",
+        "kind": "subsystem",
+        "classification": "system",
+        "revision": "A",
+        "description": "",
+        "part_number": "",
+        "manufacturer": "",
+        "category": "",
+        "ports": [],
+        "functions": [],
+        "failure_modes": [],
+        "child_slots": [],
+        "analysis_profiles": [],
+        "properties": {}
+      }
+    ],
+    "instances": [
+      {
+        "id": "project-root",
+        "name": "Aircraft",
+        "definition_id": "project-root-definition",
+        "quantity": 1,
+        "reference_designators": [],
+        "mode_ids": [],
+        "function_overrides": [],
+        "failure_mode_overrides": [],
+        "legacy_refs": []
+      },
+      {
+        "id": "propulsion",
+        "name": "Propulsion",
+        "definition_id": "propulsion-def",
+        "quantity": 1,
+        "reference_designators": [],
+        "mode_ids": [],
+        "function_overrides": [],
+        "failure_mode_overrides": [],
+        "legacy_refs": [],
+        "parent_instance_id": "project-root"
+      },
+      {
+        "id": "lighting",
+        "name": "Lighting",
+        "definition_id": "lighting-def",
+        "quantity": 1,
+        "reference_designators": [],
+        "mode_ids": [],
+        "function_overrides": [],
+        "failure_mode_overrides": [],
+        "legacy_refs": [],
+        "parent_instance_id": "project-root"
+      }
+    ],
+    "externals": [],
+    "interfaces": [],
+    "function_links": [],
+    "propagation_rules": [],
+    "propagation_assertions": [],
+    "diagrams": [
+      {
+        "id": "diagram-1",
+        "name": "System",
+        "density": "standard",
+        "boundary": {
+          "label": "Aircraft",
+          "x": -40,
+          "y": -40,
+          "width": 1200,
+          "height": 700
+        },
+        "viewport": {
+          "x": 0,
+          "y": 0,
+          "zoom": 1
+        },
+        "snap_to_grid": true,
+        "mode_ids": [],
+        "hidden_instance_ids": [],
+        "nodes": []
+      }
+    ],
+    "root_instance_id": "project-root",
+    "requirements": [
+      {
+        "id": "REQ-THRUST",
+        "statement": "Provide cruise thrust",
+        "requirement_type": "functional",
+        "measure": "",
+        "target": "",
+        "unit": "N",
+        "acceptance_criteria": "Measured thrust is at least 1500 N",
+        "operating_condition": "",
+        "source": "",
+        "owner": "",
+        "confidence": "",
+        "verification_method": "",
+        "evidence_ids": [],
+        "special_characteristic": "",
+        "lifecycle": "active",
+        "derived_from_ids": [],
+        "allocations": [
+          {
+            "system_model_id": "project-system",
+            "instance_id": "propulsion",
+            "function_id": "thrust"
+          }
+        ],
+        "mode_ids": [
+          "cruise"
+        ],
+        "mission_profile": "Steady cruise at reference altitude",
+        "failure_definition": "",
+        "supporting_analyses": []
+      }
+    ],
+    "verification_cases": [
+      {
+        "id": "VER-THRUST",
+        "objective": "Measure cruise thrust",
+        "requirement_ids": [
+          "REQ-THRUST"
+        ],
+        "failure_chain_ids": [],
+        "method": "Test",
+        "level": "",
+        "sample_size": "",
+        "acceptance_criteria": "Measured thrust is at least 1500 N",
+        "owner": "",
+        "status": "passed",
+        "evidence_link_ids": [
+          "EV-THRUST"
+        ],
+        "mode_ids": [
+          "cruise"
+        ],
+        "outcome": "pass",
+        "assessment": "Recorded 1525 N; meets the criterion.",
+        "reviewed_by": "A. Engineer",
+        "reviewed_at": "2026-11-13T13:00:00.000Z",
+        "reviewed_fingerprint": "3627b1a027832bf1767e64f43ed8c14010920eb3987aa09d60179a8bae14643b",
+        "reviewed_revision": "A"
+      }
+    ],
+    "verification_evidence": [
+      {
+        "id": "EV-THRUST",
+        "target_id": "VER-THRUST",
+        "source_module": "external",
+        "source_analysis_id": "test-campaign",
+        "source_revision": "C",
+        "source_checksum": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "evidence_kind": "verification",
+        "claim": "1525 N measured at cruise conditions",
+        "locator": "test-report-12.pdf#page=7",
+        "captured_at": "2026-11-13T12:00:00.000Z",
+        "stale": false,
+        "requirement_ids": [
+          "REQ-THRUST"
+        ],
+        "mode_ids": [
+          "cruise"
+        ],
+        "units": "N",
+        "mission_context": "Steady cruise at reference altitude"
+      }
+    ]
+  },
+  "sources": [],
+  "inputs": {
+    "schema": "perdura-verification-review/1",
+    "system_model_id": "project-system",
+    "case": {
+      "id": "VER-THRUST",
+      "objective": "Measure cruise thrust",
+      "requirement_ids": [
+        "REQ-THRUST"
+      ],
+      "failure_chain_ids": [],
+      "method": "Test",
+      "level": "",
+      "sample_size": "",
+      "acceptance_criteria": "Measured thrust is at least 1500 N",
+      "owner": "",
+      "evidence_link_ids": [
+        "EV-THRUST"
+      ],
+      "mode_ids": [
+        "cruise"
+      ],
+      "outcome": "pass",
+      "assessment": "Recorded 1525 N; meets the criterion."
+    },
+    "requirements": [
+      {
+        "id": "REQ-THRUST",
+        "statement": "Provide cruise thrust",
+        "requirement_type": "functional",
+        "measure": "",
+        "target": "",
+        "unit": "N",
+        "acceptance_criteria": "Measured thrust is at least 1500 N",
+        "operating_condition": "",
+        "source": "",
+        "owner": "",
+        "confidence": "",
+        "verification_method": "",
+        "evidence_ids": [],
+        "special_characteristic": "",
+        "lifecycle": "active",
+        "derived_from_ids": [],
+        "allocations": [
+          {
+            "system_model_id": "project-system",
+            "instance_id": "propulsion",
+            "function_id": "thrust"
+          }
+        ],
+        "mode_ids": [
+          "cruise"
+        ],
+        "mission_profile": "Steady cruise at reference altitude",
+        "failure_definition": "",
+        "supporting_analyses": []
+      }
+    ],
+    "evidence": [
+      {
+        "id": "EV-THRUST",
+        "target_id": "VER-THRUST",
+        "source_module": "external",
+        "source_analysis_id": "test-campaign",
+        "source_revision": "C",
+        "source_checksum": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "evidence_kind": "verification",
+        "claim": "1525 N measured at cruise conditions",
+        "locator": "test-report-12.pdf#page=7",
+        "captured_at": "2026-11-13T12:00:00.000Z",
+        "stale": false,
+        "requirement_ids": [
+          "REQ-THRUST"
+        ],
+        "mode_ids": [
+          "cruise"
+        ],
+        "units": "N",
+        "mission_context": "Steady cruise at reference altitude"
+      }
+    ],
+    "modes": [
+      {
+        "id": "cruise",
+        "name": "Cruise",
+        "description": ""
+      }
+    ],
+    "architecture": {
+      "instances": [],
+      "definitions": [],
+      "functions": [
+        {
+          "id": "propulsion::thrust",
+          "instance_id": "propulsion",
+          "definition_id": "propulsion-def",
+          "parent_instance_id": "project-root",
+          "quantity": 1,
+          "mode_ids": [],
+          "properties": {},
+          "profile_overrides": [],
+          "definition_properties": {},
+          "analysis_profiles": [],
+          "function": {
+            "id": "thrust",
+            "description": "Provide thrust",
+            "function_type": "primary",
+            "mode_ids": [],
+            "definition": {
+              "role": "source",
+              "action": "Provide thrust",
+              "io": [
+                {
+                  "id": "thrust-out",
+                  "resource_id": "thrust-resource",
+                  "direction": "output"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "interfaces": [],
+      "resources": [
+        {
+          "id": "thrust-resource",
+          "name": "Thrust",
+          "category": "physical",
+          "unit": "N"
+        }
+      ],
+      "externals": [],
+      "function_links": []
+    }
+  },
+  "fingerprint": "3627b1a027832bf1767e64f43ed8c14010920eb3987aa09d60179a8bae14643b"
+}

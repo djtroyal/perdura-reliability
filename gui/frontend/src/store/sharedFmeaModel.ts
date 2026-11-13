@@ -14,6 +14,7 @@ import { sha256FtaText } from '../components/FaultTree/libraryModel'
 import { reparentSystemInstance } from '../components/SystemDefinition/structureEditing'
 import { validateProjectSystem } from './sharedSystemModel'
 import { populateFmeaInterfaceFunctions, populateSystemInterfaceFunctions } from './interfaceFunctions'
+import { sharedFmeaRequirements, splitFmeaRequirements } from './sharedRequirementViews'
 
 export type { FmeaSystemBinding } from '../api/reliabilityProgram'
 export interface FmeaBindingIssue {
@@ -167,6 +168,7 @@ export function fmeaSemanticFingerprint(model: SystemDefinitionModel, analyses: 
     if (!context.binding) return { id: analysis.id, binding: null }
     const instances = model.instances.filter(item => context.instances.has(item.id))
     return { id: analysis.id, binding: context.binding,
+      requirements: sharedFmeaRequirements(model, analysis),
       instances: instances.map(item => ({ id: item.id, definition_id: item.definition_id,
         parent_instance_id: item.parent_instance_id, name: nameOf(model, item), quantity: item.quantity,
         reference_designators: item.reference_designators, mode_ids: item.mode_ids,
@@ -451,7 +453,7 @@ export function materializeFmeaAnalysis(model: SystemDefinitionModel, source: An
   if (!binding || binding.system_model_id !== model.id || !model.instances.some(item => item.id === binding.scope_instance_id)) return source
   const analysis = structuredClone({ ...source, structure_nodes: source.structure_nodes ?? [], functions: source.functions ?? [],
     failure_chains: source.failure_chains ?? [], interfaces: source.interfaces ?? [], function_links: source.function_links ?? [],
-    function_requirement_links: source.function_requirement_links ?? [], functional_requirements: source.functional_requirements ?? [],
+    function_requirement_links: source.function_requirement_links ?? [], functional_requirements: sharedFmeaRequirements(model, source),
     p_diagrams: source.p_diagrams ?? [], control_plan: source.control_plan ?? [],
     block_diagram: source.block_diagram ?? { version: 2, density: 'comfortable', boundary: { label: source.name, x: -40, y: -40, width: 1200, height: 700 },
       nodes: [], viewport: { x: 0, y: 0, zoom: 1 }, snap_to_grid: true },
@@ -640,7 +642,7 @@ function patchFailureOverride(model: SystemDefinitionModel, instanceId: string, 
 
 /** Translate an edit of the complete working graph. Records absent from the original view are never deleted. */
 export function splitFmeaUpdate(sourceModel: SystemDefinitionModel, before: Analysis, requested: Analysis,
-  protectedIds: ReadonlySet<string> = EMPTY_PROTECTED_IDS): { model: SystemDefinitionModel; analysis: Analysis } {
+  protectedIds: ReadonlySet<string> = EMPTY_PROTECTED_IDS, moduleKey = 'fmea'): { model: SystemDefinitionModel; analysis: Analysis } {
   if (requested.kind === 'pfmea') return { model: sourceModel, analysis: populateFmeaInterfaceFunctions(requested, before) }
   const binding = canonicalFmeaBinding(sourceModel, requested) ?? canonicalFmeaBinding(sourceModel, before)
   if (!binding) return { model: sourceModel, analysis: populateFmeaInterfaceFunctions(requested, before) }
@@ -946,6 +948,7 @@ export function splitFmeaUpdate(sourceModel: SystemDefinitionModel, before: Anal
   if (next.kind !== 'pfmea' && before.block_diagram.connectorStyle !== next.block_diagram.connectorStyle) nextDiagram.connectorStyle = next.block_diagram.connectorStyle
   model.diagrams = [nextDiagram, ...model.diagrams.slice(1)]
   model = populateSystemInterfaceFunctions(model, sourceModel)
+  model = splitFmeaRequirements(model, before, next, moduleKey)
   validateProjectSystem(model)
   return { model: equal(model, sourceModel) ? sourceModel : model, analysis: materializeFmeaAnalysis(model, next, protectedIds) }
 }

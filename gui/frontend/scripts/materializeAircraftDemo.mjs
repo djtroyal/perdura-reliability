@@ -24,7 +24,10 @@ try {
   const { materializeFmeaAnalysis } = await vite.ssrLoadModule('/src/store/sharedFmeaModel.ts')
   const { systemInputFingerprint, validateProjectSystem } = await vite.ssrLoadModule('/src/store/sharedSystemModel.ts')
   const { inspectArchitectureCompleteness } = await vite.ssrLoadModule('/src/store/systemArchitecture.ts')
-  const next = adaptAircraftDemo(demo, { materializeFmeaAnalysis, systemInputFingerprint, layoutProfiles: LAYOUT_PROFILES })
+  const { createSystemRequirement, createVerificationCase } = await vite.ssrLoadModule('/src/store/systemRequirements.ts')
+  const { stripSharedRequirementProjections } = await vite.ssrLoadModule('/src/store/sharedRequirementViews.ts')
+  const next = adaptAircraftDemo(demo, { materializeFmeaAnalysis, systemInputFingerprint, layoutProfiles: LAYOUT_PROFILES,
+    createSystemRequirement, createVerificationCase, stripSharedRequirementProjections })
   validateProjectSystem(next.modules.systemDefinition.model)
   const findings = inspectArchitectureCompleteness(next.modules.systemDefinition.model)
   if (findings.length) throw new Error(`Aircraft model is incomplete: ${JSON.stringify(findings)}`)

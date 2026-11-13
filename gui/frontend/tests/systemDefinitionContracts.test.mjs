@@ -25,12 +25,12 @@ try {
   for (const version of [1, 2, 3]) assert.throws(() => shared.validateProjectSystem({ ...current.model, version }), /version 4/)
   project.newProject('Current destination')
   const original = project.getProjectState(), payload = project.buildExport(undefined, true)
-  for (const schemaVersion of [6, 7, 9]) {
+  for (const schemaVersion of [6, 7, 9, 11]) {
     assert.throws(() => project.importPayload({ ...payload, schemaVersion }), /Unsupported project schema/)
     assert.equal(project.getProjectState(), original, 'Rejected old files leave the current project untouched')
   }
   const demo = JSON.parse(await readFile(new URL('../src/data/demoProject.json', import.meta.url), 'utf8'))
-  assert.equal(demo.schemaVersion, 11)
+  assert.equal(demo.schemaVersion, 12)
   const aircraft = demo.modules.systemDefinition.model
   const instances = new Map(aircraft.instances.map(item => [item.id, item]))
   const definitions = new Map(aircraft.definitions.map(item => [item.id, item]))
@@ -62,7 +62,12 @@ try {
     assert.deepEqual(editor.normalizeFmeaAnalysis(study), study, 'Bundled studies must already use current structured records')
     if (study.kind !== 'pfmea') {
       assert.deepEqual(fmeaBinding.inspectFmeaBinding(aircraft, study), [], 'Aircraft FMEA retains valid canonical references')
-      assert.deepEqual(JSON.parse(JSON.stringify(fmeaBinding.materializeFmeaAnalysis(aircraft, study))), study,
+      const projected = JSON.parse(JSON.stringify(fmeaBinding.materializeFmeaAnalysis(aircraft, study)))
+      assert.deepEqual(study.functional_requirements, [], 'Canonical requirements have no duplicate persisted physical-FMEA copy')
+      const requirementIds = new Set(projected.functional_requirements.map(item => item.id))
+      for (const link of study.function_requirement_links) assert.ok(requirementIds.has(link.requirement_id),
+        `Aircraft function correlation ${link.id} resolves a canonical requirement`)
+      assert.deepEqual({ ...projected, functional_requirements: [] }, study,
         'Bundled FMEA already matches its aircraft architecture without needing a repair on first load')
       const structures = new Map(study.structure_nodes.map(item => [item.id, item]))
       const blocks = new Map(study.block_diagram.nodes.map(item => [item.id, item]))

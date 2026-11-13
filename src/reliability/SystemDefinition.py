@@ -694,6 +694,10 @@ def propagate_system_definition(
     fingerprint_model = deepcopy(model)
     fingerprint_model.pop("propagation_assertions", None)
     fingerprint_model.pop("diagrams", None)
+    # Requirement administration and evidence review do not change fault-map inputs.
+    fingerprint_model.pop("requirements", None)
+    fingerprint_model.pop("verification_cases", None)
+    fingerprint_model.pop("verification_evidence", None)
     fingerprint = sha256(_canonical({
         "model": fingerprint_model, "mode_id": mode_id,
         "source_failure_mode_ids": sorted(source_failure_mode_ids),

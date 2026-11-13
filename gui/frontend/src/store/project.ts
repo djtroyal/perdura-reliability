@@ -48,6 +48,7 @@ import { normalizeSharedSystemModules, systemInputFingerprint } from './sharedSy
 import type { SystemDefinitionModel } from '../api/systemDefinition'
 import type { AIAGVDAFMEAAnalysis } from '../api/reliabilityProgram'
 import { fmeaEngineeringInputs } from './sharedFmeaModel'
+import { sharedRequirementCalculationInputs } from './sharedRequirementViews'
 import { reconcileLinkedSources } from './linkedSourceInvalidation'
 import { ssiInputFingerprint, type StressStrengthInput } from '../components/LifeData/stressStrengthModel'
 import { resolveMcRun, type MonteCarloOwner } from '../components/LifeData/monteCarloModel'
@@ -207,8 +208,9 @@ function hasSharedFmeaInputs(value: unknown): boolean {
 export function moduleSlices(moduleKey: string, modules: Record<string, unknown> = state.modules): string[] {
   if (moduleKey === 'faultTree') return ['faultTree', 'faultTreeCatalog']
   if (moduleKey === 'prediction') return ['prediction', 'systemDefinition']
+  if (moduleKey === 'reliabilityProgram') return ['reliabilityProgram', 'systemDefinition']
   const slices = MODULE_SLICE_GROUPS[moduleKey] ?? [moduleKey]
-  return (moduleKey === 'fmea' || moduleKey === 'reliabilityProgram') && hasSharedFmeaInputs(modules[moduleKey])
+  return moduleKey === 'fmea' && hasSharedFmeaInputs(modules[moduleKey])
     ? [...slices, 'systemDefinition'] : slices
 }
 
@@ -1043,6 +1045,7 @@ export const NAV_MAP: Record<string, NavLocation> = {
   hypothesis: { tab: 'hypothesis' },
   reportBuilder: { tab: 'report-builder' },
   systemModeling: { tab: 'system-modeling' },
+  systemDefinition: { tab: 'system-modeling', sub: 'definition' },
   maintenance: { tab: 'maintenance' },
   hra: { tab: 'hra' },
   dataAnalysis: { tab: 'data-analysis' },
@@ -1910,7 +1913,9 @@ export function analysisInputSnapshot(value: unknown, moduleKey = '', context?: 
     }
   }
   if (moduleKey === 'fmea' || moduleKey === 'reliabilityProgram') {
-    const engineering = omit(record, new Set([
+    const sharedModel = (context?.modules.systemDefinition as {model?: SystemDefinitionModel} | undefined)?.model
+    const projected = sharedModel ? sharedRequirementCalculationInputs(record, sharedModel, moduleKey) : record
+    const engineering = omit(projected, new Set([
       'view', 'workspaceView', 'step', 'structureView', 'functionVisualView', 'pDiagramId', 'activeId',
       'fmeaMode', 'fmeaStep', 'fmeaStructureView', 'fmeaFunctionVisualView', 'fmeaPDiagramId',
       'activeFmeaId', 'fmeaWorkspaceView', 'sourceSystemFingerprint', 'canonicalDependencies',
@@ -1926,7 +1931,17 @@ export function analysisInputSnapshot(value: unknown, moduleKey = '', context?: 
       // empty governance must have the same calculation fingerprint.
       const governance = Object.fromEntries(Object.entries(engineering.governance as Record<string, unknown>).flatMap(([id, value]) => {
         if (!value || typeof value !== 'object' || Array.isArray(value)) return [[id, value]]
-        const semantic = Object.fromEntries(Object.entries(omit(value as Record<string, unknown>, administrative))
+        let scoped = value as Record<string, unknown>
+        const analyses = (projected.analyses ?? projected.aiagAnalyses ?? []) as AIAGVDAFMEAAnalysis[]
+        const physical = analyses.some(item => item.id === id && item.kind !== 'pfmea'
+          && item.system_binding?.system_model_id === sharedModel?.id)
+        if (physical && sharedModel) {
+          scoped = omit(scoped, new Set(['verificationPlan']))
+          const evidenceIds = new Set((sharedModel.verification_evidence ?? []).map(item => item.id))
+          if (Array.isArray(scoped.evidenceLinks)) scoped.evidenceLinks = scoped.evidenceLinks.filter(item =>
+            !evidenceIds.has((item as {id:string}).id))
+        }
+        const semantic = Object.fromEntries(Object.entries(omit(scoped, administrative))
           .filter(([key, child]) => !(key === 'methodProfileId' && child === 'aiag_vda_2019_public')
             && !(emptyDefaults.has(key) && Array.isArray(child) && child.length === 0)))
         return Object.keys(semantic).length ? [[id, semantic]] : []
@@ -1945,7 +1960,7 @@ export function analysisInputSnapshot(value: unknown, moduleKey = '', context?: 
       if (Array.isArray(item)) return item.map(project)
       if (!item || typeof item !== 'object') return item
       return Object.fromEntries(Object.entries(item as Record<string, unknown>)
-        .filter(([key]) => key !== 'diagrams' && key !== 'block_diagram')
+        .filter(([key]) => !['diagrams', 'block_diagram', 'requirements', 'verification_cases', 'verification_evidence'].includes(key))
         .map(([key, child]) => [key, project(child)]))
     }
     return project(record)
@@ -1953,7 +1968,7 @@ export function analysisInputSnapshot(value: unknown, moduleKey = '', context?: 
   return inputs
 }
 
-function extractResults(value: unknown): unknown {
+export function extractResults(value: unknown): unknown {
   if (Array.isArray(value)) {
     const items = value.map(extractResults)
     return items.some(item => item !== undefined) ? items : undefined
@@ -2256,7 +2271,7 @@ function prepareImportPayload(payload: ExportPayload, onlyModule?: string):
   if (keys.includes('prediction') && payload.modules.systemDefinition === undefined)
     throw new Error('Prediction import requires its canonical System Definition companion.')
   for (const key of ['fmea', 'reliabilityProgram']) {
-    if (keys.includes(key) && hasSharedFmeaInputs(payload.modules[key]) && payload.modules.systemDefinition === undefined)
+    if (keys.includes(key) && (key === 'reliabilityProgram' || hasSharedFmeaInputs(payload.modules[key])) && payload.modules.systemDefinition === undefined)
       throw new Error(`${MODULE_LABELS[key]} import requires its canonical System Definition companion.`)
   }
   if (keys.includes('systemDefinition')) {
@@ -2265,9 +2280,13 @@ function prepareImportPayload(payload: ExportPayload, onlyModule?: string):
     if (onlyModule && state.modules.systemDefinition) {
       const before = state.modules.systemDefinition as { model: SystemDefinitionModel }
       const after = incoming.systemDefinition as { model: SystemDefinitionModel }
-      const blank = before.model.instances.length === 1 && Object.keys(state.modules)
+      const blank = before.model.instances.length === 1 && !(before.model.requirements?.length
+        || before.model.verification_cases?.length || before.model.verification_evidence?.length) && Object.keys(state.modules)
         .every(key => key === 'systemDefinition' || key === PLOT_MARKUP_SLICE)
-      if (!blank && systemInputFingerprint(before.model) !== systemInputFingerprint(after.model))
+      const requirementsSnapshot = (model: SystemDefinitionModel) => JSON.stringify({ requirements: model.requirements ?? [],
+        verification_cases: model.verification_cases ?? [], verification_evidence: model.verification_evidence ?? [] })
+      if (!blank && (systemInputFingerprint(before.model) !== systemInputFingerprint(after.model)
+        || requirementsSnapshot(before.model) !== requirementsSnapshot(after.model)))
         throw new Error('The imported analysis belongs to a different shared system. Open the whole project or import into a new blank project; the current system was not changed.')
     }
   }

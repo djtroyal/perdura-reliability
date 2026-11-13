@@ -103,7 +103,7 @@ replacing the process structure.
 
 Physical studies require canonical references; independent physical structures
 and legacy Prediction imports are not promoted into executable studies. Project
-schema 11, System Model contract 4, and FMEA study schema 4 reject older alpha
+schema 12, System Model contract 4, and FMEA study schema 4 reject older alpha
 formats without migration. PFMEA remains process-owned with explicit physical
 equipment links. Missing sources retain analysis work and block dependent steps
 until repaired or explicitly removed. Revisions and releases are immutable.

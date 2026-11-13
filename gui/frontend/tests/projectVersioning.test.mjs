@@ -38,12 +38,12 @@ try {
 
   assert.throws(
     () => project.importPayload({ ...payload, schemaVersion: 1 }),
-    /Unsupported project schema 1.*requires schema 11/,
+    /Unsupported project schema 1.*requires schema 12/,
     'schemas older than the explicit migration boundary must fail closed',
   )
   assert.throws(
     () => project.importPayload({ ...payload, schemaVersion: 999 }),
-    /Unsupported project schema 999.*requires schema 11/,
+    /Unsupported project schema 999.*requires schema 12/,
     'newer schemas must fail closed instead of being interpreted approximately',
   )
   const beforeLegacyImport = project.getProjectState()

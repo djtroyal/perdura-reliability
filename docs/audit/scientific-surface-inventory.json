@@ -625,7 +625,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "3c468903057e748f606b52dd502a73b6ff6a8265314a983b06f2d367ffd211b0",
+      "definition_sha256": "25f30359634a8f06e0294f9a20a3575ebf6007d2bd649d9fc84fbb74342796ad",
       "id": "api.fmea.POST./analyze",
       "kind": "router_operation",
       "method": "POST",
@@ -716,7 +716,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "1a85dca53678fefed5788ff682c5e8da297e6425f4a419b8dc6b11450eb4d649",
+      "definition_sha256": "7a2fc6c03398f0b4354c3d3712c6a70e100961206bd18e901b66ae4415cd7a40",
       "id": "api.fmea.POST./releases",
       "kind": "router_operation",
       "method": "POST",
@@ -2201,6 +2201,32 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
+      "definition_sha256": "07d7de7141b3706c014f1d235adcadcc610d4b1205253ca06fd2f21e1c7fa7a4",
+      "id": "api.system_definition.POST./requirements/assess",
+      "kind": "router_operation",
+      "method": "POST",
+      "route": "/requirements/assess",
+      "router": "system_definition",
+      "source": "gui/backend/routers/system_definition.py",
+      "surface": "api",
+      "symbol": "assess_requirements"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "df82b3d2e07c7c442954ad7b6ccd506182761f1af1e40e88b5e73178155e3b7a",
+      "id": "api.system_definition.POST./requirements/review",
+      "kind": "router_operation",
+      "method": "POST",
+      "route": "/requirements/review",
+      "router": "system_definition",
+      "source": "gui/backend/routers/system_definition.py",
+      "surface": "api",
+      "symbol": "review_requirement"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
       "definition_sha256": "5c3ac56e03ba063b750d35853fa4f5b00087bc1f571e33004fd8d50d1627b9b1",
       "id": "api.system_definition.POST./resolve-profile",
       "kind": "router_operation",
@@ -3538,7 +3564,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "d59cf3ce8edf260d8f782867a7bd13652c14635cb37c45e65ac6e15a6e182c47",
+      "definition_sha256": "1ed9d675c57961025e7c1ebafbe95b44d37ea579bdf664ac2a0763143522b1bd",
       "id": "core.FMEA.analyze_studies",
       "kind": "callable",
       "source": "src/reliability/FMEA.py",
@@ -3558,7 +3584,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "46b2986a35919bdb3dc10fdc2bdd3cb5c082573eac510afb14f62986635048a6",
+      "definition_sha256": "9ee64a09903e6610161422831c7f3feb9055391a8fbee69b967f48474a98fe4f",
       "id": "core.FMEA.create_release",
       "kind": "callable",
       "source": "src/reliability/FMEA.py",
@@ -8104,7 +8130,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "c5fe46e6507dd759a435fbd03b15af2b95ec30861ce7709a24d83030f1ac5d3e",
+      "definition_sha256": "df416a82ba4ccf06ba5cdb442b21e66f90be87ea9769032ecf061afa3e18de84",
       "id": "core.SystemDefinition.propagate_system_definition",
       "kind": "callable",
       "source": "src/reliability/SystemDefinition.py",
@@ -8240,6 +8266,76 @@
       "source": "src/reliability/SystemReliability.py",
       "surface": "core",
       "symbol": "system_reliability_from_blocks"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "f43c8f24d855f0c31172cc3d37ad8b36638bea7e5635f09a9b23ace8fc1420a0",
+      "id": "core.SystemRequirements.canonical_review_json",
+      "kind": "callable",
+      "source": "src/reliability/SystemRequirements.py",
+      "surface": "core",
+      "symbol": "canonical_review_json"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "55c280870afd1eafd104045959000aff9ae3330a652b4ee523f3b3894e76ce6d",
+      "id": "core.SystemRequirements.evaluate_system_requirements",
+      "kind": "callable",
+      "source": "src/reliability/SystemRequirements.py",
+      "surface": "core",
+      "symbol": "evaluate_system_requirements"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "b5914b405944fd5001a6ca723f45396fa097f76d8d2d15b81695298c93f42d2d",
+      "id": "core.SystemRequirements.requirement_ancestors",
+      "kind": "callable",
+      "source": "src/reliability/SystemRequirements.py",
+      "surface": "core",
+      "symbol": "requirement_ancestors"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "a1fc36196426ec852748006c68b92e639334837f15b8df437325abd3c67151c4",
+      "id": "core.SystemRequirements.review_verification_case",
+      "kind": "callable",
+      "source": "src/reliability/SystemRequirements.py",
+      "surface": "core",
+      "symbol": "review_verification_case"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "7a2ac92d63cf02d700a17942d52927d9af7dfa72720872fe0af89485c3671510",
+      "id": "core.SystemRequirements.validate_requirement_graph",
+      "kind": "callable",
+      "source": "src/reliability/SystemRequirements.py",
+      "surface": "core",
+      "symbol": "validate_requirement_graph"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "ad9efa763429abf93853ab1a2827f36f2234998ece0f925b70cbd74e438810c7",
+      "id": "core.SystemRequirements.verification_review_fingerprint",
+      "kind": "callable",
+      "source": "src/reliability/SystemRequirements.py",
+      "surface": "core",
+      "symbol": "verification_review_fingerprint"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "473f9077250bd471998282df25660cb4c7da20f41743cc1e110b6d53bb85a76d",
+      "id": "core.SystemRequirements.verification_review_inputs",
+      "kind": "callable",
+      "source": "src/reliability/SystemRequirements.py",
+      "surface": "core",
+      "symbol": "verification_review_inputs"
     },
     {
       "assessment": "classification_pending",
@@ -8782,9 +8878,9 @@
   "model_inventory_complete": false,
   "schema_version": 1,
   "summary": {
-    "core_entries": 636,
-    "entries": 807,
+    "core_entries": 643,
+    "entries": 816,
     "mapped_entries": 18,
-    "router_operations": 171
+    "router_operations": 173
   }
 }

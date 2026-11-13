@@ -64,11 +64,14 @@ import { assertFmeaEditAllowed, evaluateFmeaReadiness, useFmeaReadiness } from '
 import {
   useModuleFolios,
   useModuleState,
+  useStoreVersion,
   getProjectState,
   writeModuleSlices,
 } from '../../store/project'
 import { currentProjectSystem, projectSystemUpdates, useSharedSystemDefinition } from '../../store/sharedSystem'
 import { useSharedFmeaState } from '../../store/useSharedFmeaState'
+import { sharedProgramRequirementInputs, stripSharedRequirementProjections } from '../../store/sharedRequirementViews'
+import { verificationSourcesForProject } from '../../store/systemVerificationState'
 import { collectFmeaProtectedEntityIds, fmeaEngineeringFingerprint, fmeaSemanticFingerprint, inspectFmeaBinding, materializeFmeaAnalysis, splitFmeaUpdate } from '../../store/sharedFmeaModel'
 import { brokenSystemReferences, materializePrediction, validateProjectSystem, type PredictionScenario } from '../../store/sharedSystemModel'
 import { useBookmarkNavigationTarget } from '../../store/bookmarks'
@@ -270,6 +273,7 @@ export default function FMEA({
     'fmeaFailureFlow', EMPTY_FAILURE_FLOW_REGISTRY)
   const predictionFolios = useModuleFolios<PredictionScenario>('prediction')
   const [sharedSystem] = useSharedSystemDefinition()
+  const projectRevision = useStoreVersion()
   const brokenReferences = useMemo(() => [...new Set([
     ...brokenSystemReferences(state.analyses, sharedSystem.model),
     ...state.analyses.flatMap(analysis => inspectFmeaBinding(sharedSystem.model, analysis)
@@ -325,20 +329,8 @@ export default function FMEA({
       state: materializePrediction(sharedSystem, folio.state, { parts: [], blocks: [], blockSeq: 0 }),
     })), [predictionFolios, sharedSystem])
   const programState = programFolios.find(item => item.id === programFolios[0]?.id)?.state
-  const requirements = useMemo((): RequirementInput[] =>
-    (programState?.rows?.requirements ?? []).map(row => ({
-      id: String(row.id ?? ''),
-      statement: String(row.statement ?? ''),
-      measure: String(row.measure ?? ''),
-      target: String(row.target ?? ''),
-      confidence: String(row.confidence ?? ''),
-      mission_profile: String(row.missionProfile ?? ''),
-      failure_definition: String(row.failureDefinition ?? ''),
-      verification_method: String(row.verification ?? ''),
-      owner: String(row.owner ?? ''),
-      status: String(row.status ?? 'draft'),
-      evidence_ids: String(row.evidence ?? '').split(',').map(item => item.trim()).filter(Boolean),
-    })).filter(row => row.id), [programState])
+  const requirements = useMemo((): RequirementInput[] => sharedProgramRequirementInputs(sharedSystem.model,
+    verificationSourcesForProject(getProjectState())), [sharedSystem.model, projectRevision])
   const hazardOptions = useMemo(() =>
     (programState?.rows?.hazards ?? []).map(row => ({
       id: String(row.id ?? ''),
@@ -449,7 +441,7 @@ export default function FMEA({
           model = split.model
           return split.analysis
         })
-        return { ...folio, state: { ...folio.state, analyses: nextAnalyses, result: null } }
+        return { ...folio, state: stripSharedRequirementProjections({ ...folio.state, analyses: nextAnalyses, result: null }, model, 'analyses', 'fmea') }
       })
       validateProjectSystem(model)
       const nextSystem = { ...beforeSystem, model }
@@ -547,7 +539,8 @@ export default function FMEA({
       const blocked = checks.find(check => !check.can_analyze)
       if (blocked) throw new Error(blocked.findings.filter(item => item.step <= 5 && item.severity === 'error').map(item => `Step ${item.step}: ${item.message}`).join(' '))
       const result = await analyzeFmeaStudies(
-        studies, state.customRatingProfiles ?? [], requirements, sharedSystem.model)
+        studies, state.customRatingProfiles ?? [], requirements, sharedSystem.model,
+        verificationSourcesForProject(getProjectState()))
       request.commit(previous => ({ ...previous, result, canonicalDependencies: undefined,
         sourceSystemFingerprint: fmeaSemanticFingerprint(currentProjectSystem().model, previous.analyses) }))
     } catch (caught) {
@@ -1268,7 +1261,9 @@ function VerificationView({
     <div className="rounded border border-slate-200 bg-white shadow-xs">
       <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
         <div><h3 className="text-xs font-semibold text-slate-800">DVP&amp;R verification plan</h3>
-          <p className="text-[10px] text-slate-400">Link objectives to requirement, failure-chain, and evidence IDs.</p></div>
+          <p className="text-[10px] text-slate-500">{analysis.kind === 'pfmea'
+            ? 'Link objectives to requirements, failure chains, and evidence.'
+            : 'Shared system verification. Review outcomes in System Modeling → Requirements & Verification.'}</p></div>
         <button className={buttonClass} onClick={() => onChange({
           ...governance,
           verificationPlan: [...governance.verificationPlan, {
@@ -1303,7 +1298,8 @@ function VerificationView({
               <select className={`mt-1 ${fieldClass}`} value={row.status}
                 onChange={event => patchVerification(row.id, { status: event.target.value as FMEAVerificationPlanRow['status'] })}>
                 {['planned','in_progress','passed','failed','blocked'].map(item =>
-                  <option key={item} value={item}>{item.replace(/_/g, ' ')}</option>)}</select></label>
+                  <option key={item} value={item} disabled={analysis.kind !== 'pfmea' && ['passed', 'failed'].includes(item)}>
+                    {item.replace(/_/g, ' ')}</option>)}</select></label>
             <button title="Remove verification" className="self-end justify-self-end p-2 text-slate-400 hover:text-red-600"
               onClick={() => onChange({ ...governance, verificationPlan: governance.verificationPlan.filter(item => item.id !== row.id) })}>
               <Trash2 size={14} /></button>
@@ -1668,7 +1664,8 @@ function ReviewView({
     }
     try {
       const manifest = await createFmeaRelease(
-        study, ratingProfiles, requirements, APP_VERSION, APP_COMMIT, [attestation], canonicalSystem)
+        study, ratingProfiles, requirements, APP_VERSION, APP_COMMIT, [attestation], canonicalSystem,
+        verificationSourcesForProject(getProjectState()))
       if (!currentOperation()) return
       onGovernance({
         ...governance,

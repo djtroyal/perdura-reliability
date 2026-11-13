@@ -6,7 +6,9 @@ import { canonicalFmeaBinding, fmeaSemanticFingerprint, inspectFmeaBinding } fro
 import { populateSystemInterfaceFunctions } from './interfaceFunctions'
 import { validateArchitectureIntegrity } from './systemArchitecture'
 import { assertFmeaDraftIntegrity } from './fmeaDraftIntegrity'
+import { assertRequirementRecordShapes } from './systemRequirements'
 import type { AIAGVDAFMEAAnalysis } from '../api/reliabilityProgram'
+import { sharedProgramRequirementRows } from './sharedRequirementViews'
 export { systemInputFingerprint } from './sharedSystemFingerprint'
 
 export interface SharedPredictionBlock {
@@ -59,6 +61,7 @@ export function createProjectSystem(name = 'Project system'): SystemDefinitionSt
 }
 
 export function validateProjectSystem(model: SystemDefinitionModel): void {
+  assertRequirementRecordShapes(model)
   if (model.version !== 4 || !Array.isArray(model.resources))
     throw new Error('System Model version 4 is required. Older architecture models are not migrated.')
   const architectureIssues = validateArchitectureIntegrity(model)
@@ -215,20 +218,29 @@ export function materializePrediction<T extends PredictionView>(system: SystemDe
 
 export function canonicalDependencyUpdates(modules: Record<string, unknown>, before: SystemDefinitionState,
   after: SystemDefinitionState): Record<string, unknown> {
-  if (systemInputFingerprint(before.model) === systemInputFingerprint(after.model)) return {}
+  const architectureChanged = systemInputFingerprint(before.model) !== systemInputFingerprint(after.model)
+  const requirementsChanged = !same(before.model.requirements ?? [], after.model.requirements ?? [])
+  const caseMembership = (model: SystemDefinitionModel) => (model.verification_cases ?? [])
+    .map(item => ({ id: item.id, requirement_ids: item.requirement_ids }))
+  const caseScopeChanged = !same(caseMembership(before.model), caseMembership(after.model))
+  if (!architectureChanged && !requirementsChanged && !caseScopeChanged) return {}
   const updates: Record<string, unknown> = {}
   const instances = new Map(after.model.instances.map(item => [item.id, item]))
   const definitions = new Map(after.model.definitions.map(item => [item.id, item]))
   const oldInstances = new Map(before.model.instances.map(item => [item.id, item]))
   const oldDefinitions = new Map(before.model.definitions.map(item => [item.id, item]))
   for (const moduleKey of ['faultTree', 'system', 'fmea', 'reliabilityProgram', 'markov']) {
+    if (!architectureChanged && moduleKey !== 'fmea' && moduleKey !== 'reliabilityProgram') continue
     const raw = record(modules[moduleKey])
     const updateState = (value: unknown) => {
       if (moduleKey === 'fmea' || moduleKey === 'reliabilityProgram') {
         const state = record(value), items = state[moduleKey === 'fmea' ? 'analyses' : 'aiagAnalyses']
         const analyses = (Array.isArray(items) ? items : []) as AIAGVDAFMEAAnalysis[]
         const linked = analyses.filter(analysis => canonicalFmeaBinding(before.model, analysis))
-        if (!linked.length || fmeaSemanticFingerprint(before.model, linked) === fmeaSemanticFingerprint(after.model, linked)) return value
+        const studyChanged = linked.length > 0 && fmeaSemanticFingerprint(before.model, linked) !== fmeaSemanticFingerprint(after.model, linked)
+        const programChanged = moduleKey === 'reliabilityProgram'
+          && !same(sharedProgramRequirementRows(before.model), sharedProgramRequirementRows(after.model))
+        if (!studyChanged && !programChanged) return value
         const issues = linked.flatMap(analysis => inspectFmeaBinding(after.model, analysis))
         const missing = issues.filter(issue => ['missing_system', 'missing_scope', 'missing_mode', 'missing_instance', 'unavailable_reference'].includes(issue.code))
         return { ...state, canonicalDependencies: { status: missing.length ? 'broken' : 'stale',
