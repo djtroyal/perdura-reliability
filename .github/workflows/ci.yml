@@ -232,6 +232,7 @@ jobs:
           python tools/build_verification_evidence.py component \
             --output evidence/python-${{ matrix.python-version }}/component-python-${{ matrix.python-version }}.json \
             --id python-${{ matrix.python-version }} --kind test \
+            --job-name 'python (${{ matrix.python-version }})' \
             --result setup-python=${{ steps.setup-python.outcome }} \
             --result setup-uv=${{ steps.setup-uv.outcome }} \
             --result install=${{ steps.install.outcome }} \
@@ -285,6 +286,7 @@ jobs:
           python tools/build_verification_evidence.py component \
             --output evidence/reference/component-reference-evidence.json \
             --id reference-evidence --kind scientific-assurance \
+            --job-name validate-reference-evidence \
             --result reference-evidence=${{ steps.references.outcome }} \
             --file catalog=evidence/reference/mil-hdbk-217f-evidence.json \
             --file schema=evidence/reference/mil-hdbk-217f-evidence.schema.json
@@ -381,6 +383,7 @@ jobs:
           python tools/build_verification_evidence.py component \
             --output evidence/release-environment-${{ matrix.target }}/component-release-environment-${{ matrix.target }}.json \
             --id release-environment-${{ matrix.target }} --kind compatibility \
+            --job-name 'Locked release environment (${{ matrix.target }})' \
             --result setup-uv=${{ steps.setup-uv.outcome }} \
             --result install-python=${{ steps.install-python.outcome }} \
             --result wheel-sync=${{ steps.wheel-sync.outcome }} \
@@ -464,6 +467,7 @@ jobs:
         with:
           name: Perdura-CI-frontend-dist-${{ github.sha }}
           path: gui/frontend/dist
+          overwrite: true
           retention-days: 5
 
   application-wheel:
@@ -517,6 +521,7 @@ jobs:
           python tools/build_verification_evidence.py component \
             --output evidence/application-wheel/component-application-wheel.json \
             --id application-wheel --kind application-package \
+            --job-name 'Build installable Python application' \
             --result setup-uv=${{ steps.setup-uv.outcome }} \
             --result install-python=${{ steps.install-python.outcome }} \
             --result build=${{ steps.build.outcome }} \
@@ -536,6 +541,7 @@ jobs:
         with:
           name: Perdura-CI-application-wheel-${{ github.sha }}
           path: candidate-wheel/perdura-*.whl
+          overwrite: true
           retention-days: 5
 
   website-resources:
@@ -599,6 +605,7 @@ jobs:
           python tools/build_verification_evidence.py component \
             --output evidence/website-resources/component-website-resources.json \
             --id website-resources --kind generated-product-resource \
+            --job-name 'Generate companion-website resources' \
             --optional-result baseline=${{ steps.baseline.outcome }} \
             --result setup-node=${{ steps.setup-node.outcome }} \
             --result install=${{ steps.install.outcome }} \
@@ -635,7 +642,9 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
-          pattern: Perdura-CI-raw-*-${{ github.run_id }}-${{ github.run_attempt }}
+          # A selective rerun retains successful jobs' earlier artifacts.
+          # The compiler selects and validates the latest artifact per component.
+          pattern: Perdura-CI-raw-*-${{ github.run_id }}-*
           path: evidence-source
 
       - name: Retrieve latest successful main coverage baseline
@@ -653,11 +662,13 @@ jobs:
 
       - name: Capture workflow job and step timestamps
         continue-on-error: true
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p evidence-source
-          gh api 'repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs?filter=all&per_page=100' > evidence-source/workflow-jobs.json
+          gh api --paginate --slurp 'repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs?filter=all&per_page=100' \
+            | jq '{jobs: [.[].jobs[]]}' > evidence-source/workflow-jobs.json
 
       - name: Compile human and machine-readable verification reports
         id: compile
@@ -676,6 +687,7 @@ jobs:
           fi
           python tools/build_verification_evidence.py compile \
             --input evidence-source --output evidence-report \
+            --select-latest-attempts \
             --expected dependency-lock \
             --expected python-3.11 --expected python-3.12 \
             --expected python-3.13 --expected python-3.14 \
@@ -721,6 +733,7 @@ jobs:
         with:
           name: Perdura-Coverage-Baseline
           path: evidence-report/verification-report.json
+          overwrite: true
           retention-days: 90
 
       - name: Enforce complete verification evidence

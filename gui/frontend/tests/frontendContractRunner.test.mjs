@@ -4,7 +4,7 @@ import { writeFile, mkdtemp } from 'node:fs/promises'
 import { mock } from 'node:test'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { discoverContractScripts, junitXml, xmlEscape } from './contractRunnerCore.mjs'
+import { contractProcessStatus, discoverContractScripts, junitXml, xmlEscape } from './contractRunnerCore.mjs'
 import { closeViteTestServer } from './viteTestLifecycle.mjs'
 
 const root = await mkdtemp(join(tmpdir(), 'perdura-contract-runner-'))
@@ -17,6 +17,12 @@ await writeFile(packagePath, JSON.stringify({ scripts: {
 } }))
 
 assert.deepEqual(await discoverContractScripts(packagePath), ['test:a', 'test:z'])
+assert.equal(contractProcessStatus({ status: 0 }), 'passed')
+assert.equal(contractProcessStatus({ status: 1 }), 'failed')
+assert.equal(contractProcessStatus({ status: null, error: new Error('spawn failed') }), 'failed')
+assert.equal(contractProcessStatus({ status: 0, error: Object.assign(new Error('spawn failed'), { code: 'EPERM' }) }), 'failed',
+  'a reported zero exit code cannot conceal a subprocess execution error')
+assert.equal(contractProcessStatus({ status: 0, signal: 'SIGTERM' }), 'failed')
 assert.equal(xmlEscape('<failure token="x">'), '&lt;failure token=&quot;x&quot;&gt;')
 const xml = junitXml([
   { script: 'test:pass', status: 'passed', exitCode: 0, durationSeconds: 0.2, output: '' },

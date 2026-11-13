@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { discoverContractScripts, junitXml } from './contractRunnerCore.mjs'
+import { contractProcessStatus, discoverContractScripts, junitXml } from './contractRunnerCore.mjs'
 
 const testDir = dirname(fileURLToPath(import.meta.url))
 const frontendRoot = resolve(testDir, '..')
@@ -24,7 +24,7 @@ for (const script of scripts) {
     maxBuffer: 20 * 1024 * 1024,
   })
   const output = [proc.stdout, proc.stderr, proc.error?.stack].filter(Boolean).join('\n').trim()
-  const status = proc.status === 0 ? 'passed' : 'failed'
+  const status = contractProcessStatus(proc)
   const durationSeconds = (performance.now() - started) / 1000
   const result = { script, status, exitCode: proc.status, signal: proc.signal, durationSeconds, output }
   results.push(result)

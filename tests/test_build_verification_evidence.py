@@ -6,6 +6,7 @@ import importlib.util
 import json
 from pathlib import Path
 import zipfile
+import pytest
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "tools" / "build_verification_evidence.py"
@@ -47,7 +48,8 @@ def _component(root: Path, component_id: str, status: str = "success") -> None:
     assert code == 0
 
 
-def _compile(source: Path, output: Path, *expected: str, baseline: Path | None = None) -> dict:
+def _compile(source: Path, output: Path, *expected: str, baseline: Path | None = None,
+             extra_args: tuple[str, ...] = ()) -> dict:
     args = [
         "compile", "--input", str(source), "--output", str(output),
         "--repository", "example/perdura", "--commit", "a" * 40,
@@ -58,8 +60,174 @@ def _compile(source: Path, output: Path, *expected: str, baseline: Path | None =
         args.extend(["--expected", component_id])
     if baseline is not None:
         args.extend(["--baseline", str(baseline)])
+    args.extend(extra_args)
     assert evidence.main(args) == 0
     return json.loads((output / "verification-report.json").read_text(encoding="utf-8"))
+
+
+def _attempt_artifact(source, component_id, attempt, *, status="passed", tests=False):
+    root = source / f"Perdura-CI-raw-{component_id}-42-{attempt}"
+    root.mkdir(parents=True)
+    manifest = root / f"component-{component_id}.json"
+    manifest.write_text(json.dumps({
+        "schema": evidence.COMPONENT_SCHEMA, "component_id": component_id,
+        "label": component_id, "kind": "test", "status": status,
+        "generated_at": f"2026-01-01T00:0{attempt}:30Z",
+        "provenance": {"repository": "example/perdura", "commit": "a" * 40,
+                       "run_id": "42", "run_attempt": str(attempt), "job_name": component_id},
+    }), encoding="utf-8")
+    if tests:
+        _junit(root / "junit-tests.xml", failed=status == "failed")
+        _coverage(root / "coverage.json")
+    return root
+
+
+def _workflow_job(component_id, attempt, *, outcome="success", execution_attempt=None):
+    execution = execution_attempt or attempt
+    return {"id": attempt * 1000, "name": component_id, "run_id": 42,
+            "run_attempt": attempt, "status": "completed", "conclusion": outcome,
+            "started_at": f"2026-01-01T00:0{execution}:00Z",
+            "completed_at": f"2026-01-01T00:0{execution}:59Z", "steps": []}
+
+
+def _compile_attempts(source, output, jobs, *expected, job_results=()):
+    (source / "workflow-jobs.json").write_text(json.dumps({"jobs": jobs}), encoding="utf-8")
+    return _compile(source, output, *expected, extra_args=(
+        "--select-latest-attempts", "--run-attempt", "2", *job_results))
+
+
+def test_selective_rerun_combines_unchanged_and_rerun_components(tmp_path):
+    source = tmp_path / "source"
+    _attempt_artifact(source, "python-3.13", 1, tests=True)
+    _attempt_artifact(source, "macos-arm64", 2)
+    report = _compile_attempts(source, tmp_path / "report", [
+        _workflow_job("python-3.13", 1),
+        # GitHub copies a successful job into attempt 2 without executing it.
+        _workflow_job("python-3.13", 2, execution_attempt=1),
+        _workflow_job("macos-arm64", 1, outcome="cancelled"),
+        _workflow_job("macos-arm64", 2),
+    ], "python-3.13", "macos-arm64")
+    assert report["status"] == "passed"
+    assert report["tests"]["totals"]["total"] == 2
+    assert {item["component_id"]: item["run_attempt"] for item in
+            report["artifact_selection"]["selected"]} == {"python-3.13": 1, "macos-arm64": 2}
+
+
+@pytest.mark.parametrize("ambiguous", [False, True])
+def test_reusable_workflow_job_prefixes_must_identify_one_caller(tmp_path, ambiguous):
+    source = tmp_path / "source"
+    _attempt_artifact(source, "python-3.13", 2, tests=True)
+    jobs = [{**_workflow_job("python-3.13", 2), "name": "test / python-3.13"}]
+    if ambiguous:
+        jobs.append({**jobs[0], "name": "other / python-3.13", "id": 2001})
+    report = _compile_attempts(source, tmp_path / "report", jobs, "python-3.13")
+    assert report["status"] == ("incomplete" if ambiguous else "passed")
+
+
+@pytest.mark.parametrize("old_status,new_status", [("failed", "passed"), ("passed", "failed")])
+def test_latest_whole_artifact_replaces_old_results_without_double_counting(tmp_path, old_status, new_status):
+    source = tmp_path / "source"
+    old = _attempt_artifact(source, "python-3.13", 1, status=old_status, tests=True)
+    _attempt_artifact(source, "python-3.13", 2, status=new_status, tests=True)
+    output = tmp_path / "report"
+    report = _compile_attempts(source, output, [
+        _workflow_job("python-3.13", 1, outcome="failure" if old_status == "failed" else "success"),
+        _workflow_job("python-3.13", 2, outcome="failure" if new_status == "failed" else "success"),
+    ], "python-3.13")
+    assert report["status"] == new_status
+    assert report["tests"]["totals"]["total"] == 2
+    assert report["tests"]["totals"]["failed"] == (1 if new_status == "failed" else 0)
+    assert report["artifact_selection"]["superseded"] == [old.name]
+    assert (output / "raw" / "input-1" / old.name / "junit-tests.xml").is_file()
+
+
+@pytest.mark.parametrize("outcome,status", [("failure", "failed"), ("cancelled", "incomplete"), ("success", "incomplete")])
+def test_missing_rerun_artifact_never_reuses_an_older_pass(tmp_path, outcome, status):
+    source = tmp_path / "source"
+    _attempt_artifact(source, "python-3.13", 1, tests=True)
+    report = _compile_attempts(source, tmp_path / "report", [
+        _workflow_job("python-3.13", 1), _workflow_job("python-3.13", 2, outcome=outcome),
+    ], "python-3.13")
+    assert report["status"] == status
+    assert any("predates the latest execution" in issue for issue in report["issues"])
+
+
+@pytest.mark.parametrize("malformed", [False, True, "array", "missing-id", "invalid-status", "invalid-provenance"])
+def test_empty_or_malformed_latest_artifact_does_not_fall_back(tmp_path, malformed):
+    source = tmp_path / "source"
+    _attempt_artifact(source, "python-3.13", 1, tests=True)
+    latest = source / "Perdura-CI-raw-python-3.13-42-2"
+    latest.mkdir()
+    if malformed:
+        payload = {
+            True: "{invalid",
+            "array": "[]",
+            "missing-id": json.dumps({"schema": evidence.COMPONENT_SCHEMA, "status": "passed"}),
+            "invalid-status": json.dumps({"schema": evidence.COMPONENT_SCHEMA,
+                                          "component_id": "python-3.13", "status": {}}),
+            "invalid-provenance": json.dumps({"schema": evidence.COMPONENT_SCHEMA,
+                                              "component_id": "python-3.13", "status": "passed",
+                                              "provenance": []}),
+        }[malformed]
+        (latest / "component-python.json").write_text(payload, encoding="utf-8")
+    report = _compile_attempts(source, tmp_path / "report", [
+        _workflow_job("python-3.13", 2, outcome="failure"),
+    ], "python-3.13", job_results=("--job-result", "python=failure"))
+    assert report["status"] == "failed"
+    assert report["complete"] is False
+    assert report["tests"]["totals"]["total"] == 0
+    assert any("Invalid current evidence" in issue for issue in report["issues"])
+
+
+@pytest.mark.parametrize("field,value", [("commit", "b" * 40), ("run_id", "43"), ("repository", "other/repo"), ("run_attempt", "1")])
+def test_current_artifact_provenance_must_match_its_run(tmp_path, field, value):
+    source = tmp_path / "source"
+    root = _attempt_artifact(source, "python-3.13", 2, tests=True)
+    path = root / "component-python-3.13.json"
+    manifest = json.loads(path.read_text())
+    manifest["provenance"][field] = value
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    report = _compile_attempts(source, tmp_path / "report", [
+        _workflow_job("python-3.13", 2),
+    ], "python-3.13")
+    assert report["status"] == "incomplete"
+    assert any("does not match" in issue for issue in report["issues"])
+
+
+def test_duplicate_current_attempt_artifacts_are_incomplete(tmp_path):
+    source = tmp_path / "source"
+    _attempt_artifact(source, "python-3.13", 2, tests=True)
+    _attempt_artifact(source / "duplicate", "python-3.13", 2, tests=True)
+    report = _compile_attempts(source, tmp_path / "report", [
+        _workflow_job("python-3.13", 2),
+    ], "python-3.13")
+    assert report["status"] == "incomplete"
+    assert any("Duplicate evidence artifacts" in issue for issue in report["issues"])
+
+
+def test_workflow_failure_after_manifest_creation_still_fails_gate(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    _component(source, "frontend")
+    _junit(source / "junit.xml")
+    _coverage(source / "coverage.json")
+    report = _compile(source, tmp_path / "report", "frontend",
+                      extra_args=("--job-result", "frontend=failure"))
+    assert report["status"] == "failed"
+
+
+def test_component_records_github_provenance(monkeypatch, tmp_path):
+    for key, value in {"GITHUB_REPOSITORY": "example/perdura", "GITHUB_SHA": "a" * 40,
+                       "GITHUB_RUN_ID": "42", "GITHUB_RUN_ATTEMPT": "2", "GITHUB_JOB": "python"}.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setattr(evidence, "command_version", lambda _command: None)
+    path = tmp_path / "component.json"
+    assert evidence.main(["component", "--output", str(path), "--id", "python-3.13",
+                          "--job-name", "python (3.13)"]) == 0
+    assert json.loads(path.read_text())["provenance"] == {
+        "repository": "example/perdura", "commit": "a" * 40, "run_id": "42",
+        "run_attempt": "2", "job_name": "python (3.13)",
+    }
 
 
 def test_complete_evidence_compiles_to_human_and_machine_reports(tmp_path: Path):

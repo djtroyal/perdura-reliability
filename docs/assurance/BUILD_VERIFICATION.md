@@ -9,7 +9,7 @@ logs.
 ## Published records
 
 Every CI run produces a GitHub job summary and a 90-day
-`Perdura-CI-evidence-<commit>-<run>-<attempt>` artifact containing:
+`Perdura-CI-evidence-<commit>-<run>` artifact containing:
 
 - `verification-report.html`, a self-contained printable review document;
 - `verification-report.json`, the canonical
@@ -64,6 +64,15 @@ The report conclusion is intentionally fail-closed:
 CI publishes evidence before enforcing that conclusion. A failing test
 therefore still leaves an inspectable report, while a report-generation gap
 cannot be interpreted as a pass.
+
+On a selective rerun, successful jobs retain their earlier evidence. The
+compiler selects the newest whole artifact for each component within the same
+workflow run and verifies its repository, checkout commit, attempt and job
+execution. It records the selected attempts and preserves superseded artifacts
+as raw history, without counting their tests twice. A failed/cancelled latest
+job, missing replacement artifact or invalid provenance still blocks the gate;
+an older successful result cannot conceal it. An unavailable hosted runner is
+reported as incomplete verification, not a failed scientific test.
 
 Python 3.13 is the canonical branch-coverage environment. Python 3.11, 3.12,
 and 3.14 remain independent compatibility runs. Coverage is compared with the
