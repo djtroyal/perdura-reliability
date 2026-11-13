@@ -205,6 +205,27 @@ def test_duplicate_current_attempt_artifacts_are_incomplete(tmp_path):
     assert any("Duplicate evidence artifacts" in issue for issue in report["issues"])
 
 
+@pytest.mark.parametrize("field", ["generated_at", "started_at"])
+@pytest.mark.parametrize("value", [None, 123, [], {}])
+def test_invalid_execution_timestamp_types_publish_incomplete_report(tmp_path, field, value):
+    source = tmp_path / "source"
+    root = _attempt_artifact(source, "python-3.13", 2, tests=True)
+    job = _workflow_job("python-3.13", 2)
+    if field == "generated_at":
+        path = root / "component-python-3.13.json"
+        manifest = json.loads(path.read_text())
+        manifest[field] = value
+        path.write_text(json.dumps(manifest), encoding="utf-8")
+    else:
+        job[field] = value
+    output = tmp_path / "report"
+    report = _compile_attempts(source, output, [job], "python-3.13")
+    assert report["status"] == "incomplete"
+    assert report["complete"] is False
+    assert any("execution timestamps must be strings" in issue for issue in report["issues"])
+    assert evidence.main(["gate", "--report", str(output / "verification-report.json")]) == 1
+
+
 def test_workflow_failure_after_manifest_creation_still_fails_gate(tmp_path):
     source = tmp_path / "source"
     source.mkdir()
