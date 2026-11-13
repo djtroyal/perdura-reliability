@@ -43,9 +43,19 @@ npm run website:resources --prefix gui/frontend -- \
 ```
 
 Missing captures, duplicate or incomplete metadata, implausible dimensions,
-blank images, application error boundaries, and PNGs over 1 MB fail the build.
+blank images, application error boundaries, uncaught browser errors, broken
+images, and PNGs over 1 MB fail the build. Capture waits for loading indicators
+to clear and chart/diagram geometry to settle. A chart that never renders fails
+instead of producing a successful screenshot of its loading state.
 Pixel changes are reported for review but do not fail CI. Files over 400 KiB
 produce an optimization warning.
+
+The browser exposes the version and commit embedded in its frontend build.
+Capture verifies these against the package version and `GITHUB_SHA` (or
+`PERDURA_COMMIT` locally), and records the served values in provenance. When
+using `website:resources:from-build` or `--base-url`, rebuild with the matching
+`VITE_APP_COMMIT` or `GITHUB_SHA`; an old preview is rejected. A local build
+without an explicit commit uses `dev` in provenance.
 
 ## Deterministic capture state
 
@@ -82,9 +92,24 @@ on a separately running API service.
 Every pull request and main-branch build runs the complete capture set. The
 resource manifest, checksums, review page, and generated PNGs are included in
 Perdura's verification evidence and uploaded as a CI artifact. Main-branch CI
-success triggers `.github/workflows/sync-website-resources.yml`, which validates
-the companion website and opens or updates the rolling
-`automation/perdura-screenshots` pull request.
+success triggers `.github/workflows/sync-website-resources.yml`. It skips
+superseded main revisions, verifies the bundle's source commit, inventory and
+image hashes, validates the companion website build, and opens or updates the
+rolling `automation/perdura-screenshots` pull request.
+
+**A successful synchronization run prepares a website PR; it does not publish
+the screenshots.** Review and merge that PR, then confirm the companion
+website's production deployment. Its PR preview can show newer images while
+the public website still shows the previous main-branch bundle. The sync run's
+job summary links the pending PR and identifies the source revision and capture
+time.
+
+To investigate apparently stale images, compare the source commit and
+`generatedAt` in the CI artifact's `build-provenance.json` with
+`public/website-resources/build-provenance.json` on the website PR and on website
+main. Then check the deployment associated with the merged website commit.
+Uncommitted local UI changes cannot appear in GitHub-generated screenshots;
+they must first reach Perdura main and pass CI.
 
 Configure a GitHub App installed on `djtroyal/perdura-website` with repository
 Contents and Pull requests read/write permission. Store its credentials on the
@@ -93,8 +118,9 @@ Perdura repository as:
 - repository variable `PERDURA_WEBSITE_APP_CLIENT_ID`; and
 - repository secret `PERDURA_WEBSITE_APP_PRIVATE_KEY`.
 
-If either value is absent, synchronization is skipped with a workflow warning;
-capture validation and resource artifacts still run normally.
+If either value is absent, synchronization fails with a configuration error;
+capture validation and resource artifacts still run normally in the separate
+CI workflow.
 
 ## Adding or changing a view
 
@@ -104,7 +130,8 @@ capture validation and resource artifacts still run normally.
    website module, group, filename, title, alt text, and deterministic actions.
 3. For a results-oriented view, provide valid demo inputs or a reviewed example,
    then run `npm run website:seed-results --prefix gui/frontend`.
-4. Run `npm run test:website-resources --prefix gui/frontend`.
+4. Run `npm run test:website-resources --prefix gui/frontend` and, from
+   `gui/frontend`, `node tests/websiteCaptureReadinessBrowser.mjs`.
 5. Generate the bundle against the current website baseline and review
    `index.html` plus `diff-report.json`.
 

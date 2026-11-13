@@ -24,7 +24,7 @@ export const captures = [
   shot('dashboard.overview', 'dashboard', 'dashboard', 'Project', 'dashboard.png', 'Project dashboard', [], { primary: true, resultRequired: false }),
 
   ...tabShots('life-data', 'life-data-analysis', 'Life Data Analysis', [
-    ['life-data.parametric', 'lda-parametric.png', 'Parametric distribution fitting', ['parametric'], { primary: true }],
+    ['life-data.parametric', 'lda-parametric.png', 'Parametric distribution fitting', ['parametric'], { primary: true, readiness: { minPlots: 1 } }],
     ['life-data.nonparametric', 'lda-non-param.png', 'Non-parametric life data analysis', ['nonparametric']],
     ['life-data.special', 'lda-special-models.png', 'Special lifetime models', ['special']],
     ['life-data.weibayes', 'lda-weibayes.png', 'Weibayes fixed-shape analysis', ['weibayes']],
@@ -73,13 +73,13 @@ export const captures = [
   ], ['degradation']),
 
   ...tabShots('system-modeling', 'system-reliability-rbd', 'System Modeling', [
-    ['system.rbd', 'system-modeling-rbd.png', 'Reliability block diagram', ['rbd'], { primary: true, resultRequired: false }],
+    ['system.rbd', 'system-modeling-rbd.png', 'Reliability block diagram', ['rbd'], { primary: true, resultRequired: false, readiness: { minDiagramNodes: 1 } }],
   ]),
   ...tabShots('system-modeling', 'fault-tree-analysis', 'System Modeling', [
-    ['system.fta', 'system-modeling-fta.png', 'Fault tree analysis', ['fta'], { primary: true, resultRequired: false }],
+    ['system.fta', 'system-modeling-fta.png', 'Fault tree analysis', ['fta'], { primary: true, resultRequired: false, readiness: { minDiagramNodes: 1 } }],
   ]),
   ...tabShots('system-modeling', 'markov-models', 'System Modeling', [
-    ['system.markov', 'system-modeling-markov-analysis.png', 'Markov state-space analysis', ['markov'], { primary: true, resultRequired: false }],
+    ['system.markov', 'system-modeling-markov-analysis.png', 'Markov state-space analysis', ['markov'], { primary: true, resultRequired: false, readiness: { minDiagramNodes: 1 } }],
   ]),
 
   shot('allocation.overview', 'allocation', 'reliability-allocation', 'Allocation', 'reliability-allocation.png', 'Reliability allocation', [], { primary: true }),

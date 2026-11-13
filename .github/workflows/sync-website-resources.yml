@@ -10,16 +10,59 @@ permissions:
   actions: read
   contents: read
 
-concurrency:
-  group: perdura-website-resources
-  cancel-in-progress: true
-
 jobs:
-  sync:
+  eligibility:
     if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-24.04
+    outputs:
+      current: ${{ steps.source.outputs.current }}
     steps:
+      - name: Check whether this source build is current
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_COMMIT: ${{ github.event.workflow_run.head_sha }}
+          SOURCE_RUN_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          CURRENT_COMMIT=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')
+          if [ "$SOURCE_COMMIT" = "$CURRENT_COMMIT" ]; then
+            echo 'current=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'current=false' >> "$GITHUB_OUTPUT"
+            echo '::notice::A newer main commit supersedes this resource bundle. Waiting for its CI run.'
+            {
+              printf '%s\n\n' '## Website screenshot publication'
+              printf '%s\n\n' '**Superseded source build.** This run did not update the website PR; a newer main commit must complete CI.'
+              printf 'Source commit: `%s`\n' "$SOURCE_COMMIT"
+              printf '[Source CI run](%s)\n' "$SOURCE_RUN_URL"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  sync:
+    needs: eligibility
+    if: needs.eligibility.outputs.current == 'true'
+    runs-on: ubuntu-24.04
+    # Stale completions must be rejected before they can replace a pending sync.
+    concurrency:
+      group: perdura-website-resources
+      cancel-in-progress: false
+    steps:
+      - name: Recheck the source after waiting for synchronization
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_COMMIT: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          CURRENT_COMMIT=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')
+          if [ "$SOURCE_COMMIT" = "$CURRENT_COMMIT" ]; then
+            echo 'current=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'current=false' >> "$GITHUB_OUTPUT"
+            echo '::notice::A newer main commit supersedes this resource bundle. Waiting for its CI run.'
+          fi
+
       - name: Check website GitHub App configuration
+        if: steps.source.outputs.current == 'true'
         id: configured
         shell: bash
         env:
@@ -30,7 +73,8 @@ jobs:
             echo 'enabled=true' >> "$GITHUB_OUTPUT"
           else
             echo 'enabled=false' >> "$GITHUB_OUTPUT"
-            echo '::warning::Website synchronization is disabled. Configure PERDURA_WEBSITE_APP_CLIENT_ID and PERDURA_WEBSITE_APP_PRIVATE_KEY.'
+            echo '::error::Website synchronization cannot run. Configure PERDURA_WEBSITE_APP_CLIENT_ID and PERDURA_WEBSITE_APP_PRIVATE_KEY.'
+            exit 1
           fi
 
       - name: Download the validated resource bundle
@@ -43,10 +87,23 @@ jobs:
           gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY"
           --name "$RESOURCE_NAME" --dir generated-resources
 
+      - name: Check out the validated source revision
+        if: steps.configured.outputs.enabled == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          path: source
+
+      - name: Verify bundle source, inventory, and image hashes
+        if: steps.configured.outputs.enabled == 'true'
+        env:
+          SOURCE_COMMIT: ${{ github.event.workflow_run.head_sha }}
+        run: python source/tools/verify_website_resources.py generated-resources --source-commit "$SOURCE_COMMIT"
+
       - name: Create a repository-scoped GitHub App token
         if: steps.configured.outputs.enabled == 'true'
         id: app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
         with:
           client-id: ${{ vars.PERDURA_WEBSITE_APP_CLIENT_ID }}
           private-key: ${{ secrets.PERDURA_WEBSITE_APP_PRIVATE_KEY }}
@@ -82,9 +139,25 @@ jobs:
           npm ci
           npm run build
 
-      - name: Open or update the rolling website-resource pull request
+      - name: Recheck the source before updating the website PR
+        id: publication
         if: steps.configured.outputs.enabled == 'true'
-        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_COMMIT: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          CURRENT_COMMIT=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')
+          if [ "$SOURCE_COMMIT" = "$CURRENT_COMMIT" ]; then
+            echo 'current=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'current=false' >> "$GITHUB_OUTPUT"
+            echo '::notice::A newer main commit supersedes this resource bundle. The website PR was not updated.'
+          fi
+
+      - name: Open or update the rolling website-resource pull request
+        id: resource-pr
+        if: steps.configured.outputs.enabled == 'true' && steps.publication.outputs.current == 'true'
+        uses: peter-evans/create-pull-request@15733dbdfeedb4f7fdb73d13c6f5ac83b710fab8 # v8
         with:
           token: ${{ steps.app-token.outputs.token }}
           path: website
@@ -100,5 +173,42 @@ jobs:
 
             The bundle includes per-image SHA-256 hashes, build provenance,
             an inventory manifest, and an informative visual-difference report.
+
+            Publication is pending: merge this PR and confirm the website's
+            production deployment. A successful synchronization run only
+            prepares this PR; it does not publish these screenshots.
           labels: automated,product-screenshots
           base: main
+
+      - name: Report screenshot publication status
+        if: always()
+        env:
+          SOURCE_CURRENT: ${{ steps.publication.outputs.current || steps.source.outputs.current }}
+          SOURCE_COMMIT: ${{ github.event.workflow_run.head_sha }}
+          SOURCE_RUN_URL: ${{ github.event.workflow_run.html_url }}
+          PR_URL: ${{ steps.resource-pr.outputs.pull-request-url }}
+          SYNC_STATUS: ${{ job.status }}
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          lines = ["## Website screenshot publication", ""]
+          if os.environ['SYNC_STATUS'] != 'success':
+              lines.append('**Synchronization failed.** Review the failed step before publishing screenshots.')
+          elif os.environ['SOURCE_CURRENT'] != 'true':
+              lines.append('**Superseded source build.** This run did not update the website PR; a newer main commit must complete CI.')
+          elif os.environ['PR_URL']:
+              lines.append(f"**Publication pending merge and deployment:** [Review the website PR]({os.environ['PR_URL']}).")
+          else:
+              lines.append('**No resource changes to propose.** Website main already contains this generated bundle.')
+          lines.extend(['', f"Source commit: `{os.environ['SOURCE_COMMIT']}`", f"[Source CI run]({os.environ['SOURCE_RUN_URL']})"])
+          provenance = Path('generated-resources/build-provenance.json')
+          if provenance.exists():
+              try:
+                  data = json.loads(provenance.read_text())
+                  lines.extend([f"Generated: {data['generatedAt']}", f"Screenshots: {data['captures']}"])
+              except (OSError, ValueError, TypeError, KeyError):
+                  lines.append('Bundle provenance could not be read; consult the verification step.')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              summary.write('\n'.join(lines) + '\n')
+          PY

@@ -568,6 +568,11 @@ jobs:
         id: browser
         run: npx --prefix gui/frontend playwright install --with-deps chromium
 
+      - name: Test screenshot readiness guards
+        id: capture-readiness
+        working-directory: gui/frontend
+        run: node tests/websiteCaptureReadinessBrowser.mjs
+
       - name: Generate and validate website resources
         id: generate
         shell: bash
@@ -579,6 +584,7 @@ jobs:
           npm run website:resources --prefix gui/frontend -- \
             --output evidence/website-resources \
             "${BASELINE_ARGS[@]}"
+          python tools/verify_website_resources.py evidence/website-resources --source-commit "$GITHUB_SHA"
 
       - name: Record website-resource evidence component
         if: always()
@@ -603,6 +609,7 @@ jobs:
             --result setup-node=${{ steps.setup-node.outcome }} \
             --result install=${{ steps.install.outcome }} \
             --result browser=${{ steps.browser.outcome }} \
+            --result capture-readiness=${{ steps.capture-readiness.outcome }} \
             --result generate=${{ steps.generate.outcome }} \
             "${FILE_ARGS[@]}"
 
