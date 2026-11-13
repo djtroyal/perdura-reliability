@@ -36,9 +36,13 @@ import {
 import { matchesSearchQuery } from '../../searchMatch'
 import { downloadArtifact } from '../../store/artifactExport'
 import Plot from '../shared/ExportablePlot'
+import { ReportAssetScopeProvider } from '../shared/ReportAssetScope'
 import ResultsTable from '../shared/ResultsTable'
-import { createFolioState, useFolioState, useRevision, getProjectState, writeFolioState } from '../../store/project'
-import FolioBar from '../shared/FolioBar'
+import { createFolioState, useFolioState, useRevision, getProjectState, writeFolioState, registerProjectFlusher } from '../../store/project'
+import LibraryWorkspace from './LibraryWorkspace'
+import { CURRENT_ENGINE_REVISIONS } from '../../version'
+import { buildFtaReferenceIndex, collectFtaClosure, createFtaResultProvenance, ftaResultFreshness,
+  normalizeFtaLibrary, normalizeFtaSemanticEdges, type FtaResultProvenance } from './libraryModel'
 import LibraryPanel, { LibraryItem } from '../shared/LibraryPanel'
 import { CanvasErrorBoundary, sanitizeNodeChanges, sanitizeNodes } from '../shared/CanvasErrorBoundary'
 import { useReliabilitySources } from '../shared/ldaFolios'
@@ -331,7 +335,7 @@ function gateIdPrefix(type: string): string {
   return GATE_ID_PREFIXES[type] ?? type.toUpperCase()
 }
 
-function resolveGateIds(graphNodes: Node[]): Map<string, string> {
+export function resolveGateIds(graphNodes: Node[]): Map<string, string> {
   const resolved = new Map<string, string>()
   const used = new Set<string>()
   for (const node of graphNodes) {
@@ -793,7 +797,7 @@ function ReadableGateNode({ data, selected }: NodeProps) {
   )
 }
 
-const ANNOTATION_PALETTE: Record<string, { label: string; accent: string; fill: string; text: string }> = {
+export const ANNOTATION_PALETTE: Record<string, { label: string; accent: string; fill: string; text: string }> = {
   amber: { label: 'Amber', accent: '#f59e0b', fill: '#fffbeb', text: '#451a03' },
   orange: { label: 'Orange', accent: '#f97316', fill: '#fff7ed', text: '#431407' },
   red: { label: 'Red', accent: '#ef4444', fill: '#fef2f2', text: '#450a0a' },
@@ -874,7 +878,7 @@ const gateNode = (type: string) => (props: NodeProps) => (
   <ReadableGateNode {...props} data={{ ...props.data, nodeType: type }} />
 )
 
-const nodeTypes = {
+export const ftaNodeTypes = {
   basic: eventNode('basic'),
   undeveloped: eventNode('undeveloped'),
   house: eventNode('house'),
@@ -890,7 +894,7 @@ const nodeTypes = {
 }
 const FTA_SNAP_GRID: [number, number] = [20, 20]
 const FTA_FIT_VIEW_OPTIONS = { padding: 0.25, minZoom: 0.55, maxZoom: 1.2 }
-const edgeTypes = { adaptiveOrthogonal: AdaptiveOrthogonalEdge }
+export const ftaEdgeTypes = { adaptiveOrthogonal: AdaptiveOrthogonalEdge }
 
 const importanceCols = [
   { key: 'event', label: 'Event' },
@@ -914,12 +918,13 @@ const METHOD_LABELS: Record<string, string> = {
   simulation: 'Simulation',
 }
 
-interface CanvasState {
+export interface CanvasState {
   schemaVersion?: number
   nodes: Node[]
   edges: Edge[]
   exposureTime?: string
   result?: FaultTreeResponse | null
+  resultProvenance?: FtaResultProvenance
   engine?: 'auto' | 'exact' | 'simulation'
   confidenceLevel?: string
   nSimulations?: string
@@ -945,7 +950,7 @@ interface NodeClipboard {
   edges: Edge[]
 }
 
-const INITIAL_CANVAS: CanvasState = {
+export const INITIAL_CANVAS: CanvasState = {
   schemaVersion: 2,
   nodes: [], edges: [], exposureTime: '1000', engine: 'auto',
   confidenceLevel: '95', nSimulations: '20000', simSeed: '', density: 'comfortable',
@@ -977,7 +982,7 @@ function defaultInputRole(type: string, index: number): string {
   return 'input'
 }
 
-function edgePresentation(sourceType: string, role: string, order: number) {
+export function edgePresentation(sourceType: string, role: string, order: number) {
   const semantic = ['pand', 'por', 'spare', 'seq', 'fdep', 'imply', 'inhibit'].includes(sourceType)
   if (!semantic) return {}
   const roleLabel = role === 'input' || role === 'sequence' ? '' : ` · ${role}`
@@ -997,17 +1002,14 @@ function nextFaultTreeEdgeId(edges: readonly Pick<Edge, 'id'>[]): string {
   return `fta-edge-${sequence}`
 }
 
-function normalizeSemanticEdges(rawEdges: Edge[], graphNodes: Node[]): Edge[] {
+export function normalizeSemanticEdges(rawEdges: Edge[], graphNodes: Node[]): Edge[] {
   const byId = new Map(graphNodes.map(node => [node.id, node]))
-  const nextOrder = new Map<string, number>()
   const usedIds = new Set<string>()
-  return (rawEdges ?? []).map((edge, index) => {
+  return normalizeFtaSemanticEdges(rawEdges ?? [], graphNodes).map((edge, index) => {
     const sourceType = byId.get(edge.source)?.type ?? ''
     const existing = (edge.data ?? {}) as { role?: string; order?: number }
-    const order = Number.isInteger(existing.order)
-      ? Number(existing.order) : (nextOrder.get(edge.source) ?? 0)
-    nextOrder.set(edge.source, Math.max(nextOrder.get(edge.source) ?? 0, order + 1))
-    const role = existing.role || defaultInputRole(sourceType, order)
+    const order = edge.order
+    const role = edge.role
     const requestedId = String(edge.id ?? '').trim()
     let id = requestedId && !usedIds.has(requestedId)
       ? requestedId : `fta-edge-recovered-${index + 1}`
@@ -1027,19 +1029,23 @@ function normalizeSemanticEdges(rawEdges: Edge[], graphNodes: Node[]): Edge[] {
   })
 }
 
-/** Read every faultTree folio's graph as {tree_id -> graph} for transfer-gate
- *  resolution (#9). Reads the raw module slice directly so all trees (not just
- *  the active one) are available at analyze time. */
-function collectAllTrees(): { trees: Record<string, FaultTreeGraph>; names: Record<string, string> } {
-  const trees: Record<string, FaultTreeGraph> = {}
-  const names: Record<string, string> = {}
-  const raw = getProjectState().modules['faultTree'] as
-    | { _folioWrap?: boolean; folios?: { id: string; name: string; state?: CanvasState }[] }
-    | undefined
-  if (!raw || !raw.folios) return { trees, names }
-  for (const f of raw.folios) {
-    const st = f.state ?? INITIAL_CANVAS
-    const modelEdges = restoreExpandedTransferEndpoints(st.edges ?? [], st.nodes ?? [])
+/** Read the selected tree's dependency closure for Transfer resolution. */
+function collectAllTrees(treeId?: string, liveState?: CanvasState): { trees: Record<string, FaultTreeGraph>; names: Record<string, string> } {
+  const trees: Record<string, FaultTreeGraph> = Object.create(null)
+  const names: Record<string, string> = Object.create(null)
+  const normalized = normalizeFtaLibrary(getProjectState().modules.faultTree)
+  const allFolios = liveState && treeId ? normalized.folios.map(folio => folio.id === treeId
+    ? { ...folio, state: liveState } : folio) : normalized.folios
+  if (liveState && treeId && !allFolios.some(folio => folio.id === treeId)) {
+    allFolios.push({ id: treeId, name: 'Analysis 1', state: liveState })
+  }
+  const closure = treeId ? new Set(collectFtaClosure(buildFtaReferenceIndex(allFolios), [treeId]).treeIds) : null
+  for (const f of allFolios) {
+    if (closure && !closure.has(f.id)) continue
+    const st = f.state as CanvasState
+    const modelEdges = normalizeSemanticEdges(
+      restoreExpandedTransferEndpoints(st.edges ?? [], st.nodes ?? []), st.nodes ?? [],
+    )
     trees[f.id] = {
       nodes: (st.nodes ?? []).map(n => ({
         id: n.id, type: n.type ?? 'basic', data: n.data as Record<string, unknown>,
@@ -1067,6 +1073,13 @@ function collectAllCanvasTrees(): Record<string, CanvasState> {
 }
 
 export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'rbd') => void }) {
+  return <LibraryWorkspace initial={INITIAL_CANVAS} Editor={FaultTreeEditor} onNavigate={onNavigate} />
+}
+
+export function FaultTreeEditor({ onNavigate, onLibrary }: {
+  onNavigate?: (target: 'rbd') => void
+  onLibrary: () => void
+}) {
   const [persisted, setPersisted, folios] = useFolioState<CanvasState>(faultTreeKey, INITIAL_CANVAS)
   const revision = useRevision()
   const ldaFolios = useReliabilitySources()
@@ -1279,13 +1292,23 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
     return counts
   }, [nodes])
 
+  const liveLibrary = useMemo(() => normalizeFtaLibrary(folios.folios).folios.map(folio =>
+    folio.id === folios.activeId ? { ...folio, state: { ...persisted,
+      nodes: persistedCanvasNodes(nodes), edges: modelEdges, exposureTime: globalExposure,
+      engine, nSimulations, simSeed, confidenceLevel, result,
+    } } : folio), [folios.folios, folios.activeId, persisted, nodes, modelEdges, globalExposure,
+      engine, nSimulations, simSeed, confidenceLevel, result])
+  const resultFreshness = useMemo(() => ftaResultFreshness(liveLibrary, folios.activeId,
+    CURRENT_ENGINE_REVISIONS.faultTree), [liveLibrary, folios.activeId])
+
   // Highlighting is presentation state, not model data: decorate the nodes
   // passed to React Flow without dirtying the project or entering undo history.
   const computedNodeValues = useMemo(
-    () => new Map((result?.node_results ?? []).map(row => [row.node_id, row.probability])),
-    [result],
+    () => new Map((resultFreshness.status === 'current' ? result?.node_results ?? [] : []).map(row => [row.node_id, row.probability])),
+    [result, resultFreshness.status],
   )
   const resolvedGateIds = useMemo(() => resolveGateIds(nodes), [nodes])
+  const treeNames = useMemo(() => new Map(folios.folios.map(tree => [tree.id, tree.name])), [folios.folios])
   const expandedTransferView = useMemo(() => {
     const canvasTrees = collectAllCanvasTrees()
     const virtualNodes: Node[] = []
@@ -1425,6 +1448,7 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
           ...node.data,
           ...(node.type !== 'annotation' && !EVENT_NODE_TYPES.has(node.type ?? '') && !node.data.virtualTransferOwner
             ? { gateId: resolvedGateIds.get(node.id) } : {}),
+          ...(node.type === 'transfer' ? { transferToName: treeNames.get(String(node.data.transferTo ?? node.data.ref_tree ?? '')) ?? String(node.data.transferToName ?? '') } : {}),
           showNodeIds,
           computedP: computedNodeValues.get(node.id),
           highlighted: highlightedNodes.has(node.id),
@@ -1436,7 +1460,7 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
         },
       }
     })
-  }, [diagramNodes, diagramEdges, computedNodeValues, highlightedNodes, eventOccurrenceCounts, resolvedGateIds, showNodeIds])
+  }, [diagramNodes, diagramEdges, computedNodeValues, highlightedNodes, eventOccurrenceCounts, resolvedGateIds, showNodeIds, treeNames])
   const displayEdges = useMemo(() => {
     const childCounts = new Map<string, number>()
     diagramEdges.forEach(edge => childCounts.set(edge.source, (childCounts.get(edge.source) ?? 0) + 1))
@@ -1516,30 +1540,31 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
   const persistedNodes = persistedCanvasNodes(nodes)
   const persistedAnnotations = persistedCanvasNodes(annotations)
   const latest = useRef<CanvasState>({
-    schemaVersion: 2, nodes: persistedNodes, edges: modelEdges, annotations: persistedAnnotations,
+    ...persisted, schemaVersion: 2, nodes: persistedNodes, edges: modelEdges, annotations: persistedAnnotations,
     exposureTime: globalExposure, result, engine, nSimulations, simSeed, confidenceLevel,
     density, connectorStyle, snapToGrid, showNodeIds,
     conversionProvenance: persisted.conversionProvenance,
     pendingSystemStarter: persisted.pendingSystemStarter,
   })
   latest.current = {
-    schemaVersion: 2, nodes: persistedNodes, edges: modelEdges, annotations: persistedAnnotations,
+    ...persisted, schemaVersion: 2, nodes: persistedNodes, edges: modelEdges, annotations: persistedAnnotations,
     exposureTime: globalExposure, result, engine, nSimulations, simSeed, confidenceLevel,
     density, connectorStyle, snapToGrid, showNodeIds,
     conversionProvenance: persisted.conversionProvenance,
     pendingSystemStarter: persisted.pendingSystemStarter,
   }
+  const ownerProjectId = useRef(getProjectState().identity.projectId)
   const ownerFolio = useRef(folios.activeId)
   const activeFolio = useRef(folios.activeId)
   activeFolio.current = folios.activeId
   const persistTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const persistLatest = () => {
-    // setPersisted also migrates a first, previously-unwritten Analysis 1 into
-    // the folio wrapper. writeFolioState intentionally cannot do that because
-    // it addresses an existing folio by ID, so using it exclusively caused a
-    // new FTA's nodes to disappear when this submodule unmounted.
-    if (ownerFolio.current === activeFolio.current) setPersisted(latest.current)
-    else writeFolioState(faultTreeKey, ownerFolio.current, latest.current)
+    // A project replacement/undo must not be overwritten by the outgoing canvas.
+    const project = getProjectState()
+    if (project.identity.projectId !== ownerProjectId.current || project.revision !== seenRevision.current) return
+    const wrapper = project.modules[faultTreeKey] as { _folioWrap?: boolean } | undefined
+    if (wrapper?._folioWrap) writeFolioState(faultTreeKey, ownerFolio.current, latest.current)
+    else if (ownerFolio.current === activeFolio.current) setPersisted(latest.current)
   }
   useEffect(() => {
     if (persistTimer.current) clearTimeout(persistTimer.current)
@@ -1549,6 +1574,12 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
     if (persistTimer.current) clearTimeout(persistTimer.current)
     persistLatest()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  const flushCanvasRef = useRef(persistLatest)
+  flushCanvasRef.current = persistLatest
+  useEffect(() => registerProjectFlusher(() => {
+    if (persistTimer.current) clearTimeout(persistTimer.current)
+    flushCanvasRef.current()
+  }), [])
   const seenRevision = useRef(revision)
   const seenFolio = useRef(folios.activeId)
   useEffect(() => {
@@ -1603,7 +1634,7 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
       if (!connection.source || !connection.target || connection.source === connection.target) return
       const sourceNode = nodes.find(node => node.id === connection.source)
       const sourceType = sourceNode?.type ?? ''
-      setResult(null)
+      // Retain prior results as historical; semantic freshness is checked separately.
       clearAnnotations()
       setEdges(existing => {
         if (existing.some(edge =>
@@ -1633,7 +1664,7 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
       const annotationChanges = changes.filter(change => annotationIds.has(changeId(change)))
       // Adding/removing nodes invalidates the last result's annotations.
       if (modelChanges.some(c => c.type === 'add' || c.type === 'remove')) {
-        setResult(null); clearAnnotations()
+        clearAnnotations()
       }
       if (modelChanges.length) onNodesChange(sanitizeNodeChanges(modelChanges))
       if (annotationChanges.length) onAnnotationsChange(sanitizeNodeChanges(annotationChanges))
@@ -1694,32 +1725,10 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
       ),
       data: defaults,
     }
-    setResult(null); clearAnnotations()
+    clearAnnotations()
     setNodes(nds => [...nds, newNode])
     setSelectedNode(newNode)
     setSelectedNodeIds([newNode.id])
-  }
-
-  const addTransferReference = (target: { id: string; name: string }) => {
-    const id = nextNodeId()
-    const newNode: Node = {
-      id,
-      type: 'transfer',
-      position: visibleInsertionPosition(DIAGRAM_DENSITY[density].gateWidth),
-      data: {
-        label: target.name,
-        gateId: nextGateId('transfer'),
-        transferTo: target.id,
-        transferToName: target.name,
-        referenceMode: 'shared',
-        description: 'Shared reference to another Fault Tree Analysis in this project.',
-      },
-    }
-    setResult(null); clearAnnotations()
-    setNodes(current => [...current, newNode])
-    setSelectedNode(newNode)
-    setSelectedNodeIds([newNode.id])
-    setRightPaneMode('properties')
   }
 
   const commitAddedAnnotation = (annotation: Node, nextAnnotations: Node[]) => {
@@ -1897,7 +1906,7 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
       !selectedSet.has(edge.source) && !selectedSet.has(edge.target)))
     setSelectedNode(null)
     setSelectedNodeIds([])
-    setResult(null); clearAnnotations()
+    clearAnnotations()
   }
 
   // Paste creates independent event identities and fresh gate IDs while
@@ -1945,7 +1954,7 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
       target: idMap.get(edge.target)!,
       selected: false,
     }))
-    setResult(null); clearAnnotations()
+    clearAnnotations()
     setNodes(current => [...current.map(node => ({ ...node, selected: false })), ...newNodes])
     setEdges(current => [...current, ...normalizeSemanticEdges(newEdges, newNodes)])
     setSelectedNode(newNodes[0] ?? null)
@@ -1969,7 +1978,7 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
       ),
       data: { ...source.data, eventKey: sharedKey, mirror: true, computedP: undefined },
     }
-    setResult(null); clearAnnotations()
+    clearAnnotations()
     setNodes(nds => [...nds, newNode])
     setSelectedNode(newNode)
     setSelectedNodeIds([newNode.id])
@@ -2093,7 +2102,7 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
       !selectedSet.has(edge.source) && !selectedSet.has(edge.target)))
     setSelectedNode(null)
     setSelectedNodeIds([])
-    setResult(null); clearAnnotations()
+    clearAnnotations()
   }
 
   const orderedInputsFor = (nodeId: string) => edges
@@ -2113,7 +2122,7 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
       }]
     }))
     setEdges(existing => existing.map(edge => byId.get(edge.id) ?? edge))
-    setResult(null)
+    // Retain prior results as historical; semantic freshness is checked separately.
     clearAnnotations()
   }
 
@@ -2184,7 +2193,7 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
       setNodes(sanitizeNodes(importedNodes))
       setEdges(normalizeSemanticEdges(importedEdges, importedNodes))
       setSelectedNode(null)
-      setResult(null)
+      // Retain prior results as historical; semantic freshness is checked separately.
       setActiveMCS(null)
       setOpenPSANotices(imported.warnings)
     } catch (cause: unknown) {
@@ -2222,7 +2231,7 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
 
   const updateData = (key: string, value: unknown) => {
     if (!selectedNode) return
-    setResult(null)
+    // Retain prior results as historical; semantic freshness is checked separately.
     clearAnnotations()
     const resolved = (key === 'probability' || ((key === 'distribution' || key === 'dist_params') && value != null))
       ? { [key]: value, sourceIncomplete: false } : { [key]: value }
@@ -2234,7 +2243,7 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
 
   const updateDataMulti = (updates: Record<string, unknown>) => {
     if (!selectedNode) return
-    setResult(null)
+    // Retain prior results as historical; semantic freshness is checked separately.
     clearAnnotations()
     const resolved = ('probability' in updates
       || updates.distribution != null || updates.dist_params != null)
@@ -2310,13 +2319,13 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
         }
       })
     })
-    setResult(null)
+    // Retain prior results as historical; semantic freshness is checked separately.
     clearAnnotations()
   }
 
   const updateRepeatedEventData = (updates: Record<string, unknown>) => {
     if (!selectedNode || !EVENT_NODE_TYPES.has(selectedNode.type ?? '') || selectedNode.type === 'house') return
-    setResult(null)
+    // Retain prior results as historical; semantic freshness is checked separately.
     clearAnnotations()
     const eventKey = String(selectedNode.data.eventKey ?? selectedNode.id)
     setNodes(nds => nds.map(n => {
@@ -2336,7 +2345,7 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
     if (occurrences.length <= 1) return
     const remaining = occurrences.filter(node => node.id !== selectedNode.id)
     const remainingKey = selectedNode.id === sharedKey ? remaining[0].id : sharedKey
-    setResult(null); clearAnnotations()
+    clearAnnotations()
     setNodes(current => current.map(node => {
       if (node.id === selectedNode.id) {
         return { ...node, data: { ...node.data, eventKey: node.id, mirror: false, computedP: undefined } }
@@ -2449,7 +2458,7 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
     if (selectedEdgeIds.length) {
       const selected = new Set(selectedEdgeIds)
       setEdges(current => current.filter(edge => !selected.has(edge.id)))
-      setResult(null); clearAnnotations()
+      clearAnnotations()
     }
     if (hasNodeSelection) deleteSelected()
   }
@@ -2484,6 +2493,8 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
 
   useEffect(() => {
     if (!nodes.length) { setValidation(null); return }
+    let current = true
+    setValidation(null)
     const timer = window.setTimeout(() => {
       const apiNodes = nodes.map(node => ({
         id: node.id, type: node.type ?? 'basic',
@@ -2495,13 +2506,14 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
         order: Number.isInteger((edge.data as { order?: number } | undefined)?.order)
           ? Number((edge.data as { order?: number }).order) : undefined,
       }))
-      const { trees } = collectAllTrees()
+      const { trees } = collectAllTrees(folios.activeId, latest.current)
       trees[folios.activeId] = { nodes: apiNodes, edges: apiEdges }
       const missionTime = globalExposure.trim() === '' ? undefined : parseFloat(globalExposure)
       void validateFaultTree(apiNodes, apiEdges, {
         exposureTime: Number.isFinite(missionTime) ? missionTime : null,
         trees, treeId: folios.activeId, engine,
-      }).then(setValidation).catch(cause => {
+      }).then(value => { if (current) setValidation(value) }).catch(cause => {
+        if (!current) return
         const detail = (cause as { response?: { data?: { detail?: string | { message?: string } } } })
           ?.response?.data?.detail
         setValidation({
@@ -2514,8 +2526,8 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
         })
       })
     }, 450)
-    return () => window.clearTimeout(timer)
-  }, [nodes, modelEdges, globalExposure, engine, folios.activeId]) // eslint-disable-line react-hooks/exhaustive-deps
+    return () => { current = false; window.clearTimeout(timer) }
+  }, [nodes, modelEdges, globalExposure, engine, folios.activeId, folios.folios]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const analyze = async () => {
     if (!nodes.length) { setError('Add nodes to the fault tree first.'); return }
@@ -2537,6 +2549,9 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
     abortRef.current?.abort()
     const controller = new AbortController()
     abortRef.current = controller
+    const originTreeId = folios.activeId
+    const originProjectId = getProjectState().identity.projectId
+    const originRevision = getProjectState().revision
     const globalT = globalExposure.trim() === '' ? undefined : parseFloat(globalExposure)
     // Refresh node display probabilities for distribution events.
     const refreshed = nodes.map(n => {
@@ -2562,10 +2577,15 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
         order: Number.isInteger((e.data as { order?: number } | undefined)?.order)
           ? Number((e.data as { order?: number }).order) : undefined,
       }))
-      // Snapshot every folio so transfer gates can resolve their targets (#9).
-      // Override the active tree with the just-refreshed in-memory graph.
-      const { trees } = collectAllTrees()
+      // Snapshot this tree's dependency closure for Transfer resolution, then
+      // replace the active graph with its just-refreshed in-memory inputs.
+      const { trees } = collectAllTrees(folios.activeId, latest.current)
       trees[folios.activeId] = { nodes: apiNodes, edges: apiEdges }
+      const requestState = { ...latest.current, nodes: persistedCanvasNodes(refreshed) }
+      latest.current = requestState
+      persistLatest()
+      const requestFolios = normalizeFtaLibrary(getProjectState().modules.faultTree).folios
+      const provenance = createFtaResultProvenance(requestFolios, originTreeId, CURRENT_ENGINE_REVISIONS.faultTree)
       const res = await analyzeFaultTreeStream(apiNodes, apiEdges, {
         exposureTime: globalT ?? null,
         methods: engine === 'exact' ? ['exact'] : engine === 'simulation' ? ['simulation'] : undefined,
@@ -2576,9 +2596,22 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
         trees,
         treeId: folios.activeId,
       }, setProgress, controller.signal)
+      if (controller.signal.aborted || abortRef.current !== controller
+          || getProjectState().identity.projectId !== originProjectId
+          || getProjectState().revision !== originRevision
+          || ownerFolio.current !== originTreeId) return
+      // Flush newer edits before comparing both this tree and every dependency.
+      persistLatest()
+      const currentFolios = normalizeFtaLibrary(getProjectState().modules.faultTree).folios
+      const currentProvenance = createFtaResultProvenance(currentFolios, originTreeId, CURRENT_ENGINE_REVISIONS.faultTree)
+      if (currentProvenance.fingerprint !== provenance.fingerprint) {
+        setError('Inputs or referenced trees changed while calculating. Recalculate to obtain current results.')
+        return
+      }
+      latest.current = { ...latest.current, result: res, resultProvenance: provenance }
+      writeFolioState(faultTreeKey, originTreeId, latest.current)
       setResult(res)
       setRightPaneMode('results')
-      writeFolioState(faultTreeKey, folios.activeId, { ...latest.current, result: res })
     } catch (e: unknown) {
       if ((e as { name?: string }).name === 'AbortError') {
         setError('Analysis cancelled.')
@@ -2589,11 +2622,15 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
       setError(typeof detail === 'string' ? detail : detail?.message
         || (e instanceof Error ? e.message : 'Analysis error.'))
     } finally {
-      setLoading(false)
-      setProgress(null)
-      abortRef.current = null
+      if (abortRef.current === controller) {
+        setLoading(false)
+        setProgress(null)
+        abortRef.current = null
+      }
     }
   }
+
+  useEffect(() => () => { abortRef.current?.abort(); abortRef.current = null }, [])
 
   const beginRBDConversion = async () => {
     const sourceName = folios.folios.find(folio => folio.id === folios.activeId)?.name ?? 'Fault Tree Analysis'
@@ -2610,7 +2647,7 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
       order: Number.isInteger((edge.data as { order?: number } | undefined)?.order)
         ? Number((edge.data as { order?: number }).order) : undefined,
     }))
-    const { trees } = collectAllTrees()
+    const { trees } = collectAllTrees(folios.activeId, latest.current)
     trees[folios.activeId] = { nodes: apiNodes, edges: apiEdges }
     const exposure = Number(globalExposure)
     try {
@@ -2691,7 +2728,7 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
         starterPlaceholder: true,
       },
     }))
-    setNodes(nextNodes); setEdges([]); setResult(null)
+    setNodes(nextNodes); setEdges([]); clearAnnotations()
     setPersisted(current => ({ ...current, pendingSystemStarter: undefined, result: null }))
     toast.info('System Definition event candidates applied. Select the required gate logic and probabilities before analysis.')
   }
@@ -2699,8 +2736,10 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
   return (
     <>
     <div className="flex flex-col flex-1 min-h-0">
-      {/* #9 Folio bar doubles as the fault-tree list / hierarchy sidebar. */}
-      <FolioBar api={folios} label="Tree" />
+      {result && resultFreshness.status !== 'current' && <div role="status" className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+        Historical results · {resultFreshness.reason} Diagram probability overlays are hidden until recalculation.
+      </div>}
+
       {persisted.pendingSystemStarter && <div className="flex items-center gap-3 border-b border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
         <span className="font-medium">System Definition event candidates ready</span>
         <span className="text-blue-600">No AND/OR gate or probability has been inferred.</span>
@@ -2710,105 +2749,65 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
 
       <div className="flex flex-1 overflow-hidden">
       {/* Left analysis setup */}
-      <div className="w-64 shrink-0 bg-white border-r border-gray-200 p-3 flex flex-col gap-2 overflow-hidden">
+      <div className="w-72 shrink-0 bg-white border-r border-slate-200 p-3 flex flex-col gap-3 overflow-y-auto">
         {persisted.conversionProvenance && <div className="shrink-0 rounded border border-blue-200 bg-blue-50 p-2 text-[10px] leading-4 text-blue-700">
           Exact snapshot converted from RBD “{persisted.conversionProvenance.sourceAnalysisName}”. Changes are not synchronized.
         </div>}
-        <div data-fta-node-library className="shrink-0 rounded-lg border border-slate-200 bg-slate-50 p-2">
-          <div className="mb-1.5 flex items-center justify-between">
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-600">Node Library</p>
-            <div className="flex items-center rounded border border-slate-200 bg-white p-0.5"
-              title={`Diagram density: ${DIAGRAM_DENSITY[density].label} (${densityIndex + 1} of ${DIAGRAM_DENSITY_LEVELS.length})`}>
-              <button type="button" onClick={() => stepDiagramDensity(-1)}
-                disabled={densityIndex === 0} aria-label="Decrease diagram label size"
-                title={`Decrease diagram size from ${DIAGRAM_DENSITY[density].label}; use Auto Layout to reflow spacing and routes`}
-                className="flex h-5 w-5 items-center justify-center rounded text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-transparent">
-                <Minus size={11} />
-              </button>
-              <button type="button" onClick={() => stepDiagramDensity(1)}
-                disabled={densityIndex === DIAGRAM_DENSITY_LEVELS.length - 1} aria-label="Increase diagram label size"
-                title={`Increase diagram size from ${DIAGRAM_DENSITY[density].label}; use Auto Layout to reflow spacing and routes`}
-                className="flex h-5 w-5 items-center justify-center rounded text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-transparent">
-                <Plus size={11} />
-              </button>
-            </div>
+        <section data-fta-node-library aria-label="Node Library" className="flex min-h-64 max-h-[60vh] flex-1 shrink-0 flex-col rounded-xl border border-slate-200 bg-white shadow-xs">
+          <div className="shrink-0 border-b border-slate-200 p-3">
+            <h2 className="text-sm font-semibold text-slate-900">Node Library</h2>
+            <p className="mt-1 text-xs leading-5 text-slate-600">Add events and gates to this tree.</p>
+            <label className="relative mt-2 block">
+              <span className="sr-only">Search node types</span>
+              <Search size={16} aria-hidden="true" className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
+              <input value={paletteSearch} onChange={event => setPaletteSearch(event.target.value)}
+                placeholder="Search node types…"
+                className="h-9 w-full rounded-lg border border-slate-300 bg-slate-50 pl-8 pr-2 text-sm text-slate-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600" />
+            </label>
           </div>
-          <div className="relative mb-1.5">
-            <Search size={11} className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input value={paletteSearch} onChange={event => setPaletteSearch(event.target.value)}
-              placeholder="Search all node types…"
-              className="w-full rounded border border-slate-200 bg-white py-1 pl-6 pr-2 text-[9px] outline-hidden focus:border-blue-400" />
-          </div>
-          {paletteSearch.trim() ? (
-            <div className="grid grid-cols-1 gap-0.5">
-              {visiblePaletteGroups.flatMap(group => group.items.map(([type, label]) => (
-                <button key={type} onClick={() => addNode(type)} title={`Add ${label}`}
-                  className={`flex h-7 min-w-0 items-center gap-1.5 rounded border bg-white px-1.5 text-left transition-colors hover:border-blue-400 hover:bg-blue-50 ${group.color}`}>
-                  <FTASymbol type={type} label={`Add ${label}`} size="palette" />
-                  <span className="min-w-0 flex-1 whitespace-normal text-[9px] leading-tight">{label}</span>
-                </button>
-              )))}
-            </div>
-          ) : (
-            <div className="space-y-1.5">
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-2">
+            {paletteSearch.trim() ? (
+              <div className="grid grid-cols-1 gap-1">
+                {visiblePaletteGroups.flatMap(group => group.items.map(([type, label]) => (
+                  <button key={type} type="button" onClick={() => addNode(type)} title={`Add ${label}`}
+                    className="flex min-h-11 items-center gap-3 rounded-lg border border-transparent px-2 py-1.5 text-left text-sm text-slate-800 hover:border-blue-200 hover:bg-blue-50 focus-visible:outline-2 focus-visible:outline-blue-600">
+                    <FTASymbol type={type} label={`Add ${label}`} size="palette" />
+                    <span className="min-w-0 flex-1">{label}</span><Plus size={14} aria-hidden="true" className="text-slate-500" />
+                  </button>
+                )))}
+              </div>
+            ) : <>
               <div>
-                <p className="mb-0.5 text-[8px] font-semibold uppercase tracking-wide text-slate-400">Common</p>
-                <div className="grid grid-cols-1 gap-0.5">
-                  {visiblePaletteGroups.flatMap(group => group.items
-                    .filter(([type]) => COMMON_NODE_TYPES.has(type))
-                    .map(([type, label]) => (
-                      <button key={type} onClick={() => addNode(type)} title={`Add ${label}`}
-                        className={`flex h-7 min-w-0 items-center gap-1.5 rounded border bg-white px-1.5 text-left transition-colors hover:border-blue-400 hover:bg-blue-50 ${group.color}`}>
-                        <FTASymbol type={type} label={`Add ${label}`} size="palette" />
-                        <span className="min-w-0 flex-1 whitespace-normal text-[9px] leading-tight">{label}</span>
-                      </button>
-                    ))) }
+                <h3 className="px-2 py-1 text-xs font-semibold text-slate-600">Common</h3>
+                <div className="grid grid-cols-1 gap-1">
+                  {visiblePaletteGroups.flatMap(group => group.items.filter(([type]) => COMMON_NODE_TYPES.has(type)).map(([type, label]) => (
+                    <button key={type} type="button" onClick={() => addNode(type)} title={`Add ${label}`}
+                      className="flex min-h-11 items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-left text-sm text-slate-800 hover:border-blue-300 hover:bg-blue-50 focus-visible:outline-2 focus-visible:outline-blue-600">
+                      <FTASymbol type={type} label={`Add ${label}`} size="palette" />
+                      <span className="min-w-0 flex-1">{label}</span><Plus size={14} aria-hidden="true" className="text-slate-500" />
+                    </button>
+                  )))}
                 </div>
               </div>
               {visiblePaletteGroups.map(group => {
                 const remaining = group.items.filter(([type]) => !COMMON_NODE_TYPES.has(type))
-                if (!remaining.length) return null
-                return <div key={group.title}>
-                  <p className="mb-0.5 text-[8px] font-semibold uppercase tracking-wide text-slate-400">{group.title}</p>
-                  <div className="grid grid-cols-1 gap-0.5">
-                    {remaining.map(([type, label]) => (
-                      <button key={type} onClick={() => addNode(type)} title={`Add ${label}`}
-                        className={`flex h-7 min-w-0 items-center gap-1.5 rounded border bg-white px-1.5 text-left transition-colors hover:border-blue-400 hover:bg-blue-50 ${group.color}`}>
-                        <FTASymbol type={type} label={`Add ${label}`} size="palette" />
-                        <span className="min-w-0 flex-1 whitespace-normal text-[9px] leading-tight">{label}</span>
-                      </button>
-                    ))}
+                return remaining.length ? <details key={group.title} className="rounded-lg border border-slate-200">
+                  <summary className="min-h-9 cursor-pointer px-3 py-2 text-xs font-semibold text-slate-700 focus-visible:outline-2 focus-visible:outline-blue-600">{group.title} <span className="font-normal">({remaining.length})</span></summary>
+                  <div className="grid grid-cols-1 gap-1 px-1 pb-1">
+                    {remaining.map(([type, label]) => <button key={type} type="button" onClick={() => addNode(type)} title={`Add ${label}`}
+                      className="flex min-h-11 items-center gap-3 rounded-lg px-2 py-1.5 text-left text-sm text-slate-800 hover:bg-blue-50 focus-visible:outline-2 focus-visible:outline-blue-600">
+                      <FTASymbol type={type} label={`Add ${label}`} size="palette" /><span>{label}</span>
+                    </button>)}
                   </div>
-                </div>
+                </details> : null
               })}
-            </div>
-          )}
-          {visiblePaletteGroups.length === 0 && (
-            <p className="py-3 text-center text-[9px] text-slate-400">No matching node types.</p>
-          )}
-        </div>
-
-        {transferTargets.length > 0 && (
-          <details className="shrink-0 rounded-lg border border-cyan-200 bg-cyan-50/60" data-fta-project-library>
-            <summary className="flex cursor-pointer list-none items-center justify-between px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-cyan-800 marker:hidden">
-              <span>Library</span>
-              <span className="rounded-full bg-white px-1.5 py-0.5 text-[9px] font-medium text-cyan-700 ring-1 ring-cyan-200">
-                {transferTargets.length} FTA{transferTargets.length === 1 ? '' : 's'}
-              </span>
-            </summary>
-            <div className="max-h-36 space-y-1 overflow-y-auto border-t border-cyan-200 p-1.5">
-              <p className="px-1 text-[9px] leading-tight text-cyan-700">Add another project analysis as a shared Transfer gate.</p>
-              {transferTargets.map(target => (
-                <button key={target.id} onClick={() => addTransferReference(target)}
-                  title={`Add shared transfer to ${target.name}`}
-                  className="flex min-h-8 w-full items-center gap-1.5 rounded border border-cyan-200 bg-white px-1.5 py-1 text-left text-[9px] text-cyan-900 hover:border-cyan-400 hover:bg-cyan-50">
-                  <FTASymbol type="transfer" label={`Transfer to ${target.name}`} size="palette" />
-                  <span className="min-w-0 flex-1 whitespace-normal leading-tight">{target.name}</span>
-                </button>
-              ))}
-            </div>
-          </details>
-        )}
+            </>}
+            {visiblePaletteGroups.length === 0 && <p role="status" className="px-2 py-4 text-sm text-slate-600">No matching node types.</p>}
+          </div>
+          <button type="button" onClick={onLibrary} className="flex min-h-10 shrink-0 items-center justify-center gap-2 border-t border-slate-200 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50 focus-visible:outline-2 focus-visible:outline-blue-600">
+            <GitFork size={16} aria-hidden="true" /> Reference a library tree
+          </button>
+        </section>
 
         {/* Node editor */}
         {selectedNode && propertiesHost && createPortal((
@@ -2930,6 +2929,10 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
                   value={String(selectedNode.data.transferTo ?? '')}
                   onChange={e => {
                     const id = e.target.value
+                    if (id && collectFtaClosure(buildFtaReferenceIndex(liveLibrary), [id]).treeIds.includes(folios.activeId)) {
+                      toast.error('That reference would create a Transfer cycle.')
+                      return
+                    }
                     const name = transferTargets.find(t => t.id === id)?.name ?? ''
                     updateDataMulti({
                       transferTo: id || undefined,
@@ -3534,6 +3537,13 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
                 </button>
               </div>
             </details>
+            <div className="flex h-8 items-center rounded border border-slate-300 bg-white" title={`Diagram density: ${DIAGRAM_DENSITY[density].label}`}>
+              <button type="button" onClick={() => stepDiagramDensity(-1)} disabled={densityIndex === 0}
+                aria-label="Decrease diagram label size" className="flex h-8 w-8 items-center justify-center text-slate-700 hover:bg-slate-100 disabled:opacity-40"><Minus size={14} /></button>
+              <span className="text-[11px] text-slate-700">Labels</span>
+              <button type="button" onClick={() => stepDiagramDensity(1)} disabled={densityIndex === DIAGRAM_DENSITY_LEVELS.length - 1}
+                aria-label="Increase diagram label size" className="flex h-8 w-8 items-center justify-center text-slate-700 hover:bg-slate-100 disabled:opacity-40"><Plus size={14} /></button>
+            </div>
             <label className="flex h-8 items-center gap-1 rounded border border-slate-300 bg-white px-2 text-[10px] text-slate-500" title="Connection line style">
               Connectors
               <select value={connectorStyle}
@@ -3640,8 +3650,8 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
                 }))
               }
             }}
-            nodeTypes={nodeTypes}
-            edgeTypes={edgeTypes}
+            nodeTypes={ftaNodeTypes}
+            edgeTypes={ftaEdgeTypes}
             fitView
             fitViewOptions={FTA_FIT_VIEW_OPTIONS}
             minZoom={0.35}
@@ -3918,7 +3928,7 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
             )}
 
             {resultTab === 'curve' && (
-              result.time_curve?.length ? <div className="h-80">
+              result.time_curve?.length ? <div className="h-80"><ReportAssetScopeProvider value={{ module: 'faultTree', moduleLabel: 'Fault Tree Analysis' }}>
                 <Plot data={[{
                   x: result.time_curve.map(point => point.time),
                   y: result.time_curve.map(point => point.probability),
@@ -3932,8 +3942,9 @@ export default function FaultTreePage({ onNavigate }: { onNavigate?: (target: 'r
                   yaxis: { title: { text: 'Probability' }, range: [0, 1], gridcolor: '#e5e7eb' },
                   showlegend: false,
                 }} useResizeHandler style={{ width: '100%', height: '100%' }}
-                  plotId="fta-top-event-time" reportLabel="Top-Event Probability vs Time" reportGroup="Fault Tree Analysis" />
-              </div> : <p className="rounded bg-slate-50 p-3 text-xs text-slate-500">A time curve requires time-to-failure models for every stochastic event.</p>
+                  plotId="fta-top-event-time" reportLabel="Top-Event Probability vs Time"
+                  reportGroup={folios.folios.find(folio => folio.id === folios.activeId)?.name ?? 'Fault Tree Analysis'} />
+              </ReportAssetScopeProvider></div> : <p className="rounded bg-slate-50 p-3 text-xs text-slate-500">A time curve requires time-to-failure models for every stochastic event.</p>
             )}
 
             {resultTab === 'nodes' && (

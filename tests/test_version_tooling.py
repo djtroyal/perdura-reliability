@@ -16,6 +16,13 @@ assert SPEC and SPEC.loader
 bump_version = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(bump_version)
 
+VERSION_SPEC = importlib.util.spec_from_file_location(
+    "check_version_consistency", ROOT / "tools/check_version_consistency.py",
+)
+assert VERSION_SPEC and VERSION_SPEC.loader
+version_check = importlib.util.module_from_spec(VERSION_SPEC)
+VERSION_SPEC.loader.exec_module(version_check)
+
 
 def _fixture(root: Path, version: str = "0.6.0") -> None:
     (root / "src/reliability").mkdir(parents=True)
@@ -63,3 +70,22 @@ def test_uv_lock_has_canonical_cross_platform_line_endings():
     attributes = (ROOT / ".gitattributes").read_text(encoding="utf-8").splitlines()
     assert "uv.lock text eol=lf" in attributes
     assert b"\r\n" not in (ROOT / "uv.lock").read_bytes()
+
+
+@pytest.mark.parametrize("filename", ["package.json", "package-lock.json"])
+@pytest.mark.parametrize("second_range", ["^19.3.0", "^19.3.1"])
+def test_version_check_rejects_shadowed_dependency_declarations(tmp_path, filename, second_range):
+    path = tmp_path / filename
+    path.write_text(
+        '{"dependencies":{"react":"^19.3.0","react":"' + second_range + '"}}',
+        encoding="utf-8",
+    )
+    with pytest.raises(RuntimeError, match=r"duplicate JSON key 'react'"):
+        version_check._load_unique_json(path)
+
+
+def test_version_check_allows_same_key_in_distinct_objects(tmp_path):
+    path = tmp_path / "package-lock.json"
+    expected = {"version": "0.8.3", "packages": {"": {"version": "0.8.3"}}}
+    path.write_text(json.dumps(expected), encoding="utf-8")
+    assert version_check._load_unique_json(path) == expected

@@ -26,14 +26,24 @@ try {
   assert.equal(payload.engineRevisions.growth, version.engineRevisionFor('growth'))
   assert.equal(payload.version, undefined, 'legacy ambiguous version field must not be emitted')
 
+  for (const folios of [[], [{ state: {} }], [{ id: 7, state: {} }], [{ id: '', state: {} }],
+    [{ id: ' ', state: {} }], [{ id: 'same', state: {} }, { id: 'same', state: {} }]]) {
+    const original = project.getProjectState()
+    assert.throws(() => project.importPayload({ ...payload, modules: {
+      faultTree: { _folioWrap: true, activeId: 'same', folios },
+    } }), /FTA library contains/)
+    assert.equal(project.getProjectState(), original,
+      'invalid FTA identities must fail before replacing any current project state')
+  }
+
   assert.throws(
     () => project.importPayload({ ...payload, schemaVersion: 1 }),
-    /Unsupported project schema 1.*accepts schema 6 or 7/,
+    /Unsupported project schema 1.*accepts schemas 6, 7 or 8/,
     'schemas older than the explicit migration boundary must fail closed',
   )
   assert.throws(
     () => project.importPayload({ ...payload, schemaVersion: 999 }),
-    /Unsupported project schema 999.*accepts schema 6 or 7/,
+    /Unsupported project schema 999.*accepts schemas 6, 7 or 8/,
     'newer schemas must fail closed instead of being interpreted approximately',
   )
   project.importPayload({
@@ -62,6 +72,18 @@ try {
   assert.equal(project.getProjectState().modules.growth.input, 7)
   assert.equal(project.getProjectState().modules.growth.result, undefined,
     'mismatched engine revisions must retain inputs and remove computed output')
+
+  project.importPayload({ ...payload, schemaVersion: 7, engineRevisions: { faultTree: 0 }, modules: {
+    faultTree: { _folioWrap: true, activeId: 'legacy-tree', folios: [{ id: 'legacy-tree', name: 'Legacy',
+      state: { nodes: [], edges: [], result: { top_event_probability: 0.2 } } }] },
+  } })
+  const historical = project.getProjectState().modules.faultTree.folios[0]
+  assert.equal(historical.state.result.top_event_probability, 0.2,
+    'FTA migration must retain inspectable historical output even if the engine differs')
+  assert.equal(historical.dirty, true, 'historical engine output cannot appear current')
+  assert.equal(project.getProjectState().modules.faultTreeCatalog.byTreeId['legacy-tree'].code, 'FTA-001')
+  assert.ok(project.buildExport(project.moduleSlices('faultTree'), true).modules.faultTreeCatalog,
+    'module exports retain the catalog companion')
 
   project.newProject('Existing hours project')
   project.setModuleState('warranty', { times: [100, 200], result: { estimate: 1 } })

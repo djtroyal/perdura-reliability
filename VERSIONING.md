@@ -52,11 +52,15 @@ are in [`docs/RELEASING.md`](docs/RELEASING.md).
 Application version, project schema, and analytical engine revisions are
 independent:
 
-- `schemaVersion` defines the shape and meaning of a project file. Perdura 0.8.3
-  exports schema 7 and explicitly accepts schema 6 imports. Other schemas fail
+- `schemaVersion` defines the shape and meaning of a project file. The current
+  development source exports schema 8 and explicitly accepts schema 6 and 7 imports. Other schemas fail
   with a clear version error instead of being interpreted approximately.
-  Browser storage is isolated by schema. When the new namespace is empty,
-  existing schema 6 browser data is copied into it, preserving the old keys.
+  Schema 8 adds the project-local FTA catalog with stable reference codes and
+  qualified System Definition associations. Transfer nodes define the hierarchy.
+  Browser storage uses a schema-specific IndexedDB database with separate tree
+  input, result, report, and image records. Schema 6/7 browser data is migrated
+  transactionally while retaining the original localStorage keys. Failed saves
+  remain visible; malformed legacy data can be downloaded for recovery.
   Exporting a project backup before upgrading remains recommended.
 - `createdWith` records the Perdura version, source commit, and build timestamp
   that created an export. It is diagnostic metadata, not a compatibility rule.
@@ -64,7 +68,10 @@ independent:
   bounded trace records. Schema 3 introduced these fields.
 - `engineRevisions` identifies the implementation used for saved computed
   results. A mismatch keeps compatible inputs but discards the affected saved
-  results and tells the user to recalculate.
+  results and tells the user to recalculate. FTA retains those results as
+  historical records: its calculation provenance must match the current engine,
+  root settings, and complete Transfer dependency closure before results can be
+  treated as current or included in current-result report assets.
 
 Increment the project schema only for an incompatible project-file change.
 Increment only the affected engine revision when inputs remain compatible but

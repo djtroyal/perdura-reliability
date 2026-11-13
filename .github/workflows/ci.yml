@@ -53,7 +53,8 @@ jobs:
   python:
     runs-on: ubuntu-24.04
     needs: dependency-lock
-    if: always()
+    # Preserve checks after failures, but let superseded runs release the runner.
+    if: ${{ !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
@@ -89,7 +90,7 @@ jobs:
 
       - name: Verify Perdura version declarations
         id: version
-        if: always()
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
           set -o pipefail
@@ -97,7 +98,7 @@ jobs:
 
       - name: Run library tests with structured evidence
         id: library
-        if: always()
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
           set -o pipefail
@@ -111,7 +112,7 @@ jobs:
 
       - name: Run backend tests with structured evidence
         id: backend
-        if: always()
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
           set -o pipefail
@@ -125,7 +126,7 @@ jobs:
 
       - name: Generate public API contract evidence
         id: api-contract
-        if: always() && matrix.python-version == '3.13'
+        if: ${{ !cancelled() && matrix.python-version == '3.13' }}
         shell: bash
         run: |
           set -o pipefail
@@ -147,7 +148,7 @@ jobs:
 
       - name: Validate scientific assurance inventory
         id: assurance
-        if: always() && matrix.python-version == '3.13'
+        if: ${{ !cancelled() && matrix.python-version == '3.13' }}
         shell: bash
         run: |
           set -o pipefail
@@ -156,7 +157,7 @@ jobs:
 
       - name: Run Crow-AMSAA independent validation profile
         id: crow
-        if: always() && matrix.python-version == '3.13'
+        if: ${{ !cancelled() && matrix.python-version == '3.13' }}
         shell: bash
         run: |
           set -o pipefail
@@ -165,7 +166,7 @@ jobs:
 
       - name: Validate product-assurance controls
         id: product-assurance
-        if: always() && matrix.python-version == '3.13'
+        if: ${{ !cancelled() && matrix.python-version == '3.13' }}
         shell: bash
         run: |
           set -o pipefail
@@ -175,7 +176,7 @@ jobs:
             2>&1 | tee evidence/python-3.13/logs/product-assurance.log
 
       - name: Check out the exact PR base for performance comparison
-        if: always() && matrix.python-version == '3.13' && github.event_name == 'pull_request'
+        if: ${{ !cancelled() && matrix.python-version == '3.13' && github.event_name == 'pull_request' }}
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.event.pull_request.base.sha }}
@@ -184,7 +185,7 @@ jobs:
 
       - name: Run scientific performance smoke and locked-release comparison
         id: performance
-        if: always() && matrix.python-version == '3.13'
+        if: ${{ !cancelled() && matrix.python-version == '3.13' }}
         shell: bash
         run: |
           set -o pipefail
@@ -200,7 +201,7 @@ jobs:
 
       - name: Backend import smoke test
         id: smoke
-        if: always()
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
           set -o pipefail
@@ -232,6 +233,7 @@ jobs:
           python tools/build_verification_evidence.py component \
             --output evidence/python-${{ matrix.python-version }}/component-python-${{ matrix.python-version }}.json \
             --id python-${{ matrix.python-version }} --kind test \
+            --job-name 'python (${{ matrix.python-version }})' \
             --result setup-python=${{ steps.setup-python.outcome }} \
             --result setup-uv=${{ steps.setup-uv.outcome }} \
             --result install=${{ steps.install.outcome }} \
@@ -285,6 +287,7 @@ jobs:
           python tools/build_verification_evidence.py component \
             --output evidence/reference/component-reference-evidence.json \
             --id reference-evidence --kind scientific-assurance \
+            --job-name validate-reference-evidence \
             --result reference-evidence=${{ steps.references.outcome }} \
             --file catalog=evidence/reference/mil-hdbk-217f-evidence.json \
             --file schema=evidence/reference/mil-hdbk-217f-evidence.schema.json
@@ -300,7 +303,7 @@ jobs:
   release-environment:
     name: Locked release environment (${{ matrix.target }})
     needs: [dependency-lock, application-wheel]
-    if: always()
+    if: ${{ !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
@@ -350,7 +353,7 @@ jobs:
 
       - name: Validate native imports and ONNX inference
         id: environment-smoke
-        if: always()
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
           set -o pipefail
@@ -361,7 +364,7 @@ jobs:
 
       - name: Install and inspect the candidate application wheel
         id: application-wheel
-        if: always()
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
           set -o pipefail
@@ -381,6 +384,7 @@ jobs:
           python tools/build_verification_evidence.py component \
             --output evidence/release-environment-${{ matrix.target }}/component-release-environment-${{ matrix.target }}.json \
             --id release-environment-${{ matrix.target }} --kind compatibility \
+            --job-name 'Locked release environment (${{ matrix.target }})' \
             --result setup-uv=${{ steps.setup-uv.outcome }} \
             --result install-python=${{ steps.install-python.outcome }} \
             --result wheel-sync=${{ steps.wheel-sync.outcome }} \
@@ -424,7 +428,7 @@ jobs:
 
       - name: Build frontend (TypeScript + Vite)
         id: build
-        if: always()
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
           set -o pipefail
@@ -432,7 +436,7 @@ jobs:
 
       - name: Run every frontend contract with structured evidence
         id: contracts
-        if: always()
+        if: ${{ !cancelled() }}
         run: npm run test:contracts --prefix gui/frontend -- --output-dir ../../evidence/frontend
 
       - name: Record frontend evidence component
@@ -464,6 +468,7 @@ jobs:
         with:
           name: Perdura-CI-frontend-dist-${{ github.sha }}
           path: gui/frontend/dist
+          overwrite: true
           retention-days: 5
 
   application-wheel:
@@ -517,6 +522,7 @@ jobs:
           python tools/build_verification_evidence.py component \
             --output evidence/application-wheel/component-application-wheel.json \
             --id application-wheel --kind application-package \
+            --job-name 'Build installable Python application' \
             --result setup-uv=${{ steps.setup-uv.outcome }} \
             --result install-python=${{ steps.install-python.outcome }} \
             --result build=${{ steps.build.outcome }} \
@@ -536,6 +542,7 @@ jobs:
         with:
           name: Perdura-CI-application-wheel-${{ github.sha }}
           path: candidate-wheel/perdura-*.whl
+          overwrite: true
           retention-days: 5
 
   website-resources:
@@ -599,6 +606,7 @@ jobs:
           python tools/build_verification_evidence.py component \
             --output evidence/website-resources/component-website-resources.json \
             --id website-resources --kind generated-product-resource \
+            --job-name 'Generate companion-website resources' \
             --optional-result baseline=${{ steps.baseline.outcome }} \
             --result setup-node=${{ steps.setup-node.outcome }} \
             --result install=${{ steps.install.outcome }} \
@@ -635,7 +643,9 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
-          pattern: Perdura-CI-raw-*-${{ github.run_id }}-${{ github.run_attempt }}
+          # A selective rerun retains successful jobs' earlier artifacts.
+          # The compiler selects and validates the latest artifact per component.
+          pattern: Perdura-CI-raw-*-${{ github.run_id }}-*
           path: evidence-source
 
       - name: Retrieve latest successful main coverage baseline
@@ -653,11 +663,13 @@ jobs:
 
       - name: Capture workflow job and step timestamps
         continue-on-error: true
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p evidence-source
-          gh api 'repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs?filter=all&per_page=100' > evidence-source/workflow-jobs.json
+          gh api --paginate --slurp 'repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs?filter=all&per_page=100' \
+            | jq '{jobs: [.[].jobs[]]}' > evidence-source/workflow-jobs.json
 
       - name: Compile human and machine-readable verification reports
         id: compile
@@ -676,6 +688,7 @@ jobs:
           fi
           python tools/build_verification_evidence.py compile \
             --input evidence-source --output evidence-report \
+            --select-latest-attempts \
             --expected dependency-lock \
             --expected python-3.11 --expected python-3.12 \
             --expected python-3.13 --expected python-3.14 \
@@ -721,6 +734,7 @@ jobs:
         with:
           name: Perdura-Coverage-Baseline
           path: evidence-report/verification-report.json
+          overwrite: true
           retention-days: 90
 
       - name: Enforce complete verification evidence

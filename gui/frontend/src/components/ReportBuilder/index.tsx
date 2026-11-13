@@ -1,4 +1,6 @@
-import { useState, useRef, useCallback, useMemo } from 'react'
+import { captureProjectExportOrigin, assertProjectExportOrigin } from '../../store/exportSnapshot'
+import { artifactSources } from '../../store/project'
+import { useState, useRef, useCallback, useMemo, lazy, Suspense } from 'react'
 import {
   FileText, Type, AlignLeft, Minus, Columns,
   GripVertical, Trash2, ChevronDown, Download, Upload, Save,
@@ -37,6 +39,10 @@ import {
   markdownToHtmlFragment,
 } from './reportMarkdown'
 import { renderReportMarkdownPdf } from './reportMarkdownPdf'
+import { renderReportTablePdf } from './reportTablePdf'
+import type { AssetSource } from '../../store/reportAssets'
+import type { FtaTreeState } from '../FaultTree/libraryModel'
+import { toast } from '../shared/toast'
 import {
   importReportImage,
   isSafeReportImageDataUrl,
@@ -76,7 +82,14 @@ interface ImageBlock {
   widthPercent: 25 | 50 | 75 | 100
   alignment: 'left' | 'center' | 'right'
 }
-interface PlotBlock {
+export interface ReportAssetOrigin {
+  assetId?: string
+  source?: AssetSource
+  sourceCapturedAt?: string
+  sourceKind?: 'live' | 'snapshot'
+  sourceUnavailable?: boolean
+}
+interface PlotBlock extends ReportAssetOrigin {
   id: string; type: 'plot'
   plotData: unknown[]; plotLayout: unknown
   plotMarkup?: PlotMarkup
@@ -85,22 +98,28 @@ interface PlotBlock {
   snapshotId?: string
   snapshotSha256?: string
 }
-interface TableBlock {
+interface TableBlock extends ReportAssetOrigin {
   id: string; type: 'table'
   headers: string[]; rows: (string | number)[][]
   label: string
 }
-interface MetricsBlock {
+interface MetricsBlock extends ReportAssetOrigin {
   id: string; type: 'metrics'
   items: { label: string; value: string }[]
   label: string
 }
 interface DividerBlock { id: string; type: 'divider' }
 interface PageBreakBlock { id: string; type: 'pagebreak' }
+interface DiagramBlock extends ReportAssetOrigin {
+  id: string; type: 'diagram'; label: string; diagramState: FtaTreeState
+  showResults?: boolean
+  treeNames?: Record<string, string>
+  renderedImage?: { dataUrl: string; width: number; height: number }
+}
 
-type ReportBlock =
+export type ReportBlock =
   | HeadingBlock | TextBlock | ImageBlock | PlotBlock
-  | TableBlock | MetricsBlock | DividerBlock | PageBreakBlock
+  | TableBlock | MetricsBlock | DiagramBlock | DividerBlock | PageBreakBlock
 
 type Orientation = 'portrait' | 'landscape'
 type PageSize = 'a4' | 'letter' | 'legal' | 'a3'
@@ -172,7 +191,7 @@ function resolveTokens(text: string, dateFmt: string, page: number, pages: numbe
 // Multi-report types  (Task #6)
 // ---------------------------------------------------------------------------
 
-interface SingleReport {
+export interface SingleReport {
   id: string
   title: string
   blocks: ReportBlock[]
@@ -204,6 +223,63 @@ const INITIAL_MULTI: MultiReportState = (() => {
 let seq = 0
 const newId = () => `rb_${Date.now().toString(36)}_${(seq++).toString(36)}`
 
+export function reportSourceNote(block: ReportBlock): string {
+  if (!('source' in block) || !block.source) return ''
+  const source = block.source
+  return [`Source: ${source.analysisName} (${source.analysisId ?? source.module})`,
+    source.evaluationContext, source.engineRevision ? `Engine revision ${source.engineRevision}` : '',
+    source.inputFingerprint ? `Input fingerprint ${source.inputFingerprint}` : '', source.resultStatus ? `Result at capture: ${source.resultStatus}` : '',
+    block.sourceCapturedAt ? `Captured ${block.sourceCapturedAt}` : '',
+    block.sourceUnavailable ? 'SOURCE UNAVAILABLE — refresh required' : ''].filter(Boolean).join(' · ')
+}
+
+export function refreshReportAssets(report: SingleReport, assets: AssetDescriptor[]): SingleReport {
+  const lookup = new Map<string, AssetDescriptor>()
+  for (const asset of assets) { lookup.set(asset.id, asset); if (asset.legacyId) lookup.set(asset.legacyId, asset) }
+  return { ...report, blocks: report.blocks.map(block => {
+    if (!('assetId' in block) || !block.assetId || block.sourceKind === 'snapshot') return block
+    const descriptor = lookup.get(block.assetId)
+    if (!descriptor) return { ...block, sourceUnavailable: true }
+    const data = descriptor.getData()
+    const origin = { assetId: descriptor.id, source: descriptor.source, sourceUnavailable: false,
+      sourceCapturedAt: new Date().toISOString() }
+    if (block.type === 'plot' && data.plotData) return { ...block, ...origin, plotData: data.plotData,
+      plotLayout: splitUserMarkupFromLayout(data.plotLayout ?? block.plotLayout).layout }
+    if (block.type === 'table' && data.tableHeaders) return { ...block, ...origin, headers: data.tableHeaders, rows: data.tableRows ?? [] }
+    if (block.type === 'metrics' && data.metrics) return { ...block, ...origin, items: data.metrics }
+    if (block.type === 'diagram' && data.diagramState) return { ...block, ...origin, diagramState: data.diagramState,
+      showResults: data.diagramShowResults, treeNames: data.diagramTreeNames, renderedImage: undefined }
+    return { ...block, sourceUnavailable: true }
+  }) }
+}
+function prepareReportSources(report: SingleReport): SingleReport {
+  const isLiveFta = (block: ReportBlock): block is ReportBlock & ReportAssetOrigin =>
+    'assetId' in block && block.sourceKind !== 'snapshot' && (block.source?.module === 'faultTree'
+      || /^(?:asset:faulttree:|fta_)/.test(block.assetId ?? ''))
+  if (!report.blocks.some(isLiveFta)) return report
+  const current = new Map(enumerateAssets().map(asset => [asset.id, asset]))
+  return { ...report, blocks: report.blocks.map(block => {
+    if (!isLiveFta(block)) return block
+    const latest = block.assetId ? current.get(block.assetId)?.source : undefined
+    const captured = block.source
+    if (!latest || !captured?.inputFingerprint || captured.inputFingerprint !== latest.inputFingerprint
+        || captured.resultFingerprint !== latest.resultFingerprint || captured.engineRevision !== latest.engineRevision
+        || captured.resultStatus !== latest.resultStatus || captured.evaluationContext !== latest.evaluationContext) return { ...block, sourceUnavailable: true }
+    // The Refresh action is the only operation that replaces reported values.
+    return block
+  }) }
+}
+
+async function reportDiagramImage(block: DiagramBlock) {
+  const image = block.renderedImage ?? await import('../FaultTree/ReadOnlyFaultTreeDiagram')
+    .then(module => module.renderFtaDiagram(block.diagramState, block.label, block.showResults, block.treeNames))
+  if (!image || !isSafeReportImageDataUrl(image.dataUrl, 'image/png') || !Number.isFinite(image.width)
+      || !Number.isFinite(image.height) || image.width <= 0 || image.height <= 0) {
+    throw new Error(`Invalid report diagram: ${block.label}`)
+  }
+  return image
+}
+
 function formatSnapshotSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
@@ -214,12 +290,13 @@ function formatSnapshotSize(bytes: number): string {
 // PDF Export  (block-by-block rendering, with header/footer)
 // ---------------------------------------------------------------------------
 
-async function exportPDF(report: SingleReport) {
+export async function renderReportPDF(report: SingleReport): Promise<ArrayBuffer> {
+  report = prepareReportSources(report)
   const pf = report.pageFormat ?? DEFAULT_FORMAT
   const orient = pf.orientation === 'landscape' ? 'l' : 'p'
   const sz = PAGE_SIZES[pf.pageSize] ?? PAGE_SIZES.a4
   const { jsPDF } = await import('jspdf')
-  const pdf = new jsPDF(orient, 'mm', [sz.w, sz.h])
+  const pdf = new jsPDF({ orientation: orient, unit: 'mm', format: [sz.w, sz.h], compress: true })
   const pw = pdf.internal.pageSize.getWidth()
   const ph = pdf.internal.pageSize.getHeight()
   const m = pf.margin
@@ -251,6 +328,16 @@ async function exportPDF(report: SingleReport) {
   y += 8
 
   for (const block of report.blocks) {
+    if ('sourceUnavailable' in block && block.sourceUnavailable) {
+      throw new Error(`Refresh or remove unavailable source: ${block.label}`)
+    }
+    const sourceNote = reportSourceNote(block)
+    if (sourceNote) {
+      pdf.setFontSize(8); pdf.setFont('helvetica', 'normal'); pdf.setTextColor(100, 116, 139)
+      for (const line of pdf.splitTextToSize(sourceNote, cw) as string[]) {
+        ensureSpace(4); pdf.text(line, m, y + 3); y += 4
+      }
+    }
     switch (block.type) {
       case 'heading': {
         const sz = block.level === 1 ? 16 : block.level === 2 ? 13 : 11
@@ -282,7 +369,7 @@ async function exportPDF(report: SingleReport) {
       }
       case 'image': {
         if (!isSafeReportImageDataUrl(block.dataUrl, block.mimeType)
-            || block.naturalWidth <= 0 || block.naturalHeight <= 0) break
+            || block.naturalWidth <= 0 || block.naturalHeight <= 0) throw new Error(`Invalid report image: ${block.fileName}`)
         const requestedWidth = cw * (block.widthPercent / 100)
         let drawW = requestedWidth
         let drawH = drawW * block.naturalHeight / block.naturalWidth
@@ -322,10 +409,10 @@ async function exportPDF(report: SingleReport) {
         let plotW = plotH / aspect
         if (plotW > cw) { plotW = cw; plotH = cw * aspect }
         if (y + plotH > bottomY) newPage()
+        const tmp = document.createElement('div')
         try {
           const rw = 800
           const rh = Math.round(rw * aspect)
-          const tmp = document.createElement('div')
           tmp.style.cssText = `position:fixed;left:-9999px;width:${rw}px;height:${rh}px`
           document.body.appendChild(tmp)
           await (Plotly as AnyLayout).newPlot(tmp, block.plotData, {
@@ -339,67 +426,35 @@ async function exportPDF(report: SingleReport) {
           const imgUrl: string = await (Plotly as AnyLayout).toImage(tmp, {
             format: 'png', width: rw, height: rh, scale: 2,
           })
-          pdf.addImage(imgUrl, 'PNG', m, y, plotW, plotH)
+          pdf.addImage(imgUrl, 'PNG', m, y, plotW, plotH, undefined, 'FAST')
           y += plotH + 6
-          ;(Plotly as AnyLayout).purge(tmp)
-          tmp.remove()
-        } catch {
-          pdf.setFontSize(10)
-          pdf.setFont('helvetica', 'italic')
-          pdf.setTextColor(148, 163, 184)
-          pdf.text(`[Plot: ${block.label}]`, m, y + 4)
-          y += 10
+        } catch (error) {
+          throw new Error(`Could not render report plot “${block.label}”: ${error instanceof Error ? error.message : String(error)}`)
+        } finally {
+          try { (Plotly as AnyLayout).purge(tmp) } finally { tmp.remove() }
         }
         break
       }
-      case 'table': {
-        const colW = cw / Math.max(block.headers.length, 1)
-        const maxChars = Math.max(4, Math.floor((colW - 2) / 1.8))
-        ensureSpace(14)
-        pdf.setFillColor(241, 245, 249)
-        pdf.rect(m, y, cw, 6, 'F')
-        pdf.setFontSize(8)
-        pdf.setFont('helvetica', 'bold')
-        pdf.setTextColor(51, 65, 85)
-        block.headers.forEach((h, i) => {
-          pdf.text(String(h).substring(0, maxChars), m + i * colW + 1, y + 4)
-        })
-        y += 6
-        pdf.setFont('helvetica', 'normal')
-        pdf.setTextColor(71, 85, 105)
-        block.rows.forEach(row => {
-          ensureSpace(6)
-          row.forEach((c, i) => {
-            pdf.text(String(c).substring(0, maxChars), m + i * colW + 1, y + 4)
-          })
-          pdf.setDrawColor(229, 231, 235)
-          pdf.line(m, y + 5, m + cw, y + 5)
-          y += 6
-        })
-        y += 4
+      case 'diagram': {
+        const image = await reportDiagramImage(block)
+        const height = Math.min(cw * image.height / image.width, bottomY - topY)
+        ensureSpace(height + 2)
+        pdf.addImage(image.dataUrl, 'PNG', m, y, Math.min(cw, height * image.width / image.height), height, undefined, 'FAST')
+        y += height + 4
         break
       }
+      case 'table':
       case 'metrics': {
-        ensureSpace(8 + block.items.length * 5.5)
         if (block.label) {
-          pdf.setFontSize(9)
-          pdf.setFont('helvetica', 'bold')
-          pdf.setTextColor(51, 65, 85)
-          pdf.text(block.label, m, y + 3.5)
-          y += 6
+          pdf.setFontSize(9); pdf.setFont('helvetica', 'bold'); pdf.setTextColor(51, 65, 85)
+          for (const line of pdf.splitTextToSize(block.label, cw) as string[]) {
+            ensureSpace(5); pdf.text(line, m, y + 3.5); y += 5
+          }
         }
-        pdf.setFontSize(9)
-        pdf.setFont('helvetica', 'normal')
-        const valX = m + Math.min(60, cw * 0.45)
-        for (const item of block.items) {
-          ensureSpace(5.5)
-          pdf.setTextColor(100, 116, 139)
-          pdf.text(item.label + ':', m + 2, y + 3)
-          pdf.setTextColor(30, 41, 59)
-          pdf.text(item.value, valX, y + 3)
-          y += 5
-        }
-        y += 4
+        renderReportTablePdf(pdf,
+          block.type === 'table' ? block.headers : ['Metric', 'Value'],
+          block.type === 'table' ? block.rows : block.items.map(item => [item.label, item.value]),
+          { x: m, width: cw, topY, bottomY, getY: () => y, setY: value => { y = value }, newPage })
         break
       }
       case 'divider': {
@@ -474,8 +529,17 @@ async function exportPDF(report: SingleReport) {
     subject: 'Perdura engineering report; verification metadata is included in the export package.',
     creator: 'Perdura',
   })
-  await downloadArtifact(pdf.output('arraybuffer'), `${report.title || 'report'}.pdf`, 'application/pdf', {
-    kind: 'report', title: report.title,
+  return pdf.output('arraybuffer')
+}
+
+async function exportPDF(report: SingleReport) {
+  const origin = captureProjectExportOrigin()
+  const sources = await artifactSources()
+  assertProjectExportOrigin(origin)
+  const bytes = await renderReportPDF(report)
+  assertProjectExportOrigin(origin)
+  await downloadArtifact(bytes, `${report.title || 'report'}.pdf`, 'application/pdf', {
+    kind: 'report', title: report.title, sources,
   })
 }
 
@@ -483,8 +547,9 @@ async function exportPDF(report: SingleReport) {
 // HTML Export (interactive Plotly charts)
 // ---------------------------------------------------------------------------
 
-async function exportHTML(report: SingleReport) {
-  const blocks = (await Promise.all(report.blocks.map(async b => {
+export async function renderReportHtml(report: SingleReport): Promise<string> {
+  report = prepareReportSources(report)
+  const renderBlock = async (b: ReportBlock): Promise<string> => {
     switch (b.type) {
       case 'heading': {
         const tag = `h${b.level}`
@@ -493,7 +558,7 @@ async function exportHTML(report: SingleReport) {
       case 'text':
         return `<section class="markdown">${await markdownToHtmlFragment(b.content)}</section>`
       case 'image': {
-        if (!isSafeReportImageDataUrl(b.dataUrl, b.mimeType)) return ''
+        if (!isSafeReportImageDataUrl(b.dataUrl, b.mimeType)) throw new Error(`Invalid report image: ${b.fileName}`)
         const align = b.alignment === 'center' ? 'margin-left:auto;margin-right:auto'
           : b.alignment === 'right' ? 'margin-left:auto;margin-right:0' : 'margin-left:0;margin-right:auto'
         return `<figure class="report-image" style="width:${b.widthPercent}%;${align}"><img src="${b.dataUrl}" alt="${escHtml(b.alt)}"><figcaption>${escHtml(b.caption)}</figcaption></figure>`
@@ -512,6 +577,10 @@ async function exportHTML(report: SingleReport) {
           `<div id="${pid}" class="plot"></div>`,
           buildInteractivePlotScript(pid, b.plotData, exportedLayout),
         ].join('')
+      }
+      case 'diagram': {
+        const image = await reportDiagramImage(b)
+        return `<figure class="report-image"><img src="${image.dataUrl}" alt="${escHtml(b.label)}"><figcaption>${escHtml(b.label)}</figcaption></figure>`
       }
       case 'table': {
         const ths = b.headers.map(h => `<th>${escHtml(String(h))}</th>`).join('')
@@ -532,7 +601,15 @@ async function exportHTML(report: SingleReport) {
       }
       default: return ''
     }
-  }))).join('\n')
+  }
+  // Sequential rendering bounds the memory required for large FTA libraries.
+  const rendered: string[] = []
+  for (const block of report.blocks) {
+    if ('sourceUnavailable' in block && block.sourceUnavailable) throw new Error('A report source is unavailable; refresh or remove it before export.')
+    const note = reportSourceNote(block)
+    rendered.push((note ? `<p class="cap">${escHtml(note)}</p>` : '') + await renderBlock(block))
+  }
+  const blocks = rendered.join('\n')
 
   const pf = report.pageFormat ?? DEFAULT_FORMAT
   const szInfo = PAGE_SIZES[pf.pageSize] ?? PAGE_SIZES.a4
@@ -563,7 +640,7 @@ p{margin:10px 0;color:#334155}
 .report-image figcaption{margin-top:6px;text-align:center;color:#64748b;font-size:12px;font-style:italic}
 .plot{width:100%;height:500px;margin:24px 0}
 table{border-collapse:collapse;width:100%;margin:16px 0;font-size:13px}
-td,th{border:1px solid #e2e8f0;padding:7px 10px;text-align:left}
+td,th{border:1px solid #e2e8f0;padding:7px 10px;text-align:left;overflow-wrap:anywhere;white-space:pre-wrap}thead{display:table-header-group}
 th{background:#f1f5f9;font-weight:600;color:#334155}
 tr:nth-child(even){background:#f8fafc}
 table.metrics{width:auto;min-width:320px}
@@ -583,8 +660,17 @@ footer{margin-top:48px;padding-top:12px;border-top:1px solid #e2e8f0;font-size:1
     '</body></html>',
   ].join('\n')
 
+  return html
+}
+
+async function exportHTML(report: SingleReport) {
+  const origin = captureProjectExportOrigin()
+  const sources = await artifactSources()
+  assertProjectExportOrigin(origin)
+  const html = await renderReportHtml(report)
+  assertProjectExportOrigin(origin)
   await downloadArtifact(html, `${report.title || 'report'}.html`, 'text/html', {
-    kind: 'report', title: report.title,
+    kind: 'report', title: report.title, sources,
   })
 }
 
@@ -692,7 +778,7 @@ export default function ReportBuilder() {
     for (const a of assets) {
       if (!map.has(a.moduleLabel)) map.set(a.moduleLabel, new Map())
       const sub = map.get(a.moduleLabel)!
-      const g = a.group || 'Default'
+      const g = a.source?.analysisId ? `${a.group || 'Default'} [${a.source.analysisId}]` : a.group || 'Default'
       if (!sub.has(g)) sub.set(g, [])
       sub.get(g)!.push(a)
     }
@@ -776,26 +862,31 @@ export default function ReportBuilder() {
   // --- Asset insertion ---
   const insertAsset = useCallback((a: AssetDescriptor) => {
     const data = a.getData()
+    const origin: ReportAssetOrigin = { assetId: a.id, source: a.source,
+      sourceKind: 'live', sourceCapturedAt: new Date().toISOString() }
     if (a.type === 'plot' && data.plotData) {
       const inherited = splitUserMarkupFromLayout(data.plotLayout ?? {})
       addBlock({
         id: newId(), type: 'plot',
         plotData: data.plotData, plotLayout: inherited.layout,
         plotMarkup: inherited.markup,
-        label: a.label, assetId: a.id,
+        label: a.label, ...origin,
       })
     } else if (a.type === 'table' && data.tableHeaders) {
       addBlock({
         id: newId(), type: 'table',
         headers: data.tableHeaders, rows: data.tableRows ?? [],
-        label: a.label,
+        label: a.label, ...origin,
       })
     } else if (a.type === 'metrics' && data.metrics) {
       addBlock({
         id: newId(), type: 'metrics',
         items: data.metrics,
-        label: a.label,
+        label: a.label, ...origin,
       })
+    } else if (a.type === 'diagram' && data.diagramState) {
+      addBlock({ id: newId(), type: 'diagram', diagramState: data.diagramState,
+        showResults: data.diagramShowResults, label: a.label, ...origin })
     }
   }, [addBlock])
 
@@ -840,27 +931,7 @@ export default function ReportBuilder() {
 
   // --- Refresh all asset-backed blocks ---
   const refreshBlocks = useCallback(() => {
-    const freshAssets = enumerateAssets()
-    const lookup = new Map<string, AssetDescriptor>()
-    for (const asset of freshAssets) {
-      lookup.set(asset.id, asset)
-      if (asset.legacyId) lookup.set(asset.legacyId, asset)
-    }
-    patchReport(r => ({
-      ...r,
-      blocks: r.blocks.map(b => {
-        if (b.type === 'plot' && b.sourceKind === 'snapshot') return b
-        if (!('assetId' in b) || !b.assetId) return b
-        const desc = lookup.get(b.assetId)
-        if (!desc) return b
-        const data = desc.getData()
-        if (b.type === 'plot' && data.plotData) {
-          const fresh = splitUserMarkupFromLayout(data.plotLayout ?? b.plotLayout)
-          return { ...b, plotData: data.plotData, plotLayout: fresh.layout }
-        }
-        return b
-      }),
-    }))
+    patchReport(report => refreshReportAssets(report, enumerateAssets()))
     setAssetVer(v => v + 1)
   }, [patchReport])
 
@@ -880,17 +951,27 @@ export default function ReportBuilder() {
     if (!activeReport) return
     setExporting(true)
     try { await exportPDF(activeReport) }
-    catch (e) { console.error('PDF export error:', e) }
+    catch (e) { toast.error(e instanceof Error ? e.message : 'Report export failed.') }
+    finally { setExporting(false) }
+  }
+
+  const handleHTML = async () => {
+    if (!activeReport) return
+    setExporting(true)
+    try { await exportHTML(activeReport) }
+    catch (error) { toast.error(error instanceof Error ? error.message : 'Report export failed.') }
     finally { setExporting(false) }
   }
 
   const handleExportAll = async () => {
+    const origin = captureProjectExportOrigin()
     setExporting(true)
     try {
       for (const r of state.reports) {
+        assertProjectExportOrigin(origin)
         await exportPDF(r)
       }
-    } catch (e) { console.error('Export-all error:', e) }
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Report export failed.') }
     finally { setExporting(false) }
   }
 
@@ -1127,7 +1208,7 @@ export default function ReportBuilder() {
           {exporting ? <Loader size={13} className="animate-spin" /> : <Download size={13} />}
           PDF
         </button>
-        <button onClick={() => activeReport && exportHTML(activeReport)} disabled={blocks.length === 0}
+        <button onClick={handleHTML} disabled={exporting || blocks.length === 0}
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed">
           <Download size={13} /> HTML
         </button>
@@ -1860,8 +1941,25 @@ function ImportedImageBlockEditor({ block, onChange }: {
   )
 }
 
-function BlockRenderer({ block, onChange }: { block: ReportBlock; onChange: (p: Partial<ReportBlock>) => void }) {
+const ReportFtaDiagram = lazy(() => import('../FaultTree/ReadOnlyFaultTreeDiagram'))
+function DiagramBlockPreview({ block }: { block: DiagramBlock }) {
+  const [open, setOpen] = useState(false)
+  return <details onToggle={event => setOpen(event.currentTarget.open)} className="rounded border p-2">
+    <summary className="cursor-pointer text-sm">{block.label} — view diagram</summary>
+    {open && <Suspense fallback={<p>Preparing diagram…</p>}>
+      <ReportFtaDiagram state={block.diagramState} label={block.label} showResults={block.showResults} treeNames={block.treeNames} />
+    </Suspense>}
+  </details>
+}
+
+function BlockRenderer(props: { block: ReportBlock; onChange: (p: Partial<ReportBlock>) => void }) {
+  const note = reportSourceNote(props.block)
+  return <>{note && <p className="break-words px-1 text-xs text-slate-500">{note}</p>}<BlockContent {...props} /></>
+}
+
+function BlockContent({ block, onChange }: { block: ReportBlock; onChange: (p: Partial<ReportBlock>) => void }) {
   switch (block.type) {
+    case 'diagram': return <DiagramBlockPreview block={block} />
     case 'heading':
       return (
         <div className="py-2 px-1">

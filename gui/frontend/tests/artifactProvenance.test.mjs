@@ -90,6 +90,34 @@ try {
     await assert.rejects(artifact.downloadDataUrlArtifact('data:image/png;base64,!',
       'image.png', 'image/png', { kind: 'test' }))
     assert.equal(blobs.length, urls.length, 'invalid image data must not download')
+
+    // Switch projects while the real export broker awaits WebCrypto. Neither
+    // the prepared download nor its ledger entry may land in the new project.
+    globalThis.localStorage = { getItem: () => 'true' }
+    project.newProject('Artifact checksum origin')
+    const originalDigest = crypto.subtle.digest
+    let releaseDigest
+    let enteredDigest
+    const digestGate = new Promise(resolve => { releaseDigest = resolve })
+    const digestStarted = new Promise(resolve => { enteredDigest = resolve })
+    crypto.subtle.digest = async (...args) => {
+      enteredDigest()
+      await digestGate
+      return originalDigest.apply(crypto.subtle, args)
+    }
+    try {
+      const pending = artifact.downloadArtifact(new Uint8Array([1, 2, 3]),
+        'origin.bin', 'application/octet-stream', { kind: 'test-race', sources: [] })
+      await digestStarted
+      project.newProject('New project during checksum')
+      releaseDigest()
+      await assert.rejects(pending, /project changed.*Restart/s)
+      assert.equal(downloadedNames.length, urls.length, 'a switched project must cancel the download')
+      assert.deepEqual(project.getProjectState().exportLedger, [], 'the new project must not inherit an export record')
+    } finally {
+      releaseDigest()
+      crypto.subtle.digest = originalDigest
+    }
   } finally {
     globalThis.fetch = originals.fetch
     globalThis.document = originals.document
