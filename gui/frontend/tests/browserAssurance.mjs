@@ -89,6 +89,13 @@ try {
     await compatibility.waitFor({ timeout: 60_000 })
     await expect(compatibility).toHaveCSS('opacity', '1')
     await page.waitForTimeout(250)
+    if (moduleId === 'data-analysis') {
+      // The shared status must be checked in its dirty state in every browser,
+      // rather than depending on whether module initialization changed inputs.
+      const projectName = page.getByTitle('Project name', { exact: true })
+      await projectName.fill(`${await projectName.inputValue()} — accessibility check`)
+      await expect(page.getByText(/^Unsaved changes/)).toBeVisible()
+    }
     // A contained module crash can leave an accessible shell. It is still a
     // failed journey; capture the error alongside the accessibility evidence.
     const errorBoundary = page.locator('[data-module-error]')

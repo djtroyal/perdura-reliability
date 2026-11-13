@@ -520,13 +520,13 @@ function ProjectApp() {
           <span
             title={dirtyTitle}
             aria-live="polite"
-            className={`flex items-center gap-1.5 text-[11px] font-medium shrink-0 ${dirty ? 'text-amber-600' : 'text-gray-400'}`}
+            className={`flex items-center gap-1.5 text-[11px] font-medium shrink-0 ${dirty ? 'text-[var(--perdura-status-warning-text)]' : 'text-[var(--perdura-text-muted)]'}`}
           >
-            <span className={`w-1.5 h-1.5 rounded-full ${dirty ? 'bg-amber-500' : 'bg-gray-300'}`} />
+            <span aria-hidden="true" className="w-1.5 h-1.5 rounded-full bg-current" />
             <span className="hidden lg:inline">
               {storageStatus === 'saving' ? 'Saving…' : storageStatus !== 'ready' ? 'Save failed' : dirty ? 'Unsaved changes' : 'Saved'}
               {dirty && (
-                <span className="ml-1 font-normal text-amber-500">
+                <span className="ml-1 font-normal">
                   · Last saved {lastSavedAt ? formatProjectTimestamp(lastSavedAt) : 'never'}
                 </span>
               )}
