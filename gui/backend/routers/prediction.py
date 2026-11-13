@@ -1,6 +1,8 @@
 """Failure rate prediction router (MIL-HDBK-217F / VITA 51.1 / Telcordia / 217Plus / FIDES / NSWC)."""
 
 import logging
+from hashlib import sha256
+import json
 import math
 import sys
 from fastapi import APIRouter, HTTPException
@@ -50,6 +52,9 @@ from schemas import (
     PredictionRequest, MultiStandardPredictionRequest,
     DeratingRequest, MissionProfilePredictionRequest,
 )
+
+from reliability.SystemDefinition import materialize_prediction_scenario
+from system_definition_schemas import SharedSystemPredictionRequest
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -2167,3 +2172,21 @@ def list_mission_profiles():
         }
     except ImportError:
         return {}
+
+
+@router.post("/predict-system", summary="Predict one scenario over the canonical project system")
+def predict_system(req: "SharedSystemPredictionRequest"):
+    try:
+        inputs = materialize_prediction_scenario(req.model.model_dump(), req.scenario)
+        validated = MultiStandardPredictionRequest.model_validate(inputs)
+    except (ValueError, TypeError, KeyError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    result = predict(PredictionRequest.model_validate(inputs)) if validated.standard == "MIL-HDBK-217F" else predict_standard(validated)
+    for row, part in zip(result["results"], validated.parts):
+        row["part_id"] = part.id
+    for key in ("incompatible", "excluded_parts"):
+        for row in result.get(key, []):
+            row["part_id"] = validated.parts[row["index"]].id
+    return {**result, "source_fingerprint": req.source_fingerprint,
+            "request_sha256": sha256(json.dumps(inputs, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest(),
+            "canonical_system_id": req.model.id, "scenario_version": 1}

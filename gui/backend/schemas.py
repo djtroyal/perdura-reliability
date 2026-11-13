@@ -994,6 +994,14 @@ class FMEABlockDiagramViewport(BaseModel):
     zoom: float = Field(default=1.0, ge=0.05, le=8.0)
 
 
+class DiagramLayoutOptions(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    mode: Literal["compact", "normal", "expanded"] = "normal"
+    preserveGateOrder: bool = True
+    preserveEventOrder: bool = True
+    optimizeLabelGeometry: bool = True
+
+
 class FMEABlockDiagram(BaseModel):
     """Persisted layout for the analysis's authoritative block diagram."""
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
@@ -1008,6 +1016,7 @@ class FMEABlockDiagram(BaseModel):
     viewport: FMEABlockDiagramViewport = Field(
         default_factory=FMEABlockDiagramViewport)
     snap_to_grid: bool = True
+    layoutOptions: Optional[DiagramLayoutOptions] = None
 
 
 class FMEAInterface(BaseModel):
@@ -2259,6 +2268,7 @@ class GumbelParameters(_DistributionParameters):
 class BetaParameters(_DistributionParameters):
     alpha: float = Field(gt=0)
     beta: float = Field(gt=0)
+    support_scale: float = Field(default=1.0, gt=0)
 
 
 DISTRIBUTION_PARAMETER_MODELS = {

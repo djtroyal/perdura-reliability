@@ -5,13 +5,14 @@ import {
   layoutVerticalGraph,
   orthogonalConnectorPath,
   rectanglesOverlap,
+  orderLayoutNodes, normalizeLayoutOptions, layoutRadialGraph, routeGraphEdges, routedConnectorPath, layoutLargeNestedBlocks,
 } from '../src/components/shared/adaptiveDiagramLayout.mjs'
 
 const trioNodes = [
   { id: 'gate', width: 112, height: 90 },
-  { id: 'left', width: 96, height: 100 },
-  { id: 'middle', width: 96, height: 100 },
-  { id: 'right', width: 96, height: 100 },
+  { id: 'left', type: 'basic', width: 96, height: 100, x: 0 },
+  { id: 'middle', type: 'basic', width: 96, height: 100, x: 150 },
+  { id: 'right', type: 'basic', width: 96, height: 100, x: 300 },
 ]
 const trioEdges = ['left', 'middle', 'right'].map((target, order) => ({
   id: `edge-${target}`, source: 'gate', target, order,
@@ -21,9 +22,9 @@ function box(node, position) {
   return { ...position, width: node.width, height: node.height }
 }
 
-test('dense FTA trio forms a centered, collision-free trident', () => {
+test('compact FTA trio forms a centered, collision-free trident', () => {
   const result = layoutVerticalGraph({
-    nodes: trioNodes, edges: trioEdges, density: 'dense', viewportWidth: 900,
+    nodes: trioNodes, edges: trioEdges, density: 'compact', viewportWidth: 900,
   })
   assert.deepEqual(new Set(result.staggered), new Set(['left', 'right']))
   assert.equal(result.positions.left.y, result.positions.right.y)
@@ -52,27 +53,19 @@ test('comfortable FTA remains a conventional single-row fanout', () => {
   assert.equal(result.positions.middle.y, result.positions.right.y)
 })
 
-test('compact FTA staggers only when a fanout exceeds the viewport budget', () => {
-  const narrow = layoutVerticalGraph({
-    nodes: trioNodes, edges: trioEdges, density: 'compact', viewportWidth: 1200,
-  })
-  assert.deepEqual(narrow.staggered, [])
-  const targets = Array.from({ length: 8 }, (_, index) => ({
-    id: `n${index}`, width: 112, height: 90,
-  }))
-  const wide = layoutVerticalGraph({
-    nodes: [{ id: 'gate', width: 128, height: 90 }, ...targets],
-    edges: targets.map((node, order) => ({ id: `e${order}`, source: 'gate', target: node.id, order })),
-    density: 'compact',
-    viewportWidth: 700,
-  })
-  assert.ok(wide.staggered.length > 0)
+test('compact trident is viewport-independent; mixed groups stay on one row', () => {
+  for (const viewportWidth of [500, 1200, 2400]) {
+    const result = layoutVerticalGraph({ nodes: trioNodes, edges: trioEdges, density: 'compact', viewportWidth })
+    assert.equal(result.staggered.length, 2)
+  }
+  const mixed = trioNodes.map(node => node.id === 'middle' ? { ...node, type:'and' } : node)
+  assert.deepEqual(layoutVerticalGraph({ nodes:mixed, edges:trioEdges, density:'compact' }).staggered, [])
 })
 
 test('dense fanouts from three through twelve stay ordered and collision-free', () => {
   for (let count = 3; count <= 12; count += 1) {
     const children = Array.from({ length: count }, (_, index) => ({
-      id: `n${index}`, width: 80 + (index % 3) * 22, height: 65 + (index % 4) * 27,
+      id: `n${index}`, x: index * 200, type: 'basic', width: 80 + (index % 3) * 22, height: 65 + (index % 4) * 27,
     }))
     const nodes = [{ id: 'gate', width: 112, height: 90 }, ...children]
     const result = layoutVerticalGraph({
@@ -148,7 +141,7 @@ test('orthogonal RBD paths snap fractional alignment noise and never draw diagon
   }), 'M 180 240 L 188 240 L 188 280 L 196 280')
 })
 
-test('FTA sibling order follows stored semantic edge order', () => {
+test('FTA preserves current visual order without rewriting semantic edge order', () => {
   const nodes = [
     { id: 'gate', width: 112, height: 90 },
     { id: 'alpha', width: 96, height: 90, x: 500 },
@@ -162,11 +155,11 @@ test('FTA sibling order follows stored semantic edge order', () => {
       { id: 'e-alpha', source: 'gate', target: 'alpha', order: 1 },
       { id: 'e-beta', source: 'gate', target: 'beta', order: 2 },
     ],
-    density: 'dense', viewportWidth: 900,
+    density: 'compact', viewportWidth: 900,
   })
   const center = id => result.positions[id].x + 48
+  assert.ok(center('beta') < center('gamma'))
   assert.ok(center('gamma') < center('alpha'))
-  assert.ok(center('alpha') < center('beta'))
 })
 
 test('RBD uses measured heights and keeps an isolated chain horizontal', () => {
@@ -190,7 +183,7 @@ test('RBD uses measured heights and keeps an isolated chain horizontal', () => {
   assert.ok(chain.positions.block.x < chain.positions.sink.x)
 })
 
-test('straight connectors reserve less routing space than orthogonal connectors', () => {
+test('mode spacing is independent of the selected connector rendering', () => {
   const nodes = [
     { id: 'source', width: 58, height: 58 },
     { id: 'block', width: 144, height: 80 },
@@ -202,8 +195,8 @@ test('straight connectors reserve less routing space than orthogonal connectors'
   ]
   const orthogonal = layoutHorizontalGraph({ nodes, edges, connectorStyle: 'smoothstep' })
   const straight = layoutHorizontalGraph({ nodes, edges, connectorStyle: 'straight' })
-  assert.ok(straight.positions.sink.x < orthogonal.positions.sink.x)
-  assert.ok(straight.routes['source-block'].offset < orthogonal.routes['source-block'].offset)
+  assert.equal(straight.positions.sink.x, orthogonal.positions.sink.x)
+  assert.equal(straight.routes['source-block'].offset, orthogonal.routes['source-block'].offset)
 })
 
 test('RBD parallel ranks are centered and collision-free', () => {
@@ -242,4 +235,104 @@ test('cyclic residue is placed without looping or disappearing', () => {
     assert.ok(Number.isFinite(position.x))
     assert.ok(Number.isFinite(position.y))
   })
+})
+
+
+test('all four independent preservation choices honor their mixed visual contract', () => {
+  const nodes = ['g1','e1','g2','e2'].map((id,index) => ({ id, kind:id[0]==='g'?'gate':'event', width:100,height:80,x:index*150 }))
+  const score = id => ({ e2:0,g2:1,e1:2,g1:3 })[id]
+  const order = (preserveGateOrder,preserveEventOrder) => orderLayoutNodes(nodes,
+    {mode:'normal',preserveGateOrder,preserveEventOrder,optimizeLabelGeometry:false},false,score).map(n=>n.id)
+  assert.deepEqual(order(true,true), ['g1','e1','g2','e2'])
+  assert.deepEqual(order(true,false), ['e2','g1','e1','g2'])
+  assert.deepEqual(order(false,true), ['e1','g2','e2','g1'])
+  assert.deepEqual(order(false,false), ['e2','g2','e1','g1'])
+})
+
+test('shared DAG preserves captured visual order and inputs remain byte-identical', () => {
+  const nodes = ['A','B','X','Y'].map((id,i)=>({id,width:100,height:80,x:i*150}))
+  const edges = [{id:'AX',source:'A',target:'X',order:0,role:'priority'},
+    {id:'AY',source:'A',target:'Y',order:1,role:'blocker'}, {id:'BX',source:'B',target:'X',order:0}]
+  const before = JSON.stringify({nodes,edges})
+  for (const mode of ['compact','normal','expanded']) {
+    const options={nodes,edges,layoutOptions:normalizeLayoutOptions({mode})}
+    const result=layoutVerticalGraph(options)
+    assert.ok(result.positions.X.x < result.positions.Y.x)
+    assert.deepEqual(result,layoutVerticalGraph(options))
+  }
+  assert.equal(JSON.stringify({nodes,edges}),before)
+})
+
+test('wide middle trident reserves stem clearance; label optimization reduces actual area', () => {
+  const nodes = trioNodes.map(node => node.id==='middle' ? {...node,width:360,height:180} : node.id==='left' ? {...node,height:160} : node)
+  const options={nodes,edges:trioEdges,layoutOptions:normalizeLayoutOptions({mode:'compact'})}
+  const before=layoutVerticalGraph(options)
+  const middle=before.positions.middle
+  assert.ok(before.positions.left.x+48 <= middle.x-8)
+  assert.ok(before.positions.right.x+48 >= middle.x+360+8)
+  assert.ok(Object.values(before.routes).every(route=>route.obstructionCount===0))
+  const optimized=layoutVerticalGraph({...options,layoutOptions:normalizeLayoutOptions({mode:'compact',preserveEventOrder:false,optimizeLabelGeometry:true})})
+  const area = result => {
+    const boxes=nodes.map(n=>({...result.positions[n.id],width:n.width,height:n.height}))
+    return (Math.max(...boxes.map(b=>b.x+b.width))-Math.min(...boxes.map(b=>b.x)))
+      *(Math.max(...boxes.map(b=>b.y+b.height))-Math.min(...boxes.map(b=>b.y)))
+  }
+  assert.ok(area(optimized)<area(before))
+})
+
+test('obstructed orthogonal connections select clear outside corridors', () => {
+  const nodes=[{id:'a',width:80,height:80},{id:'b',width:80,height:80},{id:'obstacle',width:100,height:180}]
+  const edges=[{id:'ab',source:'a',target:'b'}]
+  const positions={a:{x:0,y:100},b:{x:500,y:100},obstacle:{x:220,y:50}}
+  const route=routeGraphEdges(nodes,edges,positions,'horizontal',42).ab
+  assert.equal(route.obstructionCount,0)
+  assert.equal(route.points.length,6)
+  const path=routedConnectorPath({sourceX:80,sourceY:140,targetX:500,targetY:140,orientation:'horizontal'},route)
+  assert.ok(path.includes('L'))
+  assert.notEqual(path,'M 80 140 L 500 140')
+})
+
+test('radial modes and measured optimization retain clockwise order and do not overlap', () => {
+  const nodes=Array.from({length:7},(_,i)=>({id:`s${i}`,x:300*Math.cos(i),y:300*Math.sin(i),width:i===0?280:110,height:i===0?180:90}))
+  const bounds=[]
+  for(const mode of ['compact','normal','expanded']) {
+    const options={nodes,layoutOptions:normalizeLayoutOptions({mode,optimizeLabelGeometry:true}),initialId:'s0'}
+    const result=layoutRadialGraph(options)
+    assert.deepEqual(result,layoutRadialGraph(options))
+    for(let i=0;i<nodes.length;i++) for(let j=i+1;j<nodes.length;j++) assert.equal(rectanglesOverlap(box(nodes[i],result.positions[nodes[i].id]),box(nodes[j],result.positions[nodes[j].id])),false)
+    bounds.push(Math.max(...Object.values(result.positions).map(p=>p.x))-Math.min(...Object.values(result.positions).map(p=>p.x)))
+  }
+  assert.ok(bounds[0]<bounds[1] && bounds[1]<bounds[2])
+})
+
+test('large layouts keep every node and edge with bounded routing work', () => {
+  const nodes=Array.from({length:1000},(_,i)=>({id:`n${i}`,width:120,height:90,x:i*140}))
+  const edges=nodes.slice(1).map((node,i)=>({id:`e${i}`,source:`n${Math.floor(i/3)}`,target:node.id}))
+  const result=layoutVerticalGraph({nodes,edges,layoutOptions:normalizeLayoutOptions({mode:'compact',optimizeLabelGeometry:true})})
+  assert.equal(Object.keys(result.positions).length,1000)
+  assert.equal(Object.keys(result.routes).length,999)
+  assert.ok(Object.values(result.routes).every(route=>route.obstructionCount===undefined))
+})
+
+
+test('multiple contiguous trident groups retain their visual order and clear each other', () => {
+  const nodes=['p','q'].map((id,i)=>({id,width:120,height:80,x:i*700}))
+  const edges=[]
+  for(let group=0;group<2;group++) for(let i=0;i<3;i++) {
+    const id=`${group}-${i}`
+    nodes.push({id,type:'basic',width:i===1?240:100,height:100,x:group*700+i*200})
+    edges.push({id:'e'+id,source:group?'q':'p',target:id})
+  }
+  const result=layoutVerticalGraph({nodes,edges,density:'compact'})
+  assert.equal(result.staggered.length,4)
+  for(let i=0;i<nodes.length;i++)for(let j=i+1;j<nodes.length;j++)assert.equal(rectanglesOverlap(box(nodes[i],result.positions[nodes[i].id]),box(nodes[j],result.positions[nodes[j].id])),false)
+  assert.ok(Object.values(result.routes).every(route=>route.obstructionCount===0))
+})
+
+test('deep assembly fallback is iterative, preserves every block and grows containment', () => {
+  const nodes=Array.from({length:2000},(_,i)=>({id:'n'+i,parentId:i?'n'+(i-1):undefined,expanded:true,insideBoundary:true,kind:'gate',width:180,height:72,x:i*24,y:i*52}))
+  const result=layoutLargeNestedBlocks(nodes,{x:0,y:0,width:300,height:200},normalizeLayoutOptions({mode:'compact'}))
+  assert.equal(Object.keys(result.positions).length,2000)
+  assert.ok(result.boundary.width>2000*20)
+  assert.ok(result.positions.n1999.y>result.positions.n1998.y)
 })

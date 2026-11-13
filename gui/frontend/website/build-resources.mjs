@@ -20,6 +20,7 @@ import {
 import {
   captureServerIdentity, VERSION_ENDPOINT_PATTERN,
 } from './server-compatibility-fixture.mjs'
+import { assertCaptureBuildIdentity, waitForCaptureReady } from './capture-readiness.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const frontend = resolve(here, '..')
@@ -85,6 +86,7 @@ let { browser, context } = await launchContext()
 const records = []
 const differences = []
 const warnings = []
+let servedBuildIdentity
 
 async function applyAction(page, action) {
   const command = typeof action === 'string' ? { tab: action } : action
@@ -100,7 +102,6 @@ async function applyAction(page, action) {
   } else {
     throw new Error(`Unsupported capture action: ${JSON.stringify(command)}`)
   }
-  await page.waitForTimeout(120)
 }
 
 async function loadShowcaseFixture(page, captureId) {
@@ -122,7 +123,9 @@ async function loadShowcaseFixture(page, captureId) {
 async function renderCapturePage(capture) {
   const page = await context.newPage()
   const consoleErrors = []
+  const runtimeErrors = []
   page.on('console', message => { if (message.type() === 'error') consoleErrors.push(message.text()) })
+  page.on('pageerror', error => runtimeErrors.push(error.message))
   await page.route(VERSION_ENDPOINT_PATTERN, route => route.fulfill({
     status: 200,
     contentType: 'application/json',
@@ -133,6 +136,18 @@ async function renderCapturePage(capture) {
     const url = `${baseUrl}/?perduraShowcase=1&module=${encodeURIComponent(capture.module)}`
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45_000 })
     await page.locator('[data-perdura-showcase="ready"]').waitFor({ timeout: 30_000 })
+    const actualBuild = await page.locator('[data-perdura-showcase="ready"]').evaluate(element => ({
+      commit: element.getAttribute('data-perdura-build-commit'),
+      version: element.getAttribute('data-perdura-build-version'),
+    }))
+    assertCaptureBuildIdentity(actualBuild, {
+      commit: process.env.GITHUB_SHA ?? process.env.PERDURA_COMMIT,
+      version: packageJson.version,
+    })
+    if (servedBuildIdentity && (actualBuild.commit !== servedBuildIdentity.commit || actualBuild.version !== servedBuildIdentity.version)) {
+      throw new Error(`${capture.id}: the served application changed during screenshot generation`)
+    }
+    servedBuildIdentity = actualBuild
     await page.addStyleTag({ content: `
       *, *::before, *::after { animation: none !important; transition: none !important; caret-color: transparent !important; }
       [data-perdura-showcase] { scroll-behavior: auto !important; }
@@ -140,32 +155,19 @@ async function renderCapturePage(capture) {
     if (capture.resultRequired && capture.fixtureFirst) {
       const loaded = await loadShowcaseFixture(page, capture.fixtureId ?? capture.id)
       if (!loaded) throw new Error(`${capture.id}: completed-analysis fixture did not load`)
-      await page.waitForTimeout(250)
     }
     for (const action of capture.actions) await applyAction(page, action)
     if (capture.resultRequired && !capture.skipFixture && !capture.fixtureFirst) {
       const loaded = await loadShowcaseFixture(page, capture.fixtureId ?? capture.id)
       if (!loaded) throw new Error(`${capture.id}: completed-analysis fixture did not load`)
-      await page.waitForTimeout(250)
     }
-    await page.evaluate(async () => { await document.fonts?.ready })
-    await page.waitForTimeout(350)
-    if (await page.getByText('Something went wrong', { exact: false }).count()) {
-      throw new Error(`${capture.id}: an application error boundary is visible`)
-    }
-    if (capture.resultRequired) {
-      const emptyMessages = page.getByText(EMPTY_RESULT_PATTERN)
-      for (let index = 0; index < await emptyMessages.count(); index += 1) {
-        const message = emptyMessages.nth(index)
-        if (await message.isVisible().catch(() => false)) {
-          throw new Error(`${capture.id}: completed-analysis capture still shows: ${(await message.innerText()).trim()}`)
-        }
-      }
-    }
+    await waitForCaptureReady(page, capture, { emptyResultPattern: EMPTY_RESULT_PATTERN })
+    if (runtimeErrors.length) throw new Error(`${capture.id}: uncaught browser errors: ${runtimeErrors.join(' | ')}`)
     const target = resolve(screenshotsDir, capture.file)
     const screenshotOptions = { path: target, animations: 'disabled', caret: 'hide' }
     if (capture.frame === 'viewport') await page.screenshot(screenshotOptions)
     else await page.locator(capture.frame.selector).screenshot(screenshotOptions)
+    if (runtimeErrors.length) throw new Error(`${capture.id}: uncaught browser errors: ${runtimeErrors.join(' | ')}`)
     return consoleErrors
   } catch (error) {
     await page.screenshot({ path: resolve(failuresDir, `${capture.id}.png`), fullPage: true }).catch(() => {})
@@ -265,8 +267,8 @@ const demoData = await readFile(demoPath)
 const fixtureIndexData = await readFile(fixtureIndexPath)
 const provenance = {
   schema: 'perdura.website-resource-build/v1',
-  generatedAt: new Date().toISOString(), product: 'Perdura', version: packageJson.version,
-  sourceCommit: process.env.GITHUB_SHA ?? process.env.PERDURA_COMMIT ?? 'development',
+  generatedAt: new Date().toISOString(), product: 'Perdura', version: servedBuildIdentity.version,
+  sourceCommit: servedBuildIdentity.commit,
   demoProjectSha256: sha256(demoData), showcaseFixtureIndexSha256: sha256(fixtureIndexData), viewport: VIEWPORT,
   browser: 'playwright-chromium', captures: records.length, warnings, differences,
 }

@@ -369,6 +369,26 @@ jobs:
         run: >-
           npm run assurance:fta-library-reports --prefix gui/frontend --
           --output-dir ../../evidence/dynamic/fta-library-reports
+      - name: Verify adopted LDA distributions, SSI and Monte Carlo workflows
+        env:
+          PERDURA_PYTHON: ${{ github.workspace }}/.venv/bin/python
+        run: >-
+          npm run assurance:adopted-distribution --prefix gui/frontend --
+          --output-dir ../../evidence/dynamic/adopted-distribution
+      - name: Verify live distribution inputs across reliability consumers
+        env:
+          PERDURA_PYTHON: ${{ github.workspace }}/.venv/bin/python
+        run: >-
+          npm run assurance:reliability-sources --prefix gui/frontend --
+          --output-dir ../../evidence/dynamic/reliability-sources
+      - name: Verify shared System Definition and Prediction scenarios
+        run: >-
+          npm run assurance:shared-system --prefix gui/frontend --
+          --output-dir ../../evidence/dynamic/shared-system
+      - name: Verify deterministic layouts across all diagram canvases
+        run: >-
+          npm run assurance:diagram-layout --prefix gui/frontend --
+          --output-dir ../../evidence/dynamic/diagram-layout
       - name: Verify project migration and incremental browser persistence
         run: >-
           npm run assurance:project-persistence --prefix gui/frontend --

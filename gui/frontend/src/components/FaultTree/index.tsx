@@ -46,8 +46,12 @@ import { buildFtaReferenceIndex, collectFtaClosure, createFtaResultProvenance, f
 import LibraryPanel, { LibraryItem } from '../shared/LibraryPanel'
 import { CanvasErrorBoundary, sanitizeNodeChanges, sanitizeNodes } from '../shared/CanvasErrorBoundary'
 import { useReliabilitySources } from '../shared/ldaFolios'
+import { resolveLinkedNodes, analysisSourceFingerprint, nodeSourceRef, sourceId, resolveReliabilitySource } from '../shared/reliabilitySources'
 import ExportDiagramButton from '../shared/ExportDiagramButton'
 import CanvasAssetControls from '../shared/CanvasAssetControls'
+import DiagramLayoutMenu from '../shared/DiagramLayoutMenu'
+import { useMeasuredDiagramLayout } from '../shared/useMeasuredDiagramLayout'
+import { normalizeLayoutOptions, layoutDensity, type DiagramLayoutOptions } from '../shared/adaptiveDiagramLayout.mjs'
 import { fitReactFlowForExport } from '../shared/exportDiagram'
 import ExportResultsButton from '../shared/ExportResultsButton'
 import NumberField from '../shared/NumberField'
@@ -204,7 +208,7 @@ export function computeCDF(dist: string, params: Record<string, number>, t: numb
       // reliability Beta_Distribution on [0, 1]
       const alpha = params.alpha ?? 2, beta = params.beta ?? 2
       if (alpha <= 0 || beta <= 0) return 0
-      return incompleteBeta(alpha, beta, Math.min(1, Math.max(0, t)))
+      return incompleteBeta(alpha, beta, Math.min(1, Math.max(0, t / (params.support_scale ?? 1))))
     }
     default:
       return 0
@@ -604,6 +608,7 @@ export function FTASymbol({
 }
 
 function readableProbability(data: Record<string, unknown>): string | null {
+  if (data.sourceError) return 'Source unavailable'
   const computed = data.computedP
   if (typeof computed === 'number' && Number.isFinite(computed)) return `P = ${computed.toExponential(3)}`
   const probability = data.probability
@@ -930,6 +935,7 @@ export interface CanvasState {
   nSimulations?: string
   simSeed?: string
   density?: DiagramDensity
+  layoutOptions?: DiagramLayoutOptions
   connectorStyle?: 'smoothstep' | 'bezier' | 'straight'
   snapToGrid?: boolean
   annotations?: Node[]
@@ -1112,6 +1118,8 @@ export function FaultTreeEditor({ onNavigate, onLibrary }: {
   const [simSeed, setSimSeed] = useState<string>(persisted.simSeed ?? '')
   const [confidenceLevel, setConfidenceLevel] = useState<string>(persisted.confidenceLevel ?? '95')
   const [density, setDensity] = useState<DiagramDensity>(normalizeDiagramDensity(persisted.density))
+  const [layoutOptions, setLayoutOptions] = useState(() => normalizeLayoutOptions(persisted.layoutOptions, persisted.density))
+  const layoutPending = useRef(false)
   const [connectorStyle, setConnectorStyle] = useState<'smoothstep' | 'bezier' | 'straight'>(persisted.connectorStyle ?? 'smoothstep')
   const [snapToGrid, setSnapToGrid] = useState(Boolean(persisted.snapToGrid))
   const [showNodeIds, setShowNodeIds] = useState(persisted.showNodeIds !== false)
@@ -1166,14 +1174,6 @@ export function FaultTreeEditor({ onNavigate, onLibrary }: {
     if (safeChanges.length) onEdgesChange(safeChanges)
   }, [modelEdges, onEdgesChange])
 
-  const densityIndex = DIAGRAM_DENSITY_LEVELS.indexOf(density)
-  const stepDiagramDensity = (direction: -1 | 1) => {
-    const nextIndex = Math.max(0, Math.min(
-      DIAGRAM_DENSITY_LEVELS.length - 1,
-      densityIndex + direction,
-    ))
-    setDensity(DIAGRAM_DENSITY_LEVELS[nextIndex])
-  }
 
   const visibleInsertionPosition = (nodeWidth = 160, nodeHeight = 120) => {
     const instance = flowInstanceRef.current
@@ -1439,13 +1439,25 @@ export function FaultTreeEditor({ onNavigate, onLibrary }: {
       parentCounts.set(edge.target, (parentCounts.get(edge.target) ?? 0) + 1)
     }
     return diagramNodes.map(node => {
+      // Resolve display-only linked previews too: a historical input probability
+      // must never look like the current model after its source changes.
+      let displayData = node.data
+      if (EVENT_NODE_TYPES.has(node.type ?? '') && node.type !== 'house' && nodeSourceRef(node.data)) {
+        try {
+          displayData = resolveLinkedNodes(getProjectState(), [node])[0].data
+          const exposure = Number(displayData.exposure_time ?? globalExposure)
+          const probability = Number.isFinite(exposure) && exposure >= 0
+            ? computeCDF(String(displayData.distribution), displayData.dist_params as Record<string, number>, exposure) : NaN
+          displayData = { ...displayData, probability: Number.isFinite(probability) ? probability : undefined }
+        } catch (error) { displayData = { ...displayData, sourceError: (error as Error).message } }
+      }
       const structuralRole = node.type === 'or' && childCounts.get(node.id) === 1
         ? ((parentCounts.get(node.id) ?? 0) === 0 ? 'top' : 'intermediate')
         : undefined
       return {
         ...node,
         data: {
-          ...node.data,
+          ...displayData,
           ...(node.type !== 'annotation' && !EVENT_NODE_TYPES.has(node.type ?? '') && !node.data.virtualTransferOwner
             ? { gateId: resolvedGateIds.get(node.id) } : {}),
           ...(node.type === 'transfer' ? { transferToName: treeNames.get(String(node.data.transferTo ?? node.data.ref_tree ?? '')) ?? String(node.data.transferToName ?? '') } : {}),
@@ -1460,7 +1472,7 @@ export function FaultTreeEditor({ onNavigate, onLibrary }: {
         },
       }
     })
-  }, [diagramNodes, diagramEdges, computedNodeValues, highlightedNodes, eventOccurrenceCounts, resolvedGateIds, showNodeIds, treeNames])
+  }, [diagramNodes, diagramEdges, computedNodeValues, highlightedNodes, eventOccurrenceCounts, resolvedGateIds, showNodeIds, treeNames, ldaFolios, globalExposure])
   const displayEdges = useMemo(() => {
     const childCounts = new Map<string, number>()
     diagramEdges.forEach(edge => childCounts.set(edge.source, (childCounts.get(edge.source) ?? 0) + 1))
@@ -1542,14 +1554,14 @@ export function FaultTreeEditor({ onNavigate, onLibrary }: {
   const latest = useRef<CanvasState>({
     ...persisted, schemaVersion: 2, nodes: persistedNodes, edges: modelEdges, annotations: persistedAnnotations,
     exposureTime: globalExposure, result, engine, nSimulations, simSeed, confidenceLevel,
-    density, connectorStyle, snapToGrid, showNodeIds,
+    density, layoutOptions, connectorStyle, snapToGrid, showNodeIds,
     conversionProvenance: persisted.conversionProvenance,
     pendingSystemStarter: persisted.pendingSystemStarter,
   })
   latest.current = {
     ...persisted, schemaVersion: 2, nodes: persistedNodes, edges: modelEdges, annotations: persistedAnnotations,
     exposureTime: globalExposure, result, engine, nSimulations, simSeed, confidenceLevel,
-    density, connectorStyle, snapToGrid, showNodeIds,
+    density, layoutOptions, connectorStyle, snapToGrid, showNodeIds,
     conversionProvenance: persisted.conversionProvenance,
     pendingSystemStarter: persisted.pendingSystemStarter,
   }
@@ -1567,9 +1579,10 @@ export function FaultTreeEditor({ onNavigate, onLibrary }: {
     else if (ownerFolio.current === activeFolio.current) setPersisted(latest.current)
   }
   useEffect(() => {
+    if (layoutPending.current) return
     if (persistTimer.current) clearTimeout(persistTimer.current)
     persistTimer.current = setTimeout(persistLatest, 250)
-  }, [nodes, modelEdges, annotations, globalExposure, engine, nSimulations, simSeed, confidenceLevel, density, connectorStyle, snapToGrid, showNodeIds]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [nodes, modelEdges, annotations, globalExposure, engine, nSimulations, simSeed, confidenceLevel, density, layoutOptions, connectorStyle, snapToGrid, showNodeIds]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => {
     if (persistTimer.current) clearTimeout(persistTimer.current)
     persistLatest()
@@ -1606,6 +1619,7 @@ export function FaultTreeEditor({ onNavigate, onLibrary }: {
       setSimSeed(persisted.simSeed ?? '')
       setConfidenceLevel(persisted.confidenceLevel ?? '95')
       setDensity(normalizeDiagramDensity(persisted.density))
+      setLayoutOptions(normalizeLayoutOptions(persisted.layoutOptions, persisted.density))
       setConnectorStyle(persisted.connectorStyle ?? 'smoothstep')
       setShowNodeIds(persisted.showNodeIds !== false)
       setSnapToGrid(Boolean(persisted.snapToGrid))
@@ -1993,11 +2007,17 @@ export function FaultTreeEditor({ onNavigate, onLibrary }: {
       : null)
   }
 
-  const autoLayout = () => {
-    if (!nodes.length) return
+  const applyLayout = (options: DiagramLayoutOptions) => {
+    const nextDensity = layoutDensity(options.mode)
+    setLayoutOptions(options)
+    setDensity(nextDensity)
+    if (!nodes.length) {
+      writeFolioState(faultTreeKey, ownerFolio.current, { ...latest.current, density: nextDensity, layoutOptions: options }, `layout-${Date.now()}`)
+      return
+    }
 
     const estimateSize = (node: Node) => {
-      const densityPreset = DIAGRAM_DENSITY[density]
+      const densityPreset = DIAGRAM_DENSITY[nextDensity]
       const type = node.type ?? ''
       const estimatedWidth = EVENT_NODE_TYPES.has(type)
         ? densityPreset.eventWidth : densityPreset.gateWidth
@@ -2046,6 +2066,8 @@ export function FaultTreeEditor({ onNavigate, onLibrary }: {
     const adaptiveLayout = layoutVerticalGraph({
       nodes: nodes.map(node => ({
         id: node.id,
+        kind: EVENT_NODE_TYPES.has(node.type ?? '') || node.type === 'transfer' ? 'event' as const : 'gate' as const,
+        type: node.type,
         width: dimensions.get(node.id)?.width ?? 150,
         height: dimensions.get(node.id)?.height ?? 120,
         x: node.position.x,
@@ -2057,7 +2079,8 @@ export function FaultTreeEditor({ onNavigate, onLibrary }: {
         target: edge.target,
         order: Number((edge.data as { order?: number } | undefined)?.order ?? 0),
       })),
-      density,
+      density: nextDensity,
+      layoutOptions: options,
       connectorStyle,
       viewportWidth: canvasWidth,
       snapToGrid,
@@ -2067,15 +2090,15 @@ export function FaultTreeEditor({ onNavigate, onLibrary }: {
       return [id, offset ? { x: position.x - offset.x, y: position.y - offset.y } : position]
     }))
     const priorPositions = new Map(nodes.map(node => [node.id, node.position]))
-    setNodes(current => current.map(node => ({
+    const nextNodes = nodes.map(node => ({
       ...node,
       position: positions.get(node.id) ?? node.position,
-    })))
-    setEdges(current => current.map(edge => ({
+    }))
+    const nextEdges = edges.map(edge => ({
       ...edge,
       data: { ...edge.data, adaptiveRoute: adaptiveLayout.routes[edge.id] },
-    })))
-    setAnnotations(current => current.map(annotation => {
+    }))
+    const nextAnnotations = annotations.map(annotation => {
       const targetId = String(annotation.data.targetId ?? '')
       const prior = priorPositions.get(targetId)
       const next = positions.get(targetId)
@@ -2087,11 +2110,23 @@ export function FaultTreeEditor({ onNavigate, onLibrary }: {
           y: annotation.position.y + next.y - prior.y,
         },
       }
-    }))
+    })
+    setNodes(nextNodes); setEdges(nextEdges); setAnnotations(nextAnnotations)
+    if (persistTimer.current) clearTimeout(persistTimer.current)
+    const committed = { ...latest.current, nodes: persistedCanvasNodes(nextNodes), edges: restoreExpandedTransferEndpoints(nextEdges, nextNodes),
+      annotations: persistedCanvasNodes(nextAnnotations), density: nextDensity, layoutOptions: options }
+    latest.current = committed
+    writeFolioState(faultTreeKey, ownerFolio.current, committed, `layout-${Date.now()}`)
     requestAnimationFrame(() => {
       void flowInstanceRef.current?.fitView({ padding: 0.2, maxZoom: 1.1, duration: 400 })
     })
   }
+  const scheduleLayout = useMeasuredDiagramLayout(applyLayout, options => {
+    if (persistTimer.current) clearTimeout(persistTimer.current)
+    setLayoutOptions(options); setDensity(layoutDensity(options.mode))
+  }, folios.activeId, layoutPending)
+  const autoLayout = (options: DiagramLayoutOptions = layoutOptions) => scheduleLayout(options)
+
 
   const deleteSelected = () => {
     const selectedIds = selectedIdsForAction()
@@ -2289,7 +2324,7 @@ export function FaultTreeEditor({ onNavigate, onLibrary }: {
       }
     } else {
       for (const key of ['probability', 'distribution', 'dist_params', 'exposure_time',
-        'ldaFolioId', 'ldaFolioName', 'ccf_group', 'ccf_beta', 'eventKey', 'mirror', 'state']) delete data[key]
+        'ldaFolioId', 'ldaFolioName', 'distributionSource', 'resolvedSourceFingerprint', 'ccf_group', 'ccf_beta', 'eventKey', 'mirror', 'state']) delete data[key]
       data.gateId = nextGateId(nextType)
       if (nextType === 'vote') data.k = Number(data.k ?? 2)
       if (nextType === 'cardinality') { data.min = Number(data.min ?? 1); data.max = Number(data.max ?? 2) }
@@ -2496,7 +2531,12 @@ export function FaultTreeEditor({ onNavigate, onLibrary }: {
     let current = true
     setValidation(null)
     const timer = window.setTimeout(() => {
-      const apiNodes = nodes.map(node => ({
+      let liveNodes: Node[]
+      try { liveNodes = resolveLinkedNodes(getProjectState(), nodes) } catch (error) {
+        setValidation({ valid: false, issues: [{ code: 'INVALID_DISTRIBUTION_SOURCE', message: (error as Error).message }] })
+        return
+      }
+      const apiNodes = liveNodes.map(node => ({
         id: node.id, type: node.type ?? 'basic',
         data: node.data as Record<string, unknown>,
       }))
@@ -2527,7 +2567,7 @@ export function FaultTreeEditor({ onNavigate, onLibrary }: {
       })
     }, 450)
     return () => { current = false; window.clearTimeout(timer) }
-  }, [nodes, modelEdges, globalExposure, engine, folios.activeId, folios.folios]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [nodes, modelEdges, globalExposure, engine, folios.activeId, folios.folios, ldaFolios]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const analyze = async () => {
     if (!nodes.length) { setError('Add nodes to the fault tree first.'); return }
@@ -2554,7 +2594,10 @@ export function FaultTreeEditor({ onNavigate, onLibrary }: {
     const originRevision = getProjectState().revision
     const globalT = globalExposure.trim() === '' ? undefined : parseFloat(globalExposure)
     // Refresh node display probabilities for distribution events.
-    const refreshed = nodes.map(n => {
+    let linkedNodes: Node[]
+    try { linkedNodes = resolveLinkedNodes(getProjectState(), nodes) }
+    catch (error) { setError((error as Error).message); setLoading(false); return }
+    const refreshed = linkedNodes.map(n => {
       if (!EVENT_NODE_TYPES.has(n.type ?? '') || n.type === 'house') return n
       const dist = String(n.data.distribution ?? '')
       if (!dist || !DIST_PARAMS[dist]) return n
@@ -2581,11 +2624,27 @@ export function FaultTreeEditor({ onNavigate, onLibrary }: {
       // replace the active graph with its just-refreshed in-memory inputs.
       const { trees } = collectAllTrees(folios.activeId, latest.current)
       trees[folios.activeId] = { nodes: apiNodes, edges: apiEdges }
+      // Resolve every referenced tree against the same live source snapshot.
+      const projectSnapshot = getProjectState()
+      const reachable = new Set<string>(), pending = [originTreeId]
+      while (pending.length) {
+        const id = pending.pop()!
+        if (reachable.has(id)) continue
+        reachable.add(id)
+        const tree = trees[id]
+        if (!tree) continue
+        tree.nodes = resolveLinkedNodes(projectSnapshot, tree.nodes)
+        for (const node of tree.nodes) {
+          const target = node.data.transferTo || node.data.ref_tree
+          if (target) pending.push(String(target))
+        }
+      }
       const requestState = { ...latest.current, nodes: persistedCanvasNodes(refreshed) }
       latest.current = requestState
       persistLatest()
       const requestFolios = normalizeFtaLibrary(getProjectState().modules.faultTree).folios
       const provenance = createFtaResultProvenance(requestFolios, originTreeId, CURRENT_ENGINE_REVISIONS.faultTree)
+      const sourceFingerprint = analysisSourceFingerprint(getProjectState(), 'faultTree', originTreeId)
       const res = await analyzeFaultTreeStream(apiNodes, apiEdges, {
         exposureTime: globalT ?? null,
         methods: engine === 'exact' ? ['exact'] : engine === 'simulation' ? ['simulation'] : undefined,
@@ -2604,13 +2663,16 @@ export function FaultTreeEditor({ onNavigate, onLibrary }: {
       persistLatest()
       const currentFolios = normalizeFtaLibrary(getProjectState().modules.faultTree).folios
       const currentProvenance = createFtaResultProvenance(currentFolios, originTreeId, CURRENT_ENGINE_REVISIONS.faultTree)
-      if (currentProvenance.fingerprint !== provenance.fingerprint) {
+      if (currentProvenance.fingerprint !== provenance.fingerprint
+          || analysisSourceFingerprint(getProjectState(), 'faultTree', originTreeId) !== sourceFingerprint) {
         setError('Inputs or referenced trees changed while calculating. Recalculate to obtain current results.')
         return
       }
-      latest.current = { ...latest.current, result: res, resultProvenance: provenance }
+      const recorded = { ...res, _sourceFingerprint: sourceFingerprint,
+        _sourceSnapshots: [...reachable].flatMap(id => (trees[id]?.nodes ?? []).flatMap(node => node.data.sourceSnapshot ? [node.data.sourceSnapshot] : [])) }
+      latest.current = { ...latest.current, result: recorded, resultProvenance: provenance }
       writeFolioState(faultTreeKey, originTreeId, latest.current)
-      setResult(res)
+      setResult(recorded)
       setRightPaneMode('results')
     } catch (e: unknown) {
       if ((e as { name?: string }).name === 'AbortError') {
@@ -2983,15 +3045,19 @@ export function FaultTreeEditor({ onNavigate, onLibrary }: {
             )}
 
             {selectedNode.type && EVENT_NODE_TYPES.has(selectedNode.type) && selectedNode.type !== 'house' && (() => {
-              const dist = String(selectedNode.data.distribution ?? '')
-              const distParams = (selectedNode.data.dist_params ?? {}) as Record<string, number>
+              let liveSource: ReturnType<typeof resolveReliabilitySource> | undefined
+              let sourceError = ''
+              const sourceRef = nodeSourceRef(selectedNode.data)
+              if (sourceRef) { try { liveSource = resolveReliabilitySource(getProjectState(), sourceRef) } catch (error) { sourceError = (error as Error).message } }
+              const dist = liveSource?.dist ?? String(selectedNode.data.distribution ?? '')
+              const distParams = liveSource?.dist_params ?? (selectedNode.data.dist_params ?? {}) as Record<string, number>
               const globalT = globalExposure.trim() === '' ? 0 : parseFloat(globalExposure) || 0
               const hasOverride = selectedNode.data.exposure_time != null
               const overrideVal = hasOverride ? Number(selectedNode.data.exposure_time) : NaN
               const effectiveT = hasOverride ? overrideVal : globalT
-              const source: EventSource = selectedNode.data.ldaFolioId && String(selectedNode.data.ldaFolioId) !== ''
+              const source: EventSource = sourceRef || (selectedNode.data.ldaFolioId && String(selectedNode.data.ldaFolioId) !== '')
                 ? 'lda' : (dist ? 'distribution' : 'manual')
-              const computedProb = dist ? computeCDF(dist, distParams, effectiveT) : null
+              const computedProb = !sourceError && dist ? computeCDF(dist, distParams, effectiveT) : null
               return (
                 <>
                   {/* #4 Source toggle */}
@@ -3008,21 +3074,21 @@ export function FaultTreeEditor({ onNavigate, onLibrary }: {
                           onClick={() => {
                             if (opt.v === 'manual') {
                               updateDataMulti({ distribution: undefined, dist_params: undefined,
-                                ldaFolioId: undefined, ldaFolioName: undefined })
+                                ldaFolioId: undefined, ldaFolioName: undefined, distributionSource: undefined })
                             } else if (opt.v === 'distribution') {
                               const d = dist && DIST_PARAMS[dist] ? dist : 'weibull'
                               const defaults: Record<string, number> = {}
                               DIST_PARAMS[d].forEach(p => { defaults[p.key] = p.default })
                               const prob = computeCDF(d, defaults, effectiveT)
                               updateDataMulti({ distribution: d, dist_params: defaults,
-                                ldaFolioId: undefined, ldaFolioName: undefined,
+                                ldaFolioId: undefined, ldaFolioName: undefined, distributionSource: undefined,
                                 probability: Math.min(1, Math.max(0, prob)) })
                             } else {
                               const first = ldaFolios[0]
                               if (first) {
                                 const prob = computeCDF(first.dist, first.dist_params, effectiveT)
                                 updateDataMulti({
-                                  ldaFolioId: first.id, ldaFolioName: first.name,
+                                  ldaFolioId: first.id, ldaFolioName: first.name, distributionSource: first.sourceRef,
                                   distribution: first.dist, dist_params: first.dist_params,
                                   probability: Math.min(1, Math.max(0, prob)),
                                 })
@@ -3046,13 +3112,14 @@ export function FaultTreeEditor({ onNavigate, onLibrary }: {
                     <div>
                       <label className="text-xs text-gray-500 block mb-0.5">Linked source (Life Data / Prediction)</label>
                       <select
-                        value={String(selectedNode.data.ldaFolioId ?? '')}
+                        aria-label="Linked source (Life Data / Prediction)"
+                        value={sourceRef ? sourceId(sourceRef) : String(selectedNode.data.ldaFolioId ?? '')}
                         onChange={e => {
                           const src = ldaFolios.find(f => f.id === e.target.value)
-                          if (!src) { updateDataMulti({ ldaFolioId: '', ldaFolioName: undefined }); return }
+                          if (!src) { updateDataMulti({ ldaFolioId: '', ldaFolioName: undefined, distributionSource: undefined }); return }
                           const prob = computeCDF(src.dist, src.dist_params, effectiveT)
                           updateDataMulti({
-                            ldaFolioId: src.id, ldaFolioName: `${src.name} (${src.moduleLabel})`,
+                            ldaFolioId: src.id, ldaFolioName: `${src.name} (${src.moduleLabel})`, distributionSource: src.sourceRef,
                             distribution: src.dist, dist_params: src.dist_params,
                             probability: Math.min(1, Math.max(0, prob)),
                           })
@@ -3060,6 +3127,7 @@ export function FaultTreeEditor({ onNavigate, onLibrary }: {
                         className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:outline-hidden focus:ring-1 focus:ring-blue-400"
                       >
                         <option value="">— select source —</option>
+                        {sourceRef && !liveSource && <option value={sourceId(sourceRef)}>Unavailable or incompatible source</option>}
                         {['Life Data', 'Prediction'].map(group => {
                           const items = ldaFolios.filter(f => f.moduleLabel === group)
                           if (items.length === 0) return null
@@ -3072,8 +3140,11 @@ export function FaultTreeEditor({ onNavigate, onLibrary }: {
                           )
                         })}
                       </select>
+                      {sourceError && <p role="alert" className="mt-2 text-xs text-red-700">{sourceError}</p>}
+                      {liveSource && <p className="mt-2 text-xs text-blue-800">{liveSource.label}</p>}
+                      <button type="button" className="mini-button mt-2" onClick={() => updateDataMulti({ distributionSource: undefined, ldaFolioId: undefined, ldaFolioName: undefined, distribution: dist, dist_params: distParams })}>Use as manual copy</button>
                       {ldaFolios.length === 0 && (
-                        <p className="text-[10px] text-gray-400 mt-0.5">No fitted Life-Data or Prediction folios available.</p>
+                        <p className="text-xs text-gray-600 mt-0.5">No current adopted Life Data or compatible Prediction sources available.</p>
                       )}
                     </div>
                   )}
@@ -3340,11 +3411,10 @@ export function FaultTreeEditor({ onNavigate, onLibrary }: {
             ? String(selectedNode.data.label ?? selectedNode.id) : null}
           onApply={(item: LibraryItem, value: number) => {
             if (!selectedNode) return
-            const probability = Math.round(value * 1e8) / 1e8
-            setNodes(nds => nds.map(n => n.id === selectedNode.id
-              ? { ...n, data: { ...n.data, probability, linkedTo: item.name } } : n))
-            setSelectedNode(prev => prev
-              ? { ...prev, data: { ...prev.data, probability, linkedTo: item.name } } : null)
+            updateDataMulti({ probability: value, linkedTo: item.name,
+              distributionSource: item.sourceRef, ldaFolioId: item.sourceRef ? item.sourceId : undefined,
+              ldaFolioName: item.sourceRef ? item.name : undefined,
+              distribution: item.resolvedSource?.dist, dist_params: item.resolvedSource?.dist_params })
           }}
         />
         </div>
@@ -3482,11 +3552,7 @@ export function FaultTreeEditor({ onNavigate, onLibrary }: {
               analysisName={folios.folios.find(
                 folio => folio.id === folios.activeId)?.name
                 ?? 'Fault Tree Analysis'} />
-            <button onClick={autoLayout}
-              className="flex h-8 items-center gap-1 whitespace-nowrap rounded border border-slate-300 bg-white px-2 text-[10px] font-medium text-slate-700 hover:bg-slate-50"
-              title="Arrange the tree into readable levels">
-              <LayoutGrid size={12} /> Auto Layout
-            </button>
+            <DiagramLayoutMenu value={layoutOptions} onChange={setLayoutOptions} onApply={autoLayout} />
             <button onClick={copyNode} disabled={selectedNodeIds.length === 0 && !selectedNode}
               className="flex h-8 items-center gap-1 rounded border border-slate-300 bg-white px-2 text-[10px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-35"
               title="Copy all selected nodes and the connections between them">
@@ -3537,13 +3603,6 @@ export function FaultTreeEditor({ onNavigate, onLibrary }: {
                 </button>
               </div>
             </details>
-            <div className="flex h-8 items-center rounded border border-slate-300 bg-white" title={`Diagram density: ${DIAGRAM_DENSITY[density].label}`}>
-              <button type="button" onClick={() => stepDiagramDensity(-1)} disabled={densityIndex === 0}
-                aria-label="Decrease diagram label size" className="flex h-8 w-8 items-center justify-center text-slate-700 hover:bg-slate-100 disabled:opacity-40"><Minus size={14} /></button>
-              <span className="text-[11px] text-slate-700">Labels</span>
-              <button type="button" onClick={() => stepDiagramDensity(1)} disabled={densityIndex === DIAGRAM_DENSITY_LEVELS.length - 1}
-                aria-label="Increase diagram label size" className="flex h-8 w-8 items-center justify-center text-slate-700 hover:bg-slate-100 disabled:opacity-40"><Plus size={14} /></button>
-            </div>
             <label className="flex h-8 items-center gap-1 rounded border border-slate-300 bg-white px-2 text-[10px] text-slate-500" title="Connection line style">
               Connectors
               <select value={connectorStyle}

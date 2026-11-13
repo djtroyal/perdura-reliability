@@ -87,8 +87,8 @@ class ProjectDocument(BaseModel):
     @field_validator("schema_version")
     @classmethod
     def supported_schema(cls, value: int) -> int:
-        if value not in {6, 7, 8}:
-            raise ValueError("This API accepts Perdura project schema 6, 7, or 8.")
+        if value not in {6, 7, 8, 9}:
+            raise ValueError("This API accepts Perdura project schema 6, 7, 8, or 9.")
         return value
 
     @model_validator(mode="after")
@@ -198,9 +198,17 @@ def _fta_library_issues(modules: dict[str, Any]) -> list[ProjectIssue]:
         links = entry.get("systemLinks", [])
         if not isinstance(links, list) or any(
             not isinstance(link, dict) or any(not isinstance(link.get(key), str) or not link[key].strip()
-                                             for key in ("systemAnalysisId", "itemId")) for link in links
+                                             for key in ("systemModelId", "instanceId")) for link in links
         ):
-            issue("fta_invalid_system_link", "System links require qualified systemAnalysisId and itemId strings.", tree_id)
+            issue("fta_invalid_system_link", "System links require qualified systemModelId and instanceId strings.", tree_id)
+        else:
+            system = modules.get("systemDefinition", {})
+            model = system.get("model", {}) if isinstance(system, dict) else {}
+            items = {item.get("id") for item in model.get("instances", []) if isinstance(item, dict)}
+            for link in links:
+                if link["systemModelId"] != model.get("id") or link["instanceId"] not in items:
+                    issue("fta_missing_system_link", "System association references a missing canonical item.", tree_id)
+
     for tree_id in trees.keys() - metadata.keys():
         issue("fta_missing_metadata", "FTA tree has no catalog metadata.", tree_id)
     adjacency = {tree_id: set() for tree_id in trees}
@@ -238,6 +246,49 @@ def _fta_library_issues(modules: dict[str, Any]) -> list[ProjectIssue]:
                 pending.append(target)
     if len(visited) != len(trees):
         issue("fta_transfer_cycle", "The FTA Transfer dependency graph contains a cycle.")
+    return issues
+
+
+def _shared_system_issues(modules: dict[str, Any]) -> list[ProjectIssue]:
+    """Validate the shared physical model and scenario identity boundaries."""
+    from reliability.SystemDefinition import materialize_prediction_scenario, validate_system_definition
+    from system_definition_schemas import SystemDefinitionModel
+    from pydantic import ValidationError
+    system, prediction = modules.get("systemDefinition"), modules.get("prediction")
+    if system is None and prediction is None:
+        return []
+    try:
+        if not isinstance(system, dict) or system.get("_folioWrap") or not isinstance(system.get("model"), dict):
+            raise ValueError("One canonical System Definition is required; folio hierarchies are unsupported.")
+        model = SystemDefinitionModel.model_validate(system["model"]).model_dump()
+        if not model.get("root_instance_id") or not validate_system_definition(model)["valid"]:
+            raise ValueError("Canonical System Definition must have one valid System root and hierarchy.")
+    except (ValueError, TypeError, KeyError, ValidationError):
+        return [ProjectIssue(code="invalid_shared_system", message="One valid canonical System Definition with a single System root is required.")]
+    if prediction is None:
+        return []
+    if not isinstance(prediction, dict):
+        return [ProjectIssue(code="invalid_prediction_scenarios", message="Prediction scenarios must be an object.")]
+    folios = prediction.get("folios") if prediction.get("_folioWrap") is True else [{"id": "f0", "state": prediction}]
+    if not isinstance(folios, list) or not folios:
+        return [ProjectIssue(code="invalid_prediction_scenarios", message="Prediction requires at least one scenario.")]
+    issues, seen = [], set()
+    for folio in folios:
+        identity = folio.get("id") if isinstance(folio, dict) else None
+        if not isinstance(identity, str) or not identity.strip() or identity in seen:
+            issues.append(ProjectIssue(code="invalid_prediction_scenario_id", message="Prediction scenario identities must be unique nonempty strings."))
+            continue
+        seen.add(identity)
+        try:
+            scenario = folio.get("state")
+            if not isinstance(scenario, dict):
+                raise ValueError("Scenario state must be an object.")
+            materialize_prediction_scenario(model, scenario)
+        except (ValueError, TypeError, KeyError):
+            issues.append(ProjectIssue(code="invalid_prediction_scenario", analysis_id=identity,
+                                       message="Scenario inputs require version 1, valid canonical item identities and compatible selected profiles."))
+    if prediction.get("_folioWrap") is True and prediction.get("activeId") not in seen:
+        issues.append(ProjectIssue(code="invalid_prediction_active_id", message="Prediction active scenario must reference an existing scenario identity."))
     return issues
 
 
@@ -563,6 +614,8 @@ def validate_project(req: ProjectRunRequest, request: Request) -> ProjectValidat
     items = _selected(_project_runs(req), req)
     _, issues = _order(items)
     issues.extend(_fta_library_issues(req.project.modules))
+    if req.project.schema_version >= 9:
+        issues.extend(_shared_system_issues(req.project.modules))
     route_map = _route_map(request.app)
     for item in items:
         route = route_map.get(item.operation_id)

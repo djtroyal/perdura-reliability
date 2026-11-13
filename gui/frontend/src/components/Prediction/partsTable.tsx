@@ -193,7 +193,7 @@ const PartRow = memo(function PartRow({
       <td className="px-3 py-1.5 text-gray-500">{categoryLabel || 'Unmapped'}</td>
       <td className="px-1 py-1 text-right" onClick={e => e.stopPropagation()}>
         <input type="number" min={1} step={1} value={p.quantity}
-          disabled={Boolean(p.system_ref)} title={p.system_ref ? 'Edit canonical quantity in System Definition' : undefined}
+          title="Quantity shared with System Definition and every scenario"
           onChange={e => onQty(i, e.target.value)}
           className="w-14 text-xs text-right border border-transparent hover:border-gray-200 focus:border-blue-400 rounded px-1 py-0.5 focus:outline-hidden disabled:bg-blue-50 disabled:text-blue-700" />
       </td>
@@ -253,8 +253,8 @@ const PartRow = memo(function PartRow({
           : <span className="block max-w-72 truncate text-gray-500" title={factorText}>{factorText}</span>}
       </td>
       <td className="px-1 py-1.5 text-center">
-        <button onClick={e => { e.stopPropagation(); onRemove(i) }} disabled={Boolean(p.system_ref)}
-          title={p.system_ref ? 'Remove this element in System Definition' : 'Remove part'}
+        <button onClick={e => { e.stopPropagation(); onRemove(i) }}
+          title="Delete shared piece part"
           className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity disabled:cursor-not-allowed disabled:hover:text-gray-300">
           <Trash2 size={12} />
         </button>

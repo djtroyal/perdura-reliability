@@ -10,6 +10,7 @@ import {
 import {
   CAPTURE_API_CONTRACT, captureServerIdentity, VERSION_ENDPOINT_PATTERN,
 } from '../website/server-compatibility-fixture.mjs'
+import { assertCaptureBuildIdentity } from '../website/capture-readiness.mjs'
 
 assert.equal(WEBSITE_RESOURCE_SCHEMA, 'perdura.website-resources/v1')
 assert.deepEqual(validateCaptureRegistry(captures), [])
@@ -109,6 +110,17 @@ assert.equal(captureIdentity.api_contract, CAPTURE_API_CONTRACT)
 assert.equal(captureIdentity.minimum_client_api_contract, CAPTURE_API_CONTRACT)
 assert.equal(captureIdentity.maximum_client_api_contract, CAPTURE_API_CONTRACT)
 assert.equal(captureIdentity.commit, 'dev', 'capture identity must not trigger a refresh notice')
+
+const servedBuild = { version: '0.8.3', commit: 'current-source' }
+assert.deepEqual(assertCaptureBuildIdentity(servedBuild, servedBuild), servedBuild)
+assert.deepEqual(assertCaptureBuildIdentity({ version: '0.8.3', commit: 'dev' }, { version: '0.8.3' }),
+  { version: '0.8.3', commit: 'dev' }, 'local provenance must record the actual served identity')
+for (const wrongBuild of [
+  { version: '0.8.3', commit: 'previous-source' },
+  { version: '0.8.3', commit: 'dev' },
+  { version: '0.8.2', commit: 'current-source' },
+]) assert.throws(() => assertCaptureBuildIdentity(wrongBuild, servedBuild), /Screenshot source mismatch/)
+assert.throws(() => assertCaptureBuildIdentity({}, servedBuild), /no screenshot build identity/)
 
 assert.equal(isTransientCaptureContextError(new Error('Execution context was destroyed, most likely because of a navigation.')), true)
 assert.equal(isTransientCaptureContextError(new Error('page.evaluate: Resulting promise was garbage collected.')), true)

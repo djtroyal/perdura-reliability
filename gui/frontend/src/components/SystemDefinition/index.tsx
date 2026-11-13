@@ -22,17 +22,18 @@ import {
   type SystemInterfaceType,
   type SystemProjectionResult,
 } from '../../api/systemDefinition'
-import { useFolioState, useModuleState } from '../../store/project'
+import { useModuleState } from '../../store/project'
+import { captureSharedSystemContext, useSharedSystemDefinition } from '../../store/sharedSystem'
+import { createProjectSystem } from '../../store/sharedSystemModel'
 import { createFmeaAnalysis } from '../ReliabilityProgram/fmeaModel'
-import FolioBar from '../shared/FolioBar'
 import { toast } from '../shared/toast'
 import {
-  applyHierarchyLayout, decisionStatus, emptySystemDefinition, hierarchyLayout, instanceLabel,
+  applyHierarchyLayout, decisionStatus, hierarchyLayout, instanceLabel,
   type SystemDefinitionState,
 } from './model'
 import SystemBlockDiagramCanvas from './SystemBlockDiagramCanvas'
 
-const INITIAL_STATE = emptySystemDefinition()
+const INITIAL_STATE = createProjectSystem()
 const fieldClass = 'w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-xs outline-hidden focus:border-blue-500'
 const buttonClass = 'inline-flex items-center gap-1.5 rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:border-blue-400 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40'
 const uid = (prefix: string) => `${prefix}-${crypto.randomUUID()}`
@@ -291,12 +292,13 @@ function FaultTraceDiagram({ result }: { result: NonNullable<SystemDefinitionSta
 }
 
 export default function SystemDefinition() {
-  const [state, setState, folios] = useFolioState<SystemDefinitionState>('systemDefinition', INITIAL_STATE)
+  const [state, setState] = useSharedSystemDefinition()
+  const [showPieceParts, setShowPieceParts] = useState(false)
   const [rbdModule, setRbd] = useModuleState<unknown>('system', {})
   const [ftaModule, setFta] = useModuleState<unknown>('faultTree', {})
   const [markovModule, setMarkov] = useModuleState<unknown>('markov', {})
   const [fmeaModule, setFmea] = useModuleState<unknown>('fmea', {})
-  const [predictionModule, setPrediction] = useModuleState<unknown>('prediction', {})
+  const [predictionModule] = useModuleState<unknown>('prediction', {})
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [compositionPlan, setCompositionPlan] = useState<Record<string, unknown>|null>(null)
@@ -339,10 +341,11 @@ export default function SystemDefinition() {
       item.id === definitionId ? { ...item, ...patch } : item) }))
 
   const changeParent = (instanceId: string, parentInstanceId?: string) => {
+    if (instanceId === model.root_instance_id) return
     updateModel(current => ({
       ...current,
       instances: current.instances.map(item => item.id === instanceId
-        ? { ...item, parent_instance_id: parentInstanceId } : item),
+        ? { ...item, parent_instance_id: parentInstanceId || current.root_instance_id } : item),
     }))
   }
 
@@ -420,11 +423,14 @@ export default function SystemDefinition() {
 
   const reviewComposition = async () => {
     if (!selected) return
+    const isCurrent = captureSharedSystemContext()
     setBusy(true)
     try {
       const result = await planSystemComposition(model, selected.id)
+      if (!isCurrent()) return
       setCompositionPlan(result)
     } catch {
+      if (!isCurrent()) return
       toast.error('Could not build the reusable-definition update plan.')
     } finally { setBusy(false) }
   }
@@ -487,6 +493,7 @@ export default function SystemDefinition() {
   }
 
   const previewProjection = async (target: 'prediction'|'fmea'|'rbd'|'fta'|'markov') => {
+    const isCurrent = captureSharedSystemContext()
     setBusy(true); setMessage('')
     try {
       const result = await projectSystemDefinition(model, target, {
@@ -498,11 +505,13 @@ export default function SystemDefinition() {
           ? activeFolioState(predictionModule)
           : target === 'rbd' ? activeFolioState(rbdModule) : {},
       })
+      if (!isCurrent()) return
       setState(current => ({ ...current, projectionPreview: result }))
       setMessage(result.valid
         ? `${target.toUpperCase()} projection ready for review.`
         : `${target.toUpperCase()} projection has blocking model/profile issues.`)
     } catch {
+      if (!isCurrent()) return
       toast.error(`Could not preview the ${target.toUpperCase()} projection.`)
     } finally { setBusy(false) }
   }
@@ -510,14 +519,17 @@ export default function SystemDefinition() {
   const checkImpact = async () => {
     const bindings = state.analysisBindings ?? []
     if (!bindings.length) return
+    const isCurrent = captureSharedSystemContext()
     setBusy(true)
     try {
       const result = await analyzeSystemImpact(model, bindings)
+      if (!isCurrent()) return
       setImpactReport(result.bindings)
       setMessage(result.stale
         ? `${result.stale} linked analysis binding(s) require review.`
         : 'All linked analyses match their recorded canonical inputs.')
     } catch {
+      if (!isCurrent()) return
       toast.error('Could not evaluate linked-analysis impact.')
     } finally { setBusy(false) }
   }
@@ -550,6 +562,7 @@ export default function SystemDefinition() {
   }
 
   const addInstanceOf = (definition: SystemBlockDefinition, parent?: SystemBlockInstance) => {
+    parent ??= model.instances.find(item => item.id === model.root_instance_id)
     const instanceId = uid('INST')
     setState(current => ({
       ...current, selectedInstanceId: instanceId, propagation: null,
@@ -570,11 +583,12 @@ export default function SystemDefinition() {
   }
 
   const addBlock = (parent?: SystemBlockInstance) => {
+    parent ??= model.instances.find(item => item.id === model.root_instance_id)
     const definitionId = uid('DEF')
     const instanceId = uid('INST')
     const createdDefinition: SystemBlockDefinition = {
-      id: definitionId, name: 'New block', classification: parent ? 'component' : 'system',
-      kind: parent ? 'component' : 'system', revision: 'A',
+      id: definitionId, name: 'New block', classification: 'assembly',
+      kind: 'assembly', revision: 'A',
       description: '', part_number: '', manufacturer: '', category: '',
       properties: {}, analysis_profiles: [],
       ports: [
@@ -603,6 +617,7 @@ export default function SystemDefinition() {
 
   const removeSelected = () => {
     if (!selected) return
+    if (selected.id === model.root_instance_id) { toast.error('The project root cannot be deleted.'); return }
     const hasChildren = model.instances.some(item => item.parent_instance_id === selected.id)
     const referenced = model.interfaces.some(item =>
       item.source.instance_id === selected.id || item.target.instance_id === selected.id)
@@ -618,6 +633,7 @@ export default function SystemDefinition() {
       toast.error('Remove or reassign child blocks, interfaces, functional references, and type slots before deleting this instance.')
       return
     }
+    if (!window.confirm('Delete this shared system item from every Prediction scenario? Independent analysis references will remain visible as broken.')) return
     updateModel(current => ({
       ...current,
       instances: current.instances.filter(item => item.id !== selected.id),
@@ -810,20 +826,24 @@ export default function SystemDefinition() {
   }))
 
   const runPropagation = async () => {
+    const isCurrent = captureSharedSystemContext()
     setBusy(true); setMessage('')
     try {
       const validation = await validateSystemDefinition(model)
+      if (!isCurrent()) return
       if (!validation.valid) {
         setMessage(`${validation.issues.filter(item => item.severity === 'error').length} model error(s) must be resolved.`)
       }
       const result = await propagateSystemDefinition(model, {
         mode_id: state.selectedModeId || undefined,
       })
+      if (!isCurrent()) return
       setState(current => ({ ...current, propagation: result }))
       setMessage(result.valid
         ? `Generated ${result.paths.length} trace path(s) and ${result.proposals.length} review proposal(s).`
         : 'Propagation stopped because the model is invalid.')
     } catch (error) {
+      if (!isCurrent()) return
       setMessage((error as { response?: { data?: { detail?: string } } }).response?.data?.detail
         ?? 'Could not build the fault map.')
     } finally { setBusy(false) }
@@ -870,18 +890,21 @@ export default function SystemDefinition() {
       toast.info('Accept at least one complete fault path first.')
       return
     }
+    const isCurrent = captureSharedSystemContext()
     setBusy(true)
     try {
       const result = await generateSystemStarter(model, target, {
         mode_id: state.selectedModeId || undefined,
         selected_path_ids: acceptedPaths.map(item => item.id),
       })
+      if (!isCurrent()) return
       const setter = target === 'rbd' ? setRbd : target === 'fta' ? setFta : setMarkov
       setter((raw: unknown) => activeFolioUpdate(raw, current => ({
         ...current, pendingSystemStarter: result,
       })))
       toast.success(`${target.toUpperCase()} starter sent for review.`)
     } catch {
+      if (!isCurrent()) return
       toast.error(`Could not generate the ${target.toUpperCase()} starter.`)
     } finally { setBusy(false) }
   }
@@ -1088,54 +1111,6 @@ export default function SystemDefinition() {
       : 'Canonical structure, functions, failures, and interfaces sent to FMEA for analysis.')
   }
 
-  const handoffPrediction = () => {
-    if (!model.instances.length) {
-      toast.info('Define at least one system block first.')
-      return
-    }
-    setPrediction((raw: unknown) => activeFolioUpdate(raw, current => {
-      const blocks = Array.isArray(current.blocks)
-        ? structuredClone(current.blocks) as Record<string, unknown>[] : []
-      const byCanonicalInstance = new Map(blocks.flatMap(block => {
-        const ref = block.system_ref as { system_model_id?: string; instance_id?: string }|undefined
-        return ref?.system_model_id === model.id && ref.instance_id
-          ? [[ref.instance_id, block] as const] : []
-      }))
-      const predictionIdByInstance = new Map(model.instances.map(instance => [
-        instance.id, String(byCanonicalInstance.get(instance.id)?.id ?? `SD-${instance.id}`),
-      ]))
-      for (const instance of model.instances) {
-        const definition = model.definitions.find(item => item.id === instance.definition_id)
-        const parentId = instance.parent_instance_id
-          ? predictionIdByInstance.get(instance.parent_instance_id) ?? null : null
-        const system_ref = {
-          system_model_id: model.id, instance_id: instance.id,
-          definition_id: instance.definition_id, revision: model.revision,
-        }
-        const existing = byCanonicalInstance.get(instance.id)
-        if (existing) {
-          Object.assign(existing, { name: instanceLabel(model, instance), parentId, system_ref })
-        } else {
-          blocks.push({
-            id: predictionIdByInstance.get(instance.id), name: instanceLabel(model, instance),
-            parentId, quantity: instance.quantity, operatingFraction: 1,
-            environment: null, nonoperatingEnvironment: null,
-            nonoperatingTemperatureC: null, powerCyclesPer1000NonoperatingHours: null,
-            failureRateOverrideEnabled: false, failureRateOverrideFpmh: null,
-            notes: `Canonical ${definition?.classification ?? 'block'} from ${model.name}`,
-            system_ref,
-          })
-        }
-      }
-      return {
-        ...current, blocks,
-        blockSeq: Math.max(Number(current.blockSeq ?? 0), blocks.length),
-        result: null,
-      }
-    }))
-    toast.success('Canonical hierarchy sent to Prediction. Classify and parameterize piece parts there before calculation.')
-  }
-
   const applyProjectionPreview = () => {
     const preview = state.projectionPreview
     if (!preview?.valid) {
@@ -1148,29 +1123,8 @@ export default function SystemDefinition() {
         : target === 'fta' ? ftaModule : markovModule
     const targetAnalysisId = activeAnalysisId(targetModule)
     if (target === 'prediction') {
-      const projection = preview.projection as {
-        blocks?: Record<string, unknown>[]; parts?: Record<string, unknown>[]
-      }
-      setPrediction((raw: unknown) => activeFolioUpdate(raw, current => {
-        const mergeLinked = (existingValue: unknown, desired: Record<string, unknown>[]) => {
-          const existing = Array.isArray(existingValue)
-            ? structuredClone(existingValue) as Record<string, unknown>[] : []
-          const keyOf = (item: Record<string, unknown>) => {
-            const ref = item.system_ref as { instance_id?: string }|undefined
-            return ref?.instance_id ?? String(item.id ?? '')
-          }
-          const byKey = new Map(existing.map(item => [keyOf(item), item]))
-          for (const item of desired) {
-            const found = byKey.get(keyOf(item))
-            if (found) Object.assign(found, item, { linked_system_definition: true })
-            else existing.push({ ...item, linked_system_definition: true })
-          }
-          return existing
-        }
-        const blocks = mergeLinked(current.blocks, projection.blocks ?? [])
-        const parts = mergeLinked(current.parts, projection.parts ?? [])
-        return { ...current, blocks, parts, result: null }
-      }))
+      toast.info('Prediction scenarios already use the shared system. Select model profiles and overrides in Prediction.')
+      return
     } else if (target === 'fmea') {
       handoffFmea()
     } else {
@@ -1196,7 +1150,7 @@ export default function SystemDefinition() {
   }
 
   return <div className="flex h-full min-h-0 flex-col bg-white">
-    <FolioBar api={folios} label="System" />
+    <div className="border-b px-4 py-3 text-sm font-semibold">{model.name} · Shared project system</div>
     <div className="flex items-center gap-1 border-b bg-slate-50 px-3 py-1.5">
       {([
         ['structure', 'Structure', TableProperties],
@@ -1228,14 +1182,15 @@ export default function SystemDefinition() {
       <main className="overflow-auto p-4">
         <div className="mb-3 flex items-start justify-between gap-3">
           <div><h2 className="text-sm font-semibold text-slate-800">Canonical system structure</h2>
-            <p className="mt-0.5 text-xs text-slate-500">Build once from system to piece part. Linked analyses consume this hierarchy without owning it.</p></div>
+            <p className="mt-0.5 text-xs text-slate-500">Edit the same system here or in Prediction. Prediction model parameters remain scenario-specific.</p></div>
           <div className="flex gap-2">
-            <button type="button" onClick={() => addBlock(undefined)} className={buttonClass}><Plus size={12} /> Top level</button>
-            <button type="button" onClick={() => addBlock(selected)} disabled={!selected} className={buttonClass}><Plus size={12} /> Child</button>
+            <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={showPieceParts} onChange={event => setShowPieceParts(event.target.checked)} /> Show piece parts</label>
+            <button type="button" onClick={() => addBlock(undefined)} className={buttonClass}><Plus size={12} /> Root assembly</button>
+            <button type="button" onClick={() => addBlock(selected)} disabled={!selected || selectedDefinition?.kind === 'piece_part'} className={buttonClass}><Plus size={12} /> Child</button>
             <button type="button" onClick={removeSelected} disabled={!selected} aria-label="Delete selected system element" className={buttonClass}><Trash2 size={12} /></button>
           </div>
         </div>
-        <StructureTable model={model} selectedId={selected?.id ?? ''}
+        <StructureTable model={model} showPieceParts={showPieceParts} selectedId={selected?.id ?? ''}
           collapsedIds={collapsedInstanceIds}
           onSelect={selectedInstanceId => setState(current => ({ ...current, selectedInstanceId }))}
           onToggle={instanceId => setState(current => ({
@@ -1256,7 +1211,7 @@ export default function SystemDefinition() {
             }))} className={`mt-1 ${fieldClass}`} /></label>
           <div className="grid grid-cols-2 gap-2">
             <label className="text-[10px] text-slate-500">Block kind<select
-              value={selectedDefinition.kind ?? 'component'} onChange={event => {
+              disabled={selected.id === model.root_instance_id} value={selectedDefinition.kind ?? 'component'} onChange={event => {
                 const kind = event.target.value as NonNullable<SystemBlockDefinition['kind']>
                 updateDefinition(selectedDefinition.id, {
                   kind, classification: kind === 'piece_part' ? 'part' : kind,
@@ -1266,7 +1221,7 @@ export default function SystemDefinition() {
                 <option key={value} value={value}>{typeLabel(value)}</option>)}
             </select></label>
             <label className="text-[10px] text-slate-500">Quantity<input type="number" min={1}
-              value={selected.quantity} onChange={event => updateModel(current => ({ ...current,
+              disabled={selected.id === model.root_instance_id} value={selected.quantity} onChange={event => updateModel(current => ({ ...current,
                 instances: current.instances.map(item => item.id === selected.id
                   ? { ...item, quantity: Math.max(1, Number(event.target.value) || 1) } : item),
               }))} className={`mt-1 ${fieldClass}`} /></label>
@@ -1363,7 +1318,7 @@ export default function SystemDefinition() {
         <HierarchyTree model={model} selectedId={selected?.id ?? ''}
           onSelect={selectedInstanceId => setState(current => ({ ...current, selectedInstanceId }))} />
         <div className="mt-3 flex gap-1">
-          <button type="button" onClick={() => addBlock(selected)} disabled={!selected} className={buttonClass}><Plus size={12} /> Child</button>
+          <button type="button" onClick={() => addBlock(selected)} disabled={!selected || selectedDefinition?.kind === 'piece_part'} className={buttonClass}><Plus size={12} /> Child</button>
           <button type="button" onClick={removeSelected} disabled={!selected} aria-label="Delete selected system element" className={buttonClass}><Trash2 size={12} /></button>
         </div>
         <div className="mt-5 border-t pt-3">
@@ -1417,7 +1372,7 @@ export default function SystemDefinition() {
             value={selectedDefinition.name} onChange={event => updateDefinition(selectedDefinition.id, { name: event.target.value })}
             className={`mt-1 ${fieldClass}`} /></label>
           <label className="block text-[10px] text-slate-500">Block kind<select
-            value={selectedDefinition.kind ?? 'component'} onChange={event => {
+            disabled={selected.id === model.root_instance_id} value={selectedDefinition.kind ?? 'component'} onChange={event => {
               const kind = event.target.value as NonNullable<SystemBlockDefinition['kind']>
               updateDefinition(selectedDefinition.id, {
                 kind, classification: kind === 'piece_part' ? 'part' : kind,
@@ -1431,7 +1386,7 @@ export default function SystemDefinition() {
             className={`mt-1 min-h-20 ${fieldClass}`} /></label>
           <div className="grid grid-cols-2 gap-2">
             <label className="text-[10px] text-slate-500">Quantity<input type="number" min={1}
-              value={selected.quantity} onChange={event => updateModel(current => ({ ...current,
+              disabled={selected.id === model.root_instance_id} value={selected.quantity} onChange={event => updateModel(current => ({ ...current,
                 instances: current.instances.map(item => item.id === selected.id
                   ? { ...item, quantity: Math.max(1, Number(event.target.value) || 1) } : item) }))}
               className={`mt-1 ${fieldClass}`} /></label>
@@ -1786,9 +1741,9 @@ export default function SystemDefinition() {
         <span>Exploded projections create stable piece identities and require explicit review.</span>
       </div>
       <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-        <button onClick={() => previewProjection('prediction')} disabled={!model.instances.length || busy}
+        <div
           className="rounded-lg border p-4 text-left hover:border-blue-400 disabled:opacity-40"><div className="font-medium">Prediction</div>
-          <div className="mt-1 text-xs text-slate-500">Project blocks and profiled piece parts into the active failure-rate hierarchy.</div></button>
+          <div className="mt-1 text-xs text-slate-500">Every scenario uses this complete hierarchy automatically. Select the standard, part model profiles and overrides in Prediction.</div></div>
         <button onClick={() => previewProjection('fmea')} disabled={!model.instances.length || busy} className="rounded-lg border p-4 text-left hover:border-blue-400 disabled:opacity-40"><div className="font-medium">FMEA</div><div className="mt-1 text-xs text-slate-500">Project linked structure, functions, failures, interfaces, and accepted paths.</div></button>
         {(['rbd', 'fta', 'markov'] as const).map(target => <button key={target}
           onClick={() => previewProjection(target)} disabled={(target !== 'rbd' && !acceptedPaths.length) || busy}

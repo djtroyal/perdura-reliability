@@ -435,6 +435,21 @@ def validate_system_definition(model: Mapping[str, Any]) -> dict[str, Any]:
                         "message": "Profile override references a missing inherited profile.",
                     })
     find_cycles(parent_graph, "instance_hierarchy_cycle", "Instance hierarchy")
+    if model.get("root_instance_id"):
+        roots = [item for item in instances.values() if not item.get("parent_instance_id")]
+        root = instances.get(model["root_instance_id"], {})
+        if (len(roots) != 1 or roots[0].get("id") != root.get("id")
+                or root.get("quantity", 1) != 1
+                or definitions.get(root.get("definition_id"), {}).get("kind") != "system"):
+            issues.append({"severity": "error", "code": "invalid_project_root",
+                           "path": "root_instance_id",
+                           "message": "The project requires exactly one System root with quantity one."})
+        for parent_id, children in parent_graph.items():
+            parent = instances.get(parent_id, {})
+            if children and definitions.get(parent.get("definition_id"), {}).get("kind") == "piece_part":
+                issues.append({"severity": "error", "code": "piece_part_has_children",
+                               "path": f"instances.{parent_id}",
+                               "message": "Piece parts cannot contain other system items."})
 
     def validate_function_ref(ref: Mapping[str, Any], path: str) -> None:
         instance = instances.get(str(ref.get("instance_id", "")))
@@ -1702,3 +1717,108 @@ __all__ = [
     "validate_system_definition", "propagate_system_definition",
     "generate_system_starter",
 ]
+
+
+def materialize_prediction_scenario(
+    model: Mapping[str, Any], scenario: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Resolve one scenario over the complete canonical physical hierarchy.
+
+    Occurrence identities/quantities are always canonical. A scenario explicitly
+    selects an optional definition profile, then applies its local model inputs.
+    No first-profile selection or independent prediction hierarchy is inferred.
+    """
+    validation = validate_system_definition(model)
+    if not model.get("root_instance_id") or not validation["valid"]:
+        raise ValueError("Prediction requires a valid canonical project System root and hierarchy.")
+    if scenario.get("scenarioVersion") != 1 or "parts" in scenario or "blocks" in scenario:
+        raise ValueError("Prediction requires scenarioVersion 1 with canonical inputs, not a copied hierarchy.")
+    definitions = {item["id"]: item for item in model["definitions"]}
+    instances = {item["id"]: item for item in model["instances"]}
+    root_id = model["root_instance_id"]
+    part_ids = {key for key, item in instances.items()
+                if definitions[item["definition_id"]].get("kind") == "piece_part"}
+    block_ids = set(instances) - part_ids - {root_id}
+    part_inputs = scenario.get("partInputs", {})
+    block_inputs = scenario.get("blockInputs", {})
+    if not isinstance(part_inputs, Mapping) or not isinstance(block_inputs, Mapping):
+        raise ValueError("Scenario inputs must be keyed by canonical instance identity.")
+    if set(part_inputs) - part_ids or set(block_inputs) - block_ids:
+        raise ValueError("Scenario inputs reference missing items or the wrong system item kind.")
+    standard = scenario.get("standard", "MIL-HDBK-217F")
+    adapters = {"MIL-HDBK-217F": "prediction.mil-hdbk-217f",
+                "Telcordia": "prediction.telcordia-sr332", "217Plus": "prediction.217plus",
+                "FIDES": "prediction.fides", "NSWC": "prediction.nswc-98-le1"}
+    block_fields = {
+        "operatingFraction": "operating_fraction", "environment": "environment",
+        "nonoperatingEnvironment": "nonoperating_environment",
+        "nonoperatingTemperatureC": "nonoperating_temperature_c",
+        "powerCyclesPer1000NonoperatingHours": "power_cycles_per_1000_nonoperating_hours",
+        "notes": "notes", "failureRateOverrideEnabled": "failure_rate_override_enabled",
+        "failureRateOverrideFpmh": "failure_rate_override_fpmh",
+    }
+    parts, blocks = [], []
+    for instance in model["instances"]:
+        identity = instance["id"]
+        if identity == root_id:
+            continue
+        definition = definitions[instance["definition_id"]]
+        parent_id = instance.get("parent_instance_id")
+        physical = {"id": identity, "name": instance.get("name") or definition["name"],
+                    "parent_id": None if parent_id == root_id else parent_id,
+                    "quantity": instance.get("quantity", 1)}
+        if identity in block_ids:
+            local = block_inputs.get(identity, {})
+            if not isinstance(local, Mapping):
+                raise ValueError("Each block input must be a mapping.")
+            blocks.append({**{target: local[source] for source, target in block_fields.items()
+                              if source in local and local[source] is not None}, **physical})
+            continue
+        local = part_inputs.get(identity, {})
+        if not isinstance(local, Mapping):
+            raise ValueError("Each part input must be a mapping.")
+        values = {}
+        profile_id = local.get("profileId")
+        if profile_id:
+            profile = next((item for item in definition.get("analysis_profiles", ())
+                            if item["id"] == profile_id), None)
+            if (not profile or profile.get("domain") != "prediction"
+                    or profile.get("adapter_id") != adapters.get(standard)):
+                raise ValueError(f"Part '{identity}' selects a profile incompatible with this scenario's standard.")
+            resolved = resolve_analysis_profile(model, identity, profile_id,
+                                                mode_id=scenario.get("modeId"))
+            if not resolved["valid"]:
+                raise ValueError(f"Part '{identity}' selects an invalid, disabled or inapplicable profile.")
+            values = resolved["profile"]["resolved_values"]
+        params = {key: value for key, value in values.items() if key not in {"category", "environment"}}
+        local_params = local.get("params", {})
+        if not isinstance(local_params, Mapping):
+            raise ValueError("Part parameters must be a mapping.")
+        params.update({key: value for key, value in local_params.items()
+                       if not (isinstance(value, str) and not value.strip())})
+        category = local.get("category", values.get("category", ""))
+        metadata = {key: value for key, value in definition.get("part_metadata", {}).items()
+                    if key in {"supplier", "supplier_part_number", "value", "package_or_footprint"}}
+        source = {key: value for key, value in instance.get("source_metadata", {}).items()
+                  if key in {"population_status", "bom_attributes", "bom_source"}}
+        enabled = local.get("calculation_enabled", bool(category))
+        if not category:
+            enabled = False
+        if source.get("population_status") == "dnp":
+            enabled = False
+        parts.append({**local, **metadata, **source, **physical,
+                      "part_number": definition.get("part_number", ""),
+                      "manufacturer": definition.get("manufacturer", ""),
+                      "description": definition.get("description", ""),
+                      "reference_designators": instance.get("reference_designators", []),
+                      "category": category, "params": params,
+                      "environment": (local.get("environment") if "environment" in local else values.get("environment")) or None,
+                      "calculation_enabled": enabled,
+                      "calculation_exclusion_reason": local.get("calculation_exclusion_reason")
+                      or ("Not populated" if source.get("population_status") == "dnp"
+                          else "Choose and confirm a prediction model for this scenario." if not category else None)})
+    return {"standard": standard, "environment": scenario.get("environment", "GB"),
+            "vita_global": scenario.get("vitaGlobal", False), "parts": parts, "blocks": blocks,
+            "process_grade": scenario.get("processGrade", 3),
+            "process_score": scenario.get("processScore", 50),
+            "part_manufacturing": scenario.get("partManufacturing", "standard")}

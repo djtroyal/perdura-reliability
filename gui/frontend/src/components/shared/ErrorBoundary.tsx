@@ -28,7 +28,8 @@ export class ErrorBoundary extends React.Component<
   render() {
     if (this.state.hasError) {
       return (
-        <div className="flex-1 flex items-center justify-center bg-gray-50 p-6">
+        <div role="alert" data-module-error={this.props.label ?? 'Module'}
+          className="flex-1 flex items-center justify-center bg-gray-50 p-6">
           <div className="text-center max-w-md">
             <p className="text-sm font-semibold text-gray-700">
               {this.props.label ? `${this.props.label} — something went wrong` : 'Something went wrong'}

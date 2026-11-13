@@ -1,8 +1,9 @@
 import { useState, useRef } from 'react'
 import Plot from '../shared/ExportablePlot'
 import { computePMInterval, PMIntervalResponse } from '../../api/client'
-import { useUnits, useModuleState } from '../../store/project'
+import { useUnits, useModuleState, getProjectState, beginFolioRequest, readFolioState } from '../../store/project'
 import { useReliabilitySources } from '../shared/ldaFolios'
+import { resolveReliabilitySource, linkedSourcesFingerprint } from '../shared/reliabilitySources'
 import { ToolLayout, detail, Card } from '../ALT/toolkit'
 import InfoLabel from '../shared/InfoLabel'
 import ExportResultsButton from '../shared/ExportResultsButton'
@@ -11,6 +12,7 @@ import { inputCls } from '../shared/styles'
 import { fmtNum } from '../shared/format'
 
 interface State {
+  sourceStale?: boolean; sourceStaleReason?: string
   srcId: string; alpha: string; beta: string
   target: string; horizon: string
   result: PMIntervalResponse | null
@@ -33,17 +35,23 @@ export default function PMInterval() {
 
   const run = async () => {
     setError(null); setLoading(true)
+    const project = getProjectState()
+    const fingerprint = linkedSourcesFingerprint(project, st)
+    const guard = beginFolioRequest('maintPMInterval', 'f0', readFolioState<State>('maintPMInterval', 'f0') ?? st, 'maintenance',
+      () => linkedSourcesFingerprint(getProjectState(), st))
     try {
-      const src = sources.find(s => s.id === st.srcId)
+      const src = st.srcId ? resolveReliabilitySource(project, st.srcId) : null
       const dist = src ? src.dist : 'weibull'
       const dist_params = src ? src.dist_params : { alpha: parseFloat(st.alpha), beta: parseFloat(st.beta) }
       const r = await computePMInterval({
         dist, dist_params,
         target_reliability: parseFloat(st.target), horizon: parseFloat(st.horizon),
       })
-      patch({ result: r })
+      if (!guard.isCurrent()) throw new Error('Inputs or linked sources changed during calculation. Recalculate.')
+      const recorded = { ...r, _sourceFingerprint: fingerprint, _sourceSnapshots: src ? [src.snapshot] : [] }
+      patch({ result: recorded })
     } catch (e) { setError(detail(e, 'Error computing PM interval.')) }
-    finally { setLoading(false) }
+    finally { guard.finish(); setLoading(false) }
   }
 
   const controls = (
@@ -53,13 +61,16 @@ export default function PMInterval() {
       </div>
       <div>
         <InfoLabel tip="Use a fitted distribution from Life Data / Prediction, or enter a Weibull manually below.">Failure distribution</InfoLabel>
-        <select value={st.srcId} onChange={e => patch({ srcId: e.target.value })} className={inputCls}>
+        <select aria-label="Failure distribution" value={st.srcId} onChange={e => patch({ srcId: e.target.value })} className={inputCls}>
           <option value="">Manual Weibull</option>
+          {st.srcId && !activeSrc && <option value={st.srcId}>Unavailable or incompatible source</option>}
           {sources.map(s => <option key={s.id} value={s.id}>{s.name} — {s.sourceDist} ({s.moduleLabel})</option>)}
         </select>
-        {activeSrc && <p className="text-[10px] text-blue-500 mt-0.5 truncate" title={activeSrc.label}>↳ {activeSrc.label}</p>}
+        {activeSrc && <p className="text-xs text-blue-700 mt-0.5 truncate" title={activeSrc.label}>↳ {activeSrc.label}</p>}
       </div>
-      {!activeSrc && (
+      {st.srcId && !activeSrc && <p role="alert" className="text-xs text-red-700">The linked source is unavailable. Relink it or explicitly select Manual Weibull.</p>}
+      {st.sourceStale && <p role="status" className="text-xs text-amber-800">Historical result — {st.sourceStaleReason}</p>}
+      {!st.srcId && (
         <>
           <div>
             <InfoLabel tip="Weibull scale parameter (characteristic life).">Weibull α (scale)</InfoLabel>

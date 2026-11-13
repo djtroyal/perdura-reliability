@@ -453,6 +453,8 @@ function ProjectApp() {
       data-module-theme={activeModuleKey}
       style={moduleThemeStyle(activeModuleKey)}
       data-perdura-showcase={showcase ? (showcaseReady ? 'ready' : 'loading') : undefined}
+      data-perdura-build-commit={showcase ? __APP_COMMIT__ : undefined}
+      data-perdura-build-version={showcase ? __APP_VERSION__ : undefined}
     >
       {/* Navbar */}
       <header className="bg-white border-b border-gray-200 shadow-xs">

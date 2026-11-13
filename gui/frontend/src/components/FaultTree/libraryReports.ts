@@ -2,6 +2,7 @@ import { captureProjectExportOrigin, assertProjectExportOrigin } from '../../sto
 import { mergePlotMarkup, sanitizePlotMarkup, type PlotMarkup } from '../../store/plotMarkup'
 import { CURRENT_ENGINE_REVISIONS } from '../../version'
 import Papa from 'papaparse'
+import type { SystemDefinitionModel } from '../../api/systemDefinition'
 import { extractFaultTreeAssets } from '../../store/assetExtractors'
 import { artifactSources, buildExport, getProjectState, getPlotMarkupForAsset, setModuleState, type ExportPayload } from '../../store/project'
 import { downloadArtifact } from '../../store/artifactExport'
@@ -14,6 +15,7 @@ export type FtaReportScope = 'tree' | 'branch' | 'selected' | 'all'
 export interface FtaLibraryReportOptions {
   folios: readonly FtaFolio[]; catalog: FtaLibraryCatalog; treeIds: readonly string[]
   scope: FtaReportScope; units: string
+  systemModel?: SystemDefinitionModel
   /** Saved presentation copied at request time; never read after asynchronous rendering starts. */
   plotMarkupByTreeId?: Record<string, PlotMarkup>
 }
@@ -32,7 +34,7 @@ const registerHeaders = ['Indenture', 'Code', 'Tree', 'Tree ID', 'Parent ID', 'T
 const referenceHeaders = ['Parent tree ID', 'Target tree ID', 'Transfer node ID', 'Reference mode', 'Placed', 'Ordered gate placements']
 
 function captureReportOptions(options: FtaLibraryReportOptions): FtaLibraryReportOptions {
-  return clone({ ...options, plotMarkupByTreeId: options.plotMarkupByTreeId ?? Object.fromEntries(options.folios.map(tree =>
+  return clone({ ...options, systemModel: options.systemModel ?? (getProjectState().modules.systemDefinition as { model?: SystemDefinitionModel } | undefined)?.model, plotMarkupByTreeId: options.plotMarkupByTreeId ?? Object.fromEntries(options.folios.map(tree =>
     [tree.id, getPlotMarkupForAsset('faultTree', tree.name, 'fta-top-event-time', tree.id)])) })
 }
 
@@ -124,7 +126,11 @@ export function buildFtaLibraryReport(options: FtaLibraryReportOptions) {
     const origin = { source: contextAsset.source, sourceCapturedAt: capturedAt, sourceKind: 'snapshot' as const }
     blocks.push({ id: id(), type: 'table', label: 'Tree definition and identity', ...origin, headers: ['Field', 'Value'], rows: [
       ['Tree ID', tree.id], ['Code', metadata.code], ['Description', metadata.description], ['Tags', metadata.tags.join(', ')],
-      ['System links', json(metadata.systemLinks ?? [])],
+      ['System links', (metadata.systemLinks ?? []).map(link => {
+        const system = snapshot.systemModel?.id === link.systemModelId ? snapshot.systemModel : undefined
+        const instance = system?.instances.find(item => item.id === link.instanceId)
+        return `${system?.name ?? 'Missing system'} [${link.systemModelId}] › ${instance?.name || 'Missing item'} [${link.instanceId}]`
+      }).join('\n') || 'None'],
       ['Settings', json({ exposureTime: tree.state.exposureTime, engine: tree.state.engine, confidenceLevel: tree.state.confidenceLevel,
         nSimulations: tree.state.nSimulations, simSeed: tree.state.simSeed })],
       ['Referenced by', (index.parents.get(tree.id) ?? []).map(group => `${group.parentId} (${group.references.length} transfers)`).join('\n') || 'None'],

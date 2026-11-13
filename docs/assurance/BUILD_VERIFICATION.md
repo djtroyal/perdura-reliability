@@ -74,6 +74,12 @@ job, missing replacement artifact or invalid provenance still blocks the gate;
 an older successful result cannot conceal it. An unavailable hosted runner is
 reported as incomplete verification, not a failed scientific test.
 
+GitHub can release the publisher before its jobs API reflects the final job
+conclusions. Metadata capture refreshes that snapshot for up to two minutes,
+waiting only for executions matched to the downloaded evidence. A timeout
+retains the last snapshot and blocks verification; completed steps alone never
+substitute for a terminal job conclusion.
+
 Python 3.13 is the canonical branch-coverage environment. Python 3.11, 3.12,
 and 3.14 remain independent compatibility runs. Coverage is compared with the
 most recent available successful `main` report but is currently informational;

@@ -32,6 +32,7 @@ import { mergePlotMarkup } from '/src/store/plotMarkup'
 import * as project from '/src/store/project'
 import { setAssuranceExportEnabled } from '/src/store/artifactExport'
 import { exportProjectZip } from '/src/store/exportZip'
+import { createProjectSystem, emptyPredictionScenario } from '/src/store/sharedSystemModel'
 
 const fixtures = {
   scatter: [
@@ -50,17 +51,21 @@ const fixtures = {
 }
 const frames = [{name:'reference',data:[{y:[1e-8,2e-8,3e-8]}],traces:[0]}]
 project.newProject('Plotly migration evidence')
+project.setModuleState('systemDefinition', createProjectSystem('Plotly migration system'))
 project.setModuleState('prediction', {
   _folioWrap:true, activeId:'reviewed-pump-assembly',
-  folios:[{id:'reviewed-pump-assembly',name:'Reviewed pump assembly',state:{}}],
+  folios:[{id:'reviewed-pump-assembly',name:'Reviewed pump assembly',
+    state:emptyPredictionScenario({parts:[],blocks:[],blockSeq:0})}],
 })
 setAssuranceExportEnabled(false)
 function Fixture() {
   const [type, setType] = useState('scatter')
   const [responsive, setResponsive] = useState(true)
   const [report, setReport] = useState(false)
+  const [archiveFigure, setArchiveFigure] = useState(false)
   window.migration = { Plotly, project, capturePlotFigure, plotFigureJson, buildInteractivePlotHtml,
     mergePlotMarkup, exportProjectZip, setAssuranceExportEnabled, fixtures,
+    showArchiveFigure: () => setArchiveFigure(true),
     showReport: () => {
       const snapshot = project.getProjectState().modules.reportBuilder.plotSnapshots.at(-1)
       project.setModuleState('reportBuilder', {
@@ -88,6 +93,13 @@ function Fixture() {
       </ReportAssetScopeProvider>
     </div>
     {report && <section aria-label="Report"><ReportBuilder/></section>}
+    {archiveFigure && <section aria-label="Archive figure">
+      <ReportAssetScopeProvider value={{module:'plotlyMigrationFixture',moduleLabel:'Plotly migration fixture'}}>
+        <ExportablePlot plotId="archive-fixture" reportKey="archive-fixture"
+          data={fixtures.scatter} layout={{title:{text:'Archive verification figure'}}}
+          style={{width:600,height:350}}/>
+      </ReportAssetScopeProvider>
+    </section>}
   </main>
 }
 createRoot(document.getElementById('root')).render(<Fixture/>);
@@ -206,9 +218,10 @@ try {
 
   async function download(format, prefix = '') {
     await graph.locator('[data-title="Download plot"]').click({force:true})
-    const pending = page.waitForEvent('download',{timeout:60000})
-    await page.getByRole('menuitem',{name:{json:/Plot JSON/,png:/PNG image/,svg:/SVG vector/,html:/Interactive HTML/}[format]}).click()
-    const result = await pending
+    const [result] = await Promise.all([
+      page.waitForEvent('download',{timeout:60000}),
+      page.getByRole('menuitem',{name:{json:/Plot JSON/,png:/PNG image/,svg:/SVG vector/,html:/Interactive HTML/}[format]}).click(),
+    ])
     assert.equal(await result.failure(),null)
     const path = join(output,(prefix ? `${prefix}-` : '')+result.suggestedFilename())
     await result.saveAs(path)
@@ -271,9 +284,10 @@ try {
   await expect(report.locator('.js-plotly-plot')).toHaveCount(1)
   await expect.poll(() => report.locator('.js-plotly-plot').evaluate(node => node._fullLayout?.annotations?.some(item=>item.text==='Reviewed μ failure rate'))).toBe(true)
   for (const format of ['HTML','PDF']) {
-    const pending = page.waitForEvent('download',{timeout:60000})
-    await report.getByRole('button',{name:format,exact:true}).click()
-    const result = await pending
+    const [result] = await Promise.all([
+      page.waitForEvent('download',{timeout:60000}),
+      report.getByRole('button',{name:format,exact:true}).click(),
+    ])
     assert.equal(await result.failure(),null)
     const path = join(output,result.suggestedFilename())
     await result.saveAs(path)
@@ -284,10 +298,19 @@ try {
       assert.ok(bytes.includes('Reviewed μ failure rate'))
     } else assert.equal(bytes.subarray(0,4).toString(),'%PDF')
   }
-  const zipPending = page.waitForEvent('download',{timeout:60000})
-  const zipResult = await page.evaluate(() => window.migration.exportProjectZip())
+  // Prediction deliberately excludes unverified runtime plots from project
+  // assets. Register an explicit test figure through the production wrapper
+  // to exercise ZIP rendering without inventing calculated prediction results.
+  await page.evaluate(() => window.migration.showArchiveFigure())
+  const archiveFigure = page.getByRole('region',{name:'Archive figure',exact:true}).locator('.js-plotly-plot')
+  await expect.poll(() => archiveFigure.evaluate(node => node._fullData?.[0]?.type)).toBe('scatter')
+  // Observe both promises immediately so an export failure is not masked by
+  // the pending download rejecting when cleanup closes the browser.
+  const [zipDownload, zipResult] = await Promise.all([
+    page.waitForEvent('download',{timeout:60000}),
+    page.evaluate(() => window.migration.exportProjectZip()),
+  ])
   assert.equal(zipResult.skipped,0)
-  const zipDownload = await zipPending
   const zipPath = join(output,zipDownload.suggestedFilename())
   await zipDownload.saveAs(zipPath)
   const assets = unzipSync(await readFile(zipPath))

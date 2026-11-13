@@ -376,14 +376,23 @@ the [security policy](SECURITY.md), and the
 - Deterministic functional fault mapping with pass-through, transform, stop,
   and termination rules; cycle-safe downstream traces; coverage gaps;
   durable reviewed propagation assertions; and no silent generated edits
-- Automatic schema-6 migration from Prediction/FMEA, stable canonical references
-  for Prediction, FMEA, RBD, FTA, and Markov, linked projection previews and
-  diffs, canonical read-only fields downstream, plus checksum-based impact review
+- One system and root per project, shared with Failure Rate Prediction. Edit
+  structure in either workspace; piece parts can belong at every indenture level
+  and are hidden by default in the System Definition view. Prediction scenarios
+  retain their own analytical settings while sharing stable component identities.
+- Stable canonical references for Prediction, FMEA, RBD, FTA, and Markov,
+  linked projection previews and diffs, plus checksum-based impact review.
+  Schema 9 rejects unsupported legacy copied system/Prediction structures before
+  changing the open project; original files remain intact.
 - Portable project-file property graph with indexed traversal; the storage
   rationale and MBSE/SysML-inspired scope are documented in
   `docs/methodology/system-definition-graph.md`
 - Series, Parallel, K-of-N, and Network (path-set) RBD configurations
 - Nested block builder via `system_reliability_from_blocks`
+- Compact, Normal, and Expanded deterministic layout modes across FTA, RBD,
+  Markov, FMEA, and System Definition. Order preservation defaults on; Compact
+  uses a trident arrangement for three eligible events under a gate. Layout
+  changes are undoable and do not invalidate mathematical results.
 
 ### Fault Tree Analysis
 - AND, OR, and VOTE (k-of-n) gates with basic events
@@ -527,7 +536,8 @@ the [security policy](SECURITY.md), and the
 - Steady-state solution: availability / unavailability, plus MTBF, mean time to failure (MTTF),
   mean up time (MUT), and MTTR from the state occupancies
 - Time-dependent state-probability evolution
-- Transition rates can be linked from a fitted Life Data distribution and stay in sync on re-run
+- Transition rates can link to an explicitly adopted, unshifted exponential Life
+  Data model or current Prediction rate; incompatible sources block calculation.
 
 ### Degradation Analysis
 - Non-destructive (repeated-measure path extrapolation to a failure threshold) and destructive
@@ -541,6 +551,19 @@ the [security policy](SECURITY.md), and the
 ### Stress-Strength Interference
 - Probability of failure P = ∫ f_stress(x) · F_strength(x) dx via numerical integration
 - Supports all distribution types for both stress and strength
+- Link either side to a dataset's explicitly adopted distribution. Parameters
+  remain exact and read-only until detached; compatible units are converted for
+  calculation, and incompatible quantities block it.
+
+### Reusing dataset distributions
+- Enter data and its quantity/unit, fit candidate distributions, explore results,
+  then use **Set as dataset distribution** above the results. Refitting unchanged
+  observations preserves the adopted model until it is explicitly replaced.
+- FTA, RBD, Markov, maintenance, SSI, Monte Carlo, and the distribution library
+  resolve linked models at calculation time. Changed or unavailable sources mark
+  existing results historical and prevent late responses from replacing them.
+- Freshness uses normalized observations, quantity/unit, model parameters, and
+  engine revision; row order and presentation changes do not make a fit stale.
 
 ---
 

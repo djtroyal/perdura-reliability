@@ -73,6 +73,7 @@ sys.path[:0] = sys.argv[1:]
 from perdura_app.backend.main import app
 schema = app.openapi()
 assert any('/system-definition/' in path for path in schema['paths'])
+assert any(path.endswith('/stress-strength') for path in schema['paths'])
 assert any('/health' in path for path in schema['paths'])
 assert not any(Path(path).as_posix().endswith('/gui/backend') for path in sys.path)
 """

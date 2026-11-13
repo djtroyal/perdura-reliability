@@ -204,7 +204,7 @@ def test_tabular_result_discovery_supports_nested_vectors_and_row_tables():
     ]
 
 
-@pytest.mark.parametrize("schema", [6, 7, 8])
+@pytest.mark.parametrize("schema", [6, 7, 8, 9])
 def test_project_document_supports_explicit_migration_schemas(schema):
     payload = project_request().project.model_dump(by_alias=True)
     payload["schemaVersion"] = schema
@@ -214,11 +214,11 @@ def test_project_document_supports_explicit_migration_schemas(schema):
     assert restored.model_dump(by_alias=True)["modules"] == payload["modules"]
 
 
-@pytest.mark.parametrize("schema", [5, 9, 999])
+@pytest.mark.parametrize("schema", [5, 10, 999])
 def test_project_document_rejects_unsupported_schema_without_guessing(schema):
     payload = project_request().project.model_dump(by_alias=True)
     payload["schemaVersion"] = schema
-    with pytest.raises(ValidationError, match="schema 6, 7, or 8"):
+    with pytest.raises(ValidationError, match="schema 6, 7, 8, or 9"):
         ProjectDocument.model_validate(payload)
 
 
@@ -262,3 +262,62 @@ def test_project_validation_reports_fta_catalog_and_transfer_issues_without_muta
         issue.code for issue in validation.issues
     }
     assert json.dumps(req.project.modules, sort_keys=True) == original
+
+
+def shared_project_request():
+    req = project_request()
+    payload = json.loads((ROOT / "gui/frontend/src/data/demoProject.json").read_text())
+    req.project.schema_version = 9
+    req.project.modules = {key: payload["modules"][key] for key in ("systemDefinition", "prediction")}
+    return req
+
+
+def test_schema9_validates_shared_system_and_scenarios_without_mutation():
+    req = shared_project_request()
+    original = json.dumps(req.project.modules, sort_keys=True)
+    assert validate_project(req, api_request()).valid
+    assert json.dumps(req.project.modules, sort_keys=True) == original
+
+
+@pytest.mark.parametrize("defect,code", [
+    ("duplicate", "invalid_prediction_scenario_id"),
+    ("missing", "invalid_prediction_scenario_id"),
+    ("number", "invalid_prediction_scenario_id"),
+    ("empty", "invalid_prediction_scenarios"),
+    ("active", "invalid_prediction_active_id"),
+    ("missing-part", "invalid_prediction_scenario"),
+    ("copied-parts", "invalid_prediction_scenario"),
+    ("multi-root", "invalid_shared_system"),
+])
+def test_schema9_rejects_invalid_scenario_identity_and_structure(defect, code):
+    from copy import deepcopy
+    req = shared_project_request()
+    wrap = req.project.modules["prediction"]
+    folio = wrap["folios"][0]
+    if defect == "duplicate": wrap["folios"].append(deepcopy(folio))
+    elif defect == "missing": del folio["id"]
+    elif defect == "number": folio["id"] = 123
+    elif defect == "empty": wrap["folios"] = []
+    elif defect == "active": wrap["activeId"] = "missing"
+    elif defect == "missing-part": folio["state"]["partInputs"]["deleted-item"] = {}
+    elif defect == "copied-parts": folio["state"]["parts"] = []
+    elif defect == "multi-root": req.project.modules["systemDefinition"]["model"]["instances"][1]["parent_instance_id"] = None
+    original = json.dumps(req.project.modules, sort_keys=True)
+    validation = validate_project(req, api_request())
+    assert not validation.valid
+    assert code in {issue.code for issue in validation.issues}
+    assert json.dumps(req.project.modules, sort_keys=True) == original
+
+
+def test_schema9_fta_associations_resolve_canonical_instance_ids():
+    req = shared_project_request()
+    model = req.project.modules["systemDefinition"]["model"]
+    req.project.modules["faultTree"] = {"_folioWrap": True, "activeId": "tree", "folios": [
+        {"id": "tree", "state": {"nodes": [], "edges": []}}]}
+    link = {"systemModelId": model["id"], "instanceId": model["root_instance_id"]}
+    req.project.modules["faultTreeCatalog"] = {"schemaVersion": 1, "byTreeId": {
+        "tree": {"code": "FTA-001", "description": "", "tags": [], "systemLinks": [link]}}}
+    assert validate_project(req, api_request()).valid
+    link["instanceId"] = "deleted"
+    validation = validate_project(req, api_request())
+    assert "fta_missing_system_link" in {issue.code for issue in validation.issues}

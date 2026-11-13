@@ -84,9 +84,9 @@ try {
   assert.match(source, /<Magnet size=\{12\} \/> Snap/,
     'the Markov Snap control must use the shared magnet icon')
   assert.match(source,
-    /<CanvasAssetControls[\s\S]*?<LayoutGrid size=\{12\} \/> Auto Layout/,
+    /<CanvasAssetControls[\s\S]*?<DiagramLayoutMenu/,
     'Markov bookmark and snapshot icons must be the leftmost canvas actions')
-  assert.match(source, /flex h-8 items-center gap-1 whitespace-nowrap rounded border border-slate-300[\s\S]*?Auto Layout[\s\S]*?buttonClassName="flex h-8 items-center gap-1 rounded border border-slate-300/,
+  assert.match(source, /<DiagramLayoutMenu[\s\S]*?buttonClassName="flex h-8 items-center gap-1 rounded border border-slate-300/,
     'Markov canvas and export actions must use the same 32-pixel control treatment as FTA')
   assert.match(source, /useNodesState<MarkovModelNode>\(normalized\.canvasNodes\)[\s\S]*?useEdgesState<MarkovModelEdge>\(normalized\.canvasEdges\)/,
     'Markov must keep React Flow nodes and edges as the canonical live canvas state')

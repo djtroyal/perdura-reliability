@@ -206,7 +206,7 @@ def test_bundled_demo_contains_an_executable_canonical_system():
 
     demo_path = ROOT / "gui" / "frontend" / "src" / "data" / "demoProject.json"
     demo = json.loads(demo_path.read_text(encoding="utf-8"))
-    state = demo["modules"]["systemDefinition"]["folios"][0]["state"]
+    state = demo["modules"]["systemDefinition"]
     parsed = SystemDefinitionModel.model_validate(state["model"])
     validation = validate_system_definition(parsed.model_dump())
     assert validation["valid"]

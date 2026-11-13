@@ -44,7 +44,13 @@ import { ensurePredictionPartIds } from './predictionIdentity'
 import { ProjectPersistence, type StoredProject } from './projectPersistence'
 import { invalidateFtaResults, semanticFtaFingerprint, normalizeFtaLibrary, type FtaFolio } from '../components/FaultTree/libraryModel'
 import type { PredictionPart } from '../api/client'
-import { migrateSystemDefinitionModules } from '../components/SystemDefinition/model'
+import { normalizeSharedSystemModules, systemInputFingerprint } from './sharedSystemModel'
+import type { SystemDefinitionModel } from '../api/systemDefinition'
+import { reconcileLinkedSources } from './linkedSourceInvalidation'
+import { ssiInputFingerprint, type StressStrengthInput } from '../components/LifeData/stressStrengthModel'
+import { resolveMcRun, type MonteCarloOwner } from '../components/LifeData/monteCarloModel'
+import type { LifeDataModelFolio } from '../components/shared/adoptedDistribution'
+import { quantityFromProjectUnit, type DatasetQuantity } from '../components/shared/datasetUnits'
 
 export interface ProjectState {
   projectName: string
@@ -177,6 +183,7 @@ const MODULE_SLICE_GROUPS: Record<string, string[]> = {
 
 export function moduleSlices(moduleKey: string): string[] {
   if (moduleKey === 'faultTree') return ['faultTree', 'faultTreeCatalog']
+  if (moduleKey === 'prediction') return ['prediction', 'systemDefinition']
   return MODULE_SLICE_GROUPS[moduleKey] ?? [moduleKey]
 }
 
@@ -612,7 +619,7 @@ function normalizeProjectModules(
   modules: Record<string, unknown>,
 ): Record<string, unknown> {
   validateFtaIdentities(modules.faultTree)
-  const normalized = migrateSystemDefinitionModules(normalizePredictionModule(modules))
+  const normalized = normalizeSharedSystemModules(normalizePredictionModule(modules))
   if (normalized.faultTree === undefined) return normalized
   const library = normalizeFtaLibrary(normalized.faultTree, normalized.faultTreeCatalog)
   return { ...normalized,
@@ -769,6 +776,7 @@ let editSeq = 0
 const anonOrigin = (sliceKey = ''): EditOrigin => ({ sliceKey, fieldSig: `anon-${++editSeq}` })
 
 const emit = (origin: EditOrigin = anonOrigin()) => {
+  state = { ...state, modules: reconcileLinkedSources(state) }
   if (state.identity.projectId === lastState.identity.projectId && state.revision === lastState.revision
       && state.modules.faultTree !== lastState.modules.faultTree) {
     const before = lastState.modules.faultTree
@@ -1221,6 +1229,16 @@ export function setModuleState(moduleKey: string, data: unknown) {
   emit({ sliceKey: moduleKey, fieldSig: changeSignature(prev, data) })
 }
 
+/** Commit related module edits as one project history and persistence action. */
+export function writeModuleSlices(updates: Record<string, unknown>, origin?: EditOrigin) {
+  const previous = state.modules
+  state = { ...state, modules: { ...previous, ...updates } }
+  for (const [key, value] of Object.entries(updates)) {
+    clearMarkupForReplacedResults(key, previous[key], value)
+  }
+  emit(origin ?? { sliceKey: Object.keys(updates)[0] ?? '', fieldSig: 'shared-edit' })
+}
+
 /** Read-only hook that returns the active folio's state for a module, unwrapping
  *  the FolioWrap if present, or the raw state otherwise. Use this for
  *  cross-module reads where the target module may or may not use folios. */
@@ -1299,24 +1317,27 @@ export function hasComputedResults(value: unknown): boolean {
 // the object is safe — and it turns the per-keystroke staleness check from
 // two full stripResults+stringify passes into one (the previous state's
 // signature was cached when it was written).
-const inputSigCache = new WeakMap<object, string>()
+const inputSigCache = new WeakMap<object, Map<string, string>>()
 
-function inputSignature(v: unknown): string {
+function inputSignature(v: unknown, moduleKey = ''): string {
   const cacheable = typeof v === 'object' && v !== null
   if (cacheable) {
-    const hit = inputSigCache.get(v as object)
+    const hit = inputSigCache.get(v as object)?.get(moduleKey)
     if (hit !== undefined) return hit
   }
-  const sig = JSON.stringify(stripResults(v)) ?? ''
-  if (cacheable) inputSigCache.set(v as object, sig)
+  const sig = JSON.stringify(analysisInputSnapshot(v, moduleKey)) ?? ''
+  if (cacheable) {
+    const signatures = inputSigCache.get(v as object) ?? new Map<string, string>()
+    signatures.set(moduleKey, sig); inputSigCache.set(v as object, signatures)
+  }
   return sig
 }
 
 /** Compare two folio states ignoring computed-result fields, to tell whether
  *  the *inputs* changed (so existing results would be stale). */
-export function inputsChanged(prev: unknown, next: unknown): boolean {
+export function inputsChanged(prev: unknown, next: unknown, moduleKey = ''): boolean {
   try {
-    return inputSignature(prev) !== inputSignature(next)
+    return inputSignature(prev, moduleKey) !== inputSignature(next, moduleKey)
   } catch {
     return true
   }
@@ -1386,7 +1407,7 @@ export function useFolioState<T>(moduleKey: string, initial: T):
     // never pays for the signature comparison.
     const dirty = hasComputedResults(nextState) && (moduleKey === 'faultTree'
       ? semanticFtaFingerprint(act.state as FtaFolio['state']) !== semanticFtaFingerprint(nextState as FtaFolio['state'])
-      : inputsChanged(act.state, nextState))
+      : inputsChanged(act.state, nextState, moduleKey) || Boolean(act.dirty && !hasReplacedComputedOutput(act.state, nextState)))
     const nextWrap = {
       ...w,
       folios: w.folios.map(f => f.id === act.id ? { ...f, state: nextState, dirty } : f),
@@ -1487,7 +1508,7 @@ export function writeFolioState<T>(
   if (JSON.stringify(target.state) === JSON.stringify(nextState)) return
   const dirty = hasComputedResults(nextState) && (moduleKey === 'faultTree'
     ? semanticFtaFingerprint(target.state as FtaFolio['state']) !== semanticFtaFingerprint(nextState as FtaFolio['state'])
-    : inputsChanged(target.state, nextState))
+    : inputsChanged(target.state, nextState, moduleKey) || Boolean(target.dirty && !hasReplacedComputedOutput(target.state, nextState)))
   state = {
     ...state,
     modules: {
@@ -1516,6 +1537,12 @@ export interface FolioRequest<T> {
   finish(): void
 }
 
+export function readFolioState<T>(moduleKey: string, folioId: string): T | undefined {
+  const raw = state.modules[moduleKey]
+  return isFolioWrap(raw) ? raw.folios.find(folio => folio.id === folioId)?.state as T | undefined
+    : folioId === 'f0' ? raw as T | undefined : undefined
+}
+
 const activeFolioRequests = new Map<string, symbol>()
 
 /** Bind asynchronous work to its originating project, analysis, and inputs.
@@ -1523,10 +1550,12 @@ const activeFolioRequests = new Map<string, symbol>()
  * A channel separates independent calculations within the same analysis. */
 export function beginFolioRequest<T>(
   moduleKey: string, folioId: string, initial: T, channel = 'analysis',
+  contextFingerprint?: () => string,
 ): FolioRequest<T> {
   const projectId = state.identity.projectId
   const revision = state.revision
   const units = state.units
+  const context = contextFingerprint?.()
   const key = JSON.stringify([moduleKey, folioId, channel])
   const token = Symbol(key)
   activeFolioRequests.set(key, token)
@@ -1545,7 +1574,8 @@ export function beginFolioRequest<T>(
     && state.identity.projectId === projectId && state.revision === revision
     && currentState() !== undefined
   const matchingInputs = () => state.units === units
-    && !inputsChanged(initial, currentState())
+    && (!contextFingerprint || contextFingerprint() === context)
+    && !inputsChanged(initial, currentState(), moduleKey)
   const unsubscribe = subscribe(() => {
     if (!isActive() || !matchingInputs()) invalidated = true
   })
@@ -1566,7 +1596,7 @@ export function beginFolioRequest<T>(
         ...wrap, folios: wrap.folios.map(folio => folio.id === folioId
           ? { ...folio, state: next, dirty: hasComputedResults(next) && (moduleKey === 'faultTree'
             ? semanticFtaFingerprint(before as FtaFolio['state']) !== semanticFtaFingerprint(next as FtaFolio['state'])
-            : inputsChanged(before, next)) }
+            : inputsChanged(before, next, moduleKey)) }
           : folio),
       } } }
       handleMarkupCalculationTransition(moduleKey, before, next, folioId)
@@ -1621,7 +1651,7 @@ export function writeFolioStatesWithCompanion<T, S>(
       dirty: hasComputedResults(nextState)
         && (moduleKey === 'faultTree'
           ? semanticFtaFingerprint(folio.state as FtaFolio['state']) !== semanticFtaFingerprint(nextState as FtaFolio['state'])
-          : inputsChanged(folio.state, nextState)),
+          : inputsChanged(folio.state, nextState, moduleKey) || Boolean(folio.dirty && !hasReplacedComputedOutput(folio.state, nextState))),
     }
   })
   if (!changed) return
@@ -1784,6 +1814,88 @@ function stripResults(value: unknown): unknown {
   return value
 }
 
+/** Mathematical fingerprints are distinct from persistence/export snapshots:
+ * presentation still round-trips through stripResults and ordinary project JSON. */
+export function analysisInputSnapshot(value: unknown, moduleKey = '', context?: Pick<ProjectState, 'modules' | 'units'>): unknown {
+  const metadata = new Set(['sourceStale', 'sourceStaleReason', 'adoptedCurves', 'mcConvergence',
+    'mcRunProvenance', 'ssProvenance', 'fitProvenance'])
+  const withoutMetadata = (item: unknown): unknown => {
+    if (Array.isArray(item)) return item.map(withoutMetadata)
+    if (!item || typeof item !== 'object') return item
+    return Object.fromEntries(Object.entries(item as Record<string, unknown>)
+      .filter(([key]) => !metadata.has(key)).map(([key, child]) => [key, withoutMetadata(child)]))
+  }
+  const inputs = withoutMetadata(stripResults(value))
+  if (!inputs || typeof inputs !== 'object') return inputs
+  if (isFolioWrap(inputs)) return { ...inputs, folios: inputs.folios.map(folio => ({
+    ...folio, state: analysisInputSnapshot(folio.state, moduleKey, context),
+  })) }
+  const record = inputs as Record<string, unknown>
+  const omit = (object: Record<string, unknown>, keys: Set<string>) =>
+    Object.fromEntries(Object.entries(object).filter(([key]) => !keys.has(key)))
+  if (moduleKey === 'lifeData' && context) {
+    const raw = value as Record<string, unknown>
+    if (Array.isArray(raw.folios)) return { ...record, folios: raw.folios.map(folio => analysisInputSnapshot(folio, moduleKey, context)) }
+    const folios = (context.modules.lifeData as { folios?: LifeDataModelFolio[] } | undefined)?.folios ?? []
+    const owner = raw as unknown as LifeDataModelFolio
+    const options = { projectUnit: context.units, engineRevision: engineRevisionFor('lifeData') }
+    const resolved: Record<string, unknown> = {}
+    const capture = (key: string, calculate: () => string) => {
+      try { resolved[key] = { status: 'current', fingerprint: calculate() } }
+      catch { resolved[key] = { status: 'unavailable' } }
+    }
+    if (raw.ssResult != null || raw.ssProvenance != null || raw.ssStressInput || raw.ssStrengthInput) {
+      const side = (name: 'stress' | 'strength'): StressStrengthInput => {
+        const prefix = name === 'stress' ? 'ssStress' : 'ssStrength'
+        if (raw[`${prefix}Input`]) return raw[`${prefix}Input`] as StressStrengthInput
+        const parameters = (raw[`${prefix}Params`] ?? {}) as Record<string, string>
+        return { mode: raw.ssSource === 'data' ? 'group' : Object.keys(parameters).length ? 'manual' : 'dataset',
+          distribution: String(raw[`${prefix}Dist`] ?? 'Normal_2P'), parameters,
+          groupId: raw[`${prefix}Group`] as string | undefined,
+          quantity: (raw.quantity as DatasetQuantity | undefined) ?? quantityFromProjectUnit(context.units),
+          source: name === 'stress' && raw.adoptedDistribution ? { module: 'lifeData', analysisId: owner.id } : undefined }
+      }
+      capture('stressStrength', () => ssiInputFingerprint([side('stress'), side('strength')], owner, folios, options))
+    }
+    const spec = raw.spec as Record<string, unknown> | undefined
+    if (spec?.mcRunProvenance != null || spec?.mcConvergence != null || spec?.mcMode === 'equation') {
+      capture('monteCarlo', () => resolveMcRun(raw as unknown as MonteCarloOwner, folios, options).fingerprint)
+    }
+    return Object.keys(resolved).length ? { ...record, resolvedSources: resolved } : record
+  }
+  if (moduleKey === 'faultTree' && Array.isArray(record.nodes) && Array.isArray(record.edges)) {
+    return { graph: semanticFtaFingerprint(record as FtaFolio['state']) }
+  }
+  if (moduleKey === 'markov') return omit(record, new Set([
+    'canvasNodes', 'canvasEdges', 'positions', 'annotations', 'stateColors', 'viewport',
+    'density', 'layoutOptions', 'snapToGrid', 'nextStateId', 'nextTransitionId',
+  ]))
+  if (moduleKey === 'system' && Array.isArray(record.nodes) && Array.isArray(record.edges)) {
+    const presentation = new Set(['displayDensity','diagramColor','showNodeIds','computedReliability',
+      'mirrorCount','blockId','voteId','inputCount','highlighted','validationIssue'])
+    return { ...omit(record, new Set(['nodes','edges','annotations','density','layoutOptions',
+      'connectorStyle','snapToGrid','showNodeIds','viewport','positions','stateColors','autoFitOnOpen'])),
+      nodes: (record.nodes as Record<string, unknown>[]).map(node => ({
+        id: node.id, type: node.type, data: omit((node.data ?? {}) as Record<string, unknown>, presentation),
+      })),
+      edges: (record.edges as Record<string, unknown>[]).map(edge => ({
+        id: edge.id, source: edge.source, target: edge.target,
+      })),
+    }
+  }
+  if (moduleKey === 'systemDefinition' || moduleKey === 'reliabilityProgram') {
+    const project = (item: unknown): unknown => {
+      if (Array.isArray(item)) return item.map(project)
+      if (!item || typeof item !== 'object') return item
+      return Object.fromEntries(Object.entries(item as Record<string, unknown>)
+        .filter(([key]) => key !== 'diagrams' && key !== 'block_diagram')
+        .map(([key, child]) => [key, project(child)]))
+    }
+    return project(record)
+  }
+  return inputs
+}
+
 function extractResults(value: unknown): unknown {
   if (Array.isArray(value)) {
     const items = value.map(extractResults)
@@ -1840,6 +1952,9 @@ function queueAnalysisRun(moduleKey: string, completedState: unknown, suppliedAn
   const sequence = (pendingAnalysisCaptures.get(scope) ?? 0) + 1
   pendingAnalysisCaptures.set(scope, sequence)
   const snapshot = completedState
+  // Resolve dependencies now, before the coalescing timer. Later source edits
+  // cannot be silently stamped onto an already completed result.
+  const inputSnapshot = analysisInputSnapshot(snapshot, moduleKey, state)
   const projectId = state.identity.projectId
   const revision = state.revision
   const analysisName = analysisLabel(moduleKey, analysisId)
@@ -1858,7 +1973,7 @@ function queueAnalysisRun(moduleKey: string, completedState: unknown, suppliedAn
       analysisName,
       method: inferredMethod(snapshot),
       engineRevision: engineRevisionFor(moduleKey),
-      inputs: stripResults(snapshot),
+      inputs: inputSnapshot,
       results,
     }).then(record => {
       if (!sameProject()) return
@@ -1891,6 +2006,7 @@ function currentAnalysisState(run: AnalysisRunRecord): unknown {
 
 /** Latest completed run per analysis, suitable for embedding in an export manifest. */
 export async function artifactSources(moduleKey?: string, analysisId?: string): Promise<ArtifactSourceRecord[]> {
+  const context = state
   const latest = new Map<string, AnalysisRunRecord>()
   for (const run of state.analysisRuns) {
     if (moduleKey && plotOwnerForSlice(run.moduleKey) !== plotOwnerForSlice(moduleKey)) continue
@@ -1900,7 +2016,7 @@ export async function artifactSources(moduleKey?: string, analysisId?: string): 
   return Promise.all(Array.from(latest.values()).map(async run => {
     const currentState = currentAnalysisState(run)
     const current = currentState !== undefined
-      && await hashCanonicalJson(stripResults(currentState)) === run.inputSha256
+      && await hashCanonicalJson(analysisInputSnapshot(currentState, run.moduleKey, context)) === run.inputSha256
     return {
       runId: run.runId,
       moduleKey: run.moduleKey,
@@ -1923,8 +2039,12 @@ export async function artifactSources(moduleKey?: string, analysisId?: string): 
  * pre-conversion units. Does NOT set the units value itself — the caller does.
  */
 export function convertProjectUnits(from: string, to: string) {
+  flushProjectEditors()
   const modules = { ...state.modules }
   for (const [key, rules] of Object.entries(UNIT_RULES)) {
+    // Explicit dataset units and hour-valued Prediction settings are owned by
+    // their modules. A project display-unit change must retain their results.
+    if (rules.length === 0) continue
     const val = modules[key]
     if (val == null) continue
     const conv = (obj: unknown) => stripResults(convertStateObject(obj, rules, from, to))
@@ -1968,7 +2088,7 @@ export interface ExportPayload {
 
 export function buildExport(moduleKeys?: string[], includeResults = false): ExportPayload {
   flushProjectEditors()
-  const keys = moduleKeys ?? Object.keys(state.modules)
+  const keys = [...new Set((moduleKeys ?? Object.keys(state.modules)).flatMap(key => key === 'prediction' ? ['prediction', 'systemDefinition'] : [key]))]
   const modules: Record<string, unknown> = {}
   for (const k of keys) {
     if (state.modules[k] === undefined) continue
@@ -2072,6 +2192,23 @@ export function importPayload(payload: ExportPayload, onlyModule?: string):
         ...(payload.modules[PLOT_MARKUP_SLICE] ? [PLOT_MARKUP_SLICE] : []),
       ]
     : Object.keys(payload.modules)
+  // A scenario never supplies its own physical hierarchy. Keep both slices
+  // together, and never replace another populated project's canonical system
+  // as an incidental consequence of a module-scoped import.
+  if (keys.includes('prediction') && payload.modules.systemDefinition === undefined)
+    throw new Error('Prediction import requires its canonical System Definition companion.')
+  if (keys.includes('systemDefinition')) {
+    const incoming = normalizeSharedSystemModules({ systemDefinition: payload.modules.systemDefinition,
+      ...(keys.includes('prediction') ? { prediction: payload.modules.prediction } : {}) })
+    if (onlyModule && state.modules.systemDefinition) {
+      const before = state.modules.systemDefinition as { model: SystemDefinitionModel }
+      const after = incoming.systemDefinition as { model: SystemDefinitionModel }
+      const blank = before.model.instances.length === 1 && Object.keys(state.modules)
+        .every(key => key === 'systemDefinition' || key === PLOT_MARKUP_SLICE)
+      if (!blank && systemInputFingerprint(before.model) !== systemInputFingerprint(after.model))
+        throw new Error('The imported scenario belongs to a different shared system. Open the whole project or import into a new blank project; the current system was not changed.')
+    }
+  }
   if (keys.includes('faultTree')) validateFtaIdentities(payload.modules.faultTree)
   if (keys.length === 0) {
     throw new Error(onlyModule

@@ -575,6 +575,11 @@ jobs:
         id: browser
         run: npx --prefix gui/frontend playwright install --with-deps chromium
 
+      - name: Test screenshot readiness guards
+        id: capture-readiness
+        working-directory: gui/frontend
+        run: node tests/websiteCaptureReadinessBrowser.mjs
+
       - name: Generate and validate website resources
         id: generate
         shell: bash
@@ -586,6 +591,7 @@ jobs:
           npm run website:resources --prefix gui/frontend -- \
             --output evidence/website-resources \
             "${BASELINE_ARGS[@]}"
+          python tools/verify_website_resources.py evidence/website-resources --source-commit "$GITHUB_SHA"
 
       - name: Record website-resource evidence component
         if: always()
@@ -611,6 +617,7 @@ jobs:
             --result setup-node=${{ steps.setup-node.outcome }} \
             --result install=${{ steps.install.outcome }} \
             --result browser=${{ steps.browser.outcome }} \
+            --result capture-readiness=${{ steps.capture-readiness.outcome }} \
             --result generate=${{ steps.generate.outcome }} \
             "${FILE_ARGS[@]}"
 
@@ -662,14 +669,17 @@ jobs:
           fi
 
       - name: Capture workflow job and step timestamps
+        id: workflow-jobs
         continue-on-error: true
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p evidence-source
-          gh api --paginate --slurp 'repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs?filter=all&per_page=100' \
-            | jq '{jobs: [.[].jobs[]]}' > evidence-source/workflow-jobs.json
+          python tools/build_verification_evidence.py capture-jobs \
+            --input evidence-source --output evidence-source/workflow-jobs.json \
+            --repository '${{ github.repository }}' --commit '${{ github.sha }}' \
+            --run-id '${{ github.run_id }}' --run-attempt '${{ github.run_attempt }}'
 
       - name: Compile human and machine-readable verification reports
         id: compile
@@ -706,6 +716,7 @@ jobs:
             --job-result frontend=${{ needs.frontend.result }} \
             --job-result application-wheel=${{ needs.application-wheel.result }} \
             --job-result website-resources=${{ needs.website-resources.result }} \
+            --job-result workflow-metadata=${{ steps.workflow-jobs.outcome }} \
             --repository '${{ github.repository }}' --commit '${{ github.sha }}' \
             --ref '${{ github.ref }}' --event '${{ github.event_name }}' \
             --version "$VERSION" --run-id '${{ github.run_id }}' \
