@@ -3,17 +3,15 @@ import { createServer as createHttpServer } from 'node:http'
 import { mkdtemp, readFile, readdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { extname, join, relative, resolve } from 'node:path'
-import { createServer } from 'vite'
-import { closeViteTestServer, ssrOnlyVitePlugin } from './viteTestLifecycle.mjs'
+import { closeViteTestServer, createSsrTestServer } from './viteTestLifecycle.mjs'
 
 const frontendRoot = resolve(new URL('..', import.meta.url).pathname)
 const hmrServer = createHttpServer()
 const cacheDir = await mkdtemp(join(tmpdir(), 'perdura-artifact-vite-'))
-const vite = await createServer({
+const vite = await createSsrTestServer({
   cacheDir,
   root: frontendRoot,
   appType: 'custom',
-  plugins: [ssrOnlyVitePlugin()],
   server: { middlewareMode: true, ws: { server: hmrServer } },
 })
 
@@ -87,28 +85,46 @@ try {
   }
   for (const moduleKey of ['systemDefinition','reliabilityProgram']) {
     const before={model:{id:'s',definitions:[{id:'a',name:'Assembly'}],diagrams:[{nodes:[{id:'a',x:0,y:0}]}]},
-      analyses:[{id:'a',interfaces:[{id:'ab',source:'a',target:'b'}],block_diagram:{density:'comfortable',nodes:[]}}]}
+      analyses:[{id:'a',resources:[],functions:[],interfaces:[{id:'ab',source:'a',target:'b'}],block_diagram:{density:'comfortable',nodes:[]}}]}
     const after=structuredClone(before);after.model.diagrams[0].nodes[0].x=200;after.analyses[0].block_diagram.density='expanded'
     assert.equal(project.inputsChanged(before,after,moduleKey),false)
     const changed=structuredClone(after);changed.analyses[0].interfaces[0].target='c'
     assert.equal(project.inputsChanged(before,changed,moduleKey),true)
+    const definitionChanged=structuredClone(after);definitionChanged.model.definitions[0].name='Revised assembly'
+    assert.equal(project.inputsChanged(before,definitionChanged,moduleKey),true,
+      'embedded models retain engineering definitions in provenance')
+    assert.equal(before.model.diagrams[0].nodes[0].x,0,'semantic projection cannot mutate saved diagram geometry')
   }
+
+  const governed={analyses:[],governance:{a:{evidenceLinks:[],revisions:[],releases:[],lifecycleStatus:'draft',lifecycleHistory:[]}}}
+  assert.equal(project.inputsChanged(governed,{...governed,governance:{a:{...governed.governance.a,revisions:[{id:'r1'}],releases:[{id:'release'}],lifecycleStatus:'approved',lifecycleHistory:[{id:'transition'}]}}},'fmea'),false)
+  assert.equal(project.inputsChanged(governed,{...governed,governance:{a:{...governed.governance.a,evidenceLinks:[{id:'evidence'}]}}},'fmea'),true)
+  const firstRevision = {analyses:[],governance:{a:{...governed.governance.a,methodProfileId:'aiag_vda_2019_public',
+    fmedaSources:[],fmedaModes:[],processSteps:[],verificationPlan:[],specialCharacteristics:[],reviewFindings:[],
+    assignments:[],changeRequests:[],libraryItems:[],libraryInstances:[],savedViews:[],revisions:[{id:'r1'}]}}}
+  assert.equal(project.inputsChanged({analyses:[],governance:{}},firstRevision,'fmea'),false,
+    'First revision initializes empty governance without making an assessment stale')
+  assert.equal(project.inputsChanged({analyses:[]},firstRevision,'fmea'),false)
+  assert.equal(project.inputsChanged(firstRevision,{...firstRevision,governance:{a:{...firstRevision.governance.a,methodProfileId:'other-method'}}},'fmea'),true,
+    'Changing method remains a substantive analysis input')
 
   // Exercise the real download broker with networking unavailable, as under
   // the deployed connect-src 'self' CSP. Compare bytes to the platform decoder.
   const artifact = await vite.ssrLoadModule('/src/store/artifactExport.ts')
   const originals = { fetch: globalThis.fetch, document: globalThis.document,
     localStorage: globalThis.localStorage, createObjectURL: URL.createObjectURL }
-  const svg = '<svg xmlns="http://www.w3.org/2000/svg"><text>μ ± 95% + # 中文</text></svg>'
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg"><text>μ ± 95% + # 中文 # repeated</text></svg>'
   const urls = [
     `data:image/svg+xml,${encodeURIComponent(svg)}`,
-    `data:image/svg+xml;charset=utf-8,${svg.replace('#', '%23')}`,
+    `data:image/svg+xml;charset=utf-8,${svg.replaceAll('#', '%23')}`,
     `data:image/png;base64,${Buffer.from([137, 80, 78, 71, 0, 255, 128]).toString('base64')}`,
     'data:application/octet-stream,%00%FF%80%25+%2B%ZZ#ignored-fragment',
     'data:image/png;BASE64,AA%2B%2FAA%3D%3D',
   ]
   const expected = await Promise.all(urls.map(async url =>
     new Uint8Array(await (await originals.fetch(url)).arrayBuffer())))
+  assert.equal(new TextDecoder().decode(expected[1]), svg,
+    'Every literal hash in an unescaped SVG data URL must survive as payload, not become a fragment')
   const blobs = []
   const downloadedNames = []
   let networkCalls = 0

@@ -325,7 +325,7 @@ function SoftwareReliabilityContent() {
                 Operational profile context <span className="font-normal text-gray-400">(optional)</span>
               </summary>
               <div className="border-t border-gray-200 p-2">
-                <p className="mb-2 text-[10px] leading-snug text-gray-500">Profile rows produce a separate stratified constant-rate baseline. Perdura does not multiply the NHPP result by usage percentages.</p>
+                <p className="mb-2 text-[10px] leading-snug text-gray-500">Profile rows define a separate constant-rate baseline; usage shares do not scale the NHPP fit.</p>
                 <div className="overflow-x-auto rounded border border-gray-200 bg-white"><table className="w-full text-[10px]">
                   <thead className="bg-gray-50 text-gray-500"><tr><th className="px-1 py-1 text-left">Operation</th><th className="px-1 py-1">Observed exposure</th><th className="px-1 py-1">Failures</th><th className="px-1 py-1">Planned share</th><th /></tr></thead>
                   <tbody>{(state.operationalProfileRows ?? []).map((row, index) => <tr key={index} className="border-t border-gray-100">
@@ -360,7 +360,7 @@ function SoftwareReliabilityContent() {
           {!result ? (
             <div className="flex h-full items-center justify-center text-center text-sm text-gray-400">
               <div><p className="font-medium text-gray-500">No software reliability results yet</p>
-                <p className="mt-1 max-w-lg">Enter exposure-indexed software failures, retain the constant-intensity baseline, and compare growth models before making a release decision.</p></div>
+                <p className="mt-1 max-w-lg">Enter failure observations and total exposure, then select Analyze.</p></div>
             </div>
           ) : (
             <SoftwareResults result={result} activeFit={activeFit} selectedModel={selectedModel}

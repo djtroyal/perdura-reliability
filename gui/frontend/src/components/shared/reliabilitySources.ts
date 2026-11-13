@@ -1,3 +1,4 @@
+import { distributionLabel } from './distributionLabels.ts'
 import { systemInputFingerprint } from '../../store/sharedSystemFingerprint.ts'
 import type { SystemDefinitionModel } from '../../api/systemDefinition'
 /** Pure calculation-boundary resolution. Cached editor values are never a fallback. */
@@ -167,7 +168,7 @@ function resolveSourceUncached(project: SourceProject, ref:DistributionSourceRef
   return { id: sourceId(ref), sourceRef: ref, module, moduleLabel: module === 'lda' ? 'Life Data' : 'Prediction',
     name, sourceDist: distribution, ...mapped, quantity: evaluationQuantity,
     fingerprint: distributionFingerprint([fingerprint,evaluationQuantity,mapped]),
-    label: `${distribution} (${Object.entries(mapped.dist_params).map(([k,v])=>`${k}=${Number(v.toPrecision(5))}`).join(', ')}) · ${project.units}`,
+    label: `${distributionLabel(distribution)} (${Object.entries(mapped.dist_params).map(([k,v])=>`${k}=${Number(v.toPrecision(5))}`).join(', ')}) · ${project.units}`,
     snapshot: { source: ref, fingerprint, distribution, parameters: {...parameters}, quantity, evaluationQuantity, adapterRevision: 1 } }
 }
 export function listReliabilitySources(project: SourceProject, capability: SourceCapability = 'distribution', includeEntities = false): ReliabilitySource[] {

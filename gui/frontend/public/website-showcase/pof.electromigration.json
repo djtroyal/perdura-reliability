@@ -2,7 +2,7 @@
   "app": "Perdura",
   "subtitle": "Reliability Engineering and Statistics Suite",
   "website": "https://perdurareliability.com",
-  "schemaVersion": 6,
+  "schemaVersion": 11,
   "createdWith": {
     "version": "0.7.0",
     "commit": "dev",
@@ -834,17 +834,17 @@
                 },
                 "uncertainty": null,
                 "units": {
-                  "current_density": "A/cm²",
-                  "temperature_input": "°C",
+                  "current_density": "A/cm\u00b2",
+                  "temperature_input": "\u00b0C",
                   "temperature_equation": "K",
                   "activation_energy": "eV",
                   "MTTF": "hours",
-                  "A": "hours·(A/cm²)^2"
+                  "A": "hours\u00b7(A/cm\u00b2)^2"
                 },
                 "validity": {
                   "status": "conditional",
                   "assumptions": [
-                    "Black's equation constants were calibrated for J in A/cm² and the selected time unit.",
+                    "Black's equation constants were calibrated for J in A/cm\u00b2 and the selected time unit.",
                     "The same electromigration mechanism and microstructure apply at the requested condition."
                   ],
                   "warnings": [

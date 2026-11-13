@@ -2,7 +2,7 @@
   "app": "Perdura",
   "subtitle": "Reliability Engineering and Statistics Suite",
   "website": "https://perdurareliability.com",
-  "schemaVersion": 9,
+  "schemaVersion": 11,
   "createdWith": {
     "version": "0.8.1",
     "commit": "dev",
@@ -87,7 +87,7 @@
         "buildStatus": "development"
       },
       "runId": "run-74916501-ba97-4f46-806c-39b96c00c07e",
-      "moduleLabel": "Reliability Testing — Planning & Screening Tools",
+      "moduleLabel": "Reliability Testing \u2014 Planning & Screening Tools",
       "analysisName": "Temperature ALT",
       "fingerprintSha256": "b986306ece42565f066bd64e8e248d57e5ae74e48c30460cbe68ede316e23892"
     }

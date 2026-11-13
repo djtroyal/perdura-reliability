@@ -171,7 +171,7 @@ export default function ReplacementPolicy() {
 
   return (
     <ToolLayout
-      intro="Balances scheduled preventive-maintenance (PM) cost against the higher cost of unplanned corrective maintenance (CM), comparing age-based replacement (replace on failure or at age T) with block/periodic replacement (replace every T, minimally repair failures between). Meaningful for wear-out (β > 1)."
+      intro="Compare age replacement with periodic replacement and minimal repair. Preventive replacement is useful for wear-out (β > 1)."
       controls={controls} err={error} loading={loading} onRun={run} runLabel="Compare policies" results={results}
     />
   )

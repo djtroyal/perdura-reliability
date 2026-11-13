@@ -2,7 +2,7 @@
   "app": "Perdura",
   "subtitle": "Reliability Engineering and Statistics Suite",
   "website": "https://perdurareliability.com",
-  "schemaVersion": 6,
+  "schemaVersion": 11,
   "createdWith": {
     "version": "0.7.0",
     "commit": "dev",
@@ -82,8 +82,8 @@
         "buildStatus": "development"
       },
       "runId": "run-1d71dd58-d980-4d79-9fcf-4da487d68e40",
-      "moduleLabel": "Maintenance — Cost Forecast",
-      "analysisName": "Maintenance — Cost Forecast",
+      "moduleLabel": "Maintenance \u2014 Cost Forecast",
+      "analysisName": "Maintenance \u2014 Cost Forecast",
       "fingerprintSha256": "4e2d382496c3c515b56b520b7a4dfad5e7a057ef106917d41f3af69ed6607baa"
     }
   ],

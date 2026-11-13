@@ -1,12 +1,13 @@
 import { useState, useRef, useMemo, useCallback, useEffect } from 'react'
 import Plot from '../shared/ExportablePlot'
-import DataGridRow, { type DataRow } from './DataGridRow'
+import type { DataRow } from './DataGridRow'
+import EditableLifeDataTable from './EditableLifeDataTable'
 import GroupedDataGrid, {
   type FrequencyDataRow, type IntervalDataRow,
 } from './GroupedDataGrid'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PlotlyLayout = any
-import { Play, Download, Plus, Trash2, Upload, X, GitCompare, Dices, Check, Calculator, Pencil, Wand2, Loader2, ChevronDown, ChevronRight } from 'lucide-react'
+import { Play, Download, Plus, Trash2, Upload, X, GitCompare, Dices, Check, Calculator, Pencil, Wand2, Loader2, ChevronDown, ChevronRight, Maximize2, Minimize2 } from 'lucide-react'
 import LifeDataWizard from './Wizard'
 import StaleBanner from '../shared/StaleBanner'
 import Papa from 'papaparse'
@@ -39,7 +40,7 @@ import { adoptDistribution, createFitProvenance, distributionFingerprint, extrac
   resolveAdoptedDistribution, validateDistributionParameters,
   type AdoptedDistribution, type FitProvenance } from '../shared/adoptedDistribution'
 import { quantityConversionFactor, quantityFromProjectUnit, type DatasetQuantity } from '../shared/datasetUnits'
-import DatasetQuantityFields from '../shared/DatasetQuantityFields'
+import DatasetUnitsControl from '../shared/DatasetUnitsControl'
 import StressStrengthInputs from './StressStrengthInputs'
 import MonteCarloVariableInput from './MonteCarloVariableInput'
 import {resolveMcRun,mcDestinationFingerprint,type MCVariable,type McRunProvenance} from './monteCarloModel'
@@ -54,6 +55,8 @@ import { useHelpTopic } from '../help/context'
 import { useShortcuts } from '../shared/KeyboardShortcuts'
 import { handleTabKey } from '../shared/tabKeyboard'
 import { InfluenceScope, InfluenceSource, InfluenceTarget } from '../shared/InfluenceCues'
+import { distributionLabel } from '../shared/distributionLabels'
+import { useUiPreference } from '../../store/uiPreferences'
 
 const ALL_DISTS = [
   'Weibull_2P','Weibull_3P','Exponential_1P','Exponential_2P',
@@ -318,7 +321,7 @@ const defaultSpec = (): SpecState => ({
 const makeFolio = (seq: number): Folio => ({
   id: `folio${seq}`,
   name: `Analysis ${seq}`,
-  rows: Array.from({ length: 5 }, newRow),
+  rows: [],
   method: 'MLE',
   ci: 0.95,
   ciText: '0.95',
@@ -336,8 +339,8 @@ const makeFolio = (seq: number): Folio => ({
   cfmReliabilityTime: '',
   dataSource: 'table',
   dataFormat: 'individual',
-  frequencyRows: Array.from({ length: 4 }, newFrequencyRow),
-  intervalRows: Array.from({ length: 4 }, newIntervalRow),
+  frequencyRows: [],
+  intervalRows: [],
   spec: defaultSpec(),
   setDist: null,
 })
@@ -471,7 +474,7 @@ function QuadGrid({ src, build, title, units, interactionRevision }: {
     paper_bgcolor: 'white', plot_bgcolor: 'white',
     showlegend: false,
     hovermode: 'x',
-    title: { text: title, font: { size: 12 } },
+    title: { text: distributionLabel(title), font: { size: 12 } },
     datarevision: title,
   }
   const bottomAxis = `y${n}` // smallest domain band → x-axis anchors here
@@ -514,7 +517,7 @@ function QuadGrid({ src, build, title, units, interactionRevision }: {
   return (
     <div className="flex-1 min-h-0 overflow-auto">
       <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 960 }}>
-        <Plot
+    <Plot reportLabel={title}
           data={traces as Plotly.Data[]}
           layout={layout as PlotlyLayout}
           config={{ responsive: true }}
@@ -531,6 +534,7 @@ export default function LifeData() {
   const [state, setState] = useModuleState<LifeDataState>('lifeData', INITIAL_STATE)
   const [projectUnits] = useUnits()
   const [loading, setLoading] = useState(false)
+  const [dataEditorExpanded, setDataEditorExpanded] = useUiPreference<boolean>('lifeData.dataEditorExpanded', false)
   // Live per-distribution progress of the streaming fit (null when idle).
   const [fitProgress, setFitProgress] = useState<FitProgress | null>(null)
   const fitAbortRef = useRef<AbortController | null>(null)
@@ -544,15 +548,15 @@ export default function LifeData() {
   // Multi-select plot views (Ctrl/Cmd-click to toggle additional plots)
   const [activeViews, setActiveViews] = useState<ViewTab[]>(['Probability'])
   // Overlay a density histogram of the dataset on the PDF curve
-  const [showHistogram, setShowHistogram] = useState(false)
+  const [showHistogram, setShowHistogram] = useUiPreference<boolean>('lifeData.showHistogram', false)
   // Salient-point and suspension overlays are persisted per-folio (read below
   // once `folio` is resolved) so the selection survives folio switches/refresh.
   // Quad view: show PDF + CDF + SF + HF in a 2x2 grid (#11)
-  const [quadView, setQuadView] = useState(false)
+  const [quadView, setQuadView] = useUiPreference<boolean>('lifeData.quadView', false)
   // Selected-fit comparison is model-preserving; common-family diagnostics
   // are kept in a distinct view because they are temporary refits.
-  const [selectedCompareView, setSelectedCompareView] = useState<'P-P' | 'Q-Q' | 'PDF' | 'CDF' | 'SF' | 'HF'>('CDF')
-  const [commonCompareView, setCommonCompareView] = useState<'Contours' | 'P-P' | 'Q-Q' | 'PDF' | 'CDF' | 'SF' | 'HF'>('Contours')
+  const [selectedCompareView, setSelectedCompareView] = useUiPreference<'P-P' | 'Q-Q' | 'PDF' | 'CDF' | 'SF' | 'HF'>('lifeData.selectedCompareView', 'CDF', ['P-P', 'Q-Q', 'PDF', 'CDF', 'SF', 'HF'])
+  const [commonCompareView, setCommonCompareView] = useUiPreference<'Contours' | 'P-P' | 'Q-Q' | 'PDF' | 'CDF' | 'SF' | 'HF'>('lifeData.commonCompareView', 'Contours', ['Contours', 'P-P', 'Q-Q', 'PDF', 'CDF', 'SF', 'HF'])
   // Quick Reliability Calculator state
   const [calcTime, setCalcTime] = useState('')
   const [calcElapsed, setCalcElapsed] = useState('')
@@ -579,7 +583,7 @@ export default function LifeData() {
   const uncertaintyAbortRef = useRef<AbortController | null>(null)
   const [uncertaintyError, setUncertaintyError] = useState<string | null>(null)
   const [showQuickAsymptotic, setShowQuickAsymptotic] = useState(false)
-  const [showPrimaryConfidenceBand, setShowPrimaryConfidenceBand] = useState(true)
+  const [showPrimaryConfidenceBand, setShowPrimaryConfidenceBand] = useUiPreference<boolean>('lifeData.showPrimaryConfidenceBand', true)
   const [uncertaintyPackages, setUncertaintyPackages] = useState<
     Record<string, UncertaintyPackageResponse>
   >({})
@@ -600,19 +604,9 @@ export default function LifeData() {
     uncertaintyAbortRef.current?.abort()
   }
 
-  // Sort state for the data table (display-only)
-  const [ldSortCol, setLdSortCol] = useState<string | null>(null)
-  const [ldSortDir, setLdSortDir] = useState<'asc' | 'desc' | null>(null)
-  const toggleLdSort = (col: string) => {
-    if (ldSortCol !== col) { setLdSortCol(col); setLdSortDir('asc') }
-    else if (ldSortDir === 'asc') setLdSortDir('desc')
-    else { setLdSortCol(null); setLdSortDir(null) }
-  }
-
   const fileRef = useRef<HTMLInputElement>(null)
   const groupedFileRef = useRef<HTMLInputElement>(null)
   const importFolioRef = useRef<HTMLInputElement>(null)
-  const tableRef = useRef<HTMLDivElement>(null)
   const folioStripRef = useRef<HTMLDivElement>(null)
   const focusActiveFolio = () => requestAnimationFrame(() => folioStripRef.current?.querySelector<HTMLButtonElement>('[aria-pressed="true"]')?.focus())
 
@@ -642,6 +636,7 @@ export default function LifeData() {
   const activeFolioIdRef = useRef(folio.id)
   activeFolioIdRef.current = folio.id
   const isCompare = state.activeId === 'compare'
+  const dataExpanded = dataEditorExpanded && folio.dataSource === 'table'
   // Per-folio overlay toggles (persisted on the folio).
   const showSalient = folio?.showSalient ?? false
   const showSuspensions = folio?.showSuspensions ?? false
@@ -650,8 +645,8 @@ export default function LifeData() {
   // CFM curve panel (Reliability view): which system-curve types are shown, plus
   // quad-view and a per-mode-overlay toggle — mirroring the Parametric panel.
   const [cfmCurveViews, setCfmCurveViews] = useState<Array<'SF' | 'CDF' | 'PDF' | 'HF'>>(['SF'])
-  const [cfmQuadView, setCfmQuadView] = useState(false)
-  const [cfmShowModes, setCfmShowModes] = useState(true)
+  const [cfmQuadView, setCfmQuadView] = useUiPreference<boolean>('lifeData.cfmQuadView', false)
+  const [cfmShowModes, setCfmShowModes] = useUiPreference<boolean>('lifeData.cfmShowModes', true)
   const bookmarkTarget = useBookmarkNavigationTarget()
   const appliedBookmark = useRef(0)
   useEffect(() => {
@@ -661,6 +656,7 @@ export default function LifeData() {
     if (!id || !state.folios.some(item => item.id === id)) return
 
     appliedBookmark.current = bookmarkTarget.nonce
+    setDataEditorExpanded(false)
     setState(current => ({
       ...current,
       activeId: id,
@@ -692,21 +688,6 @@ export default function LifeData() {
   }, [bookmarkTarget, setState, state.folios])
   // MC simulation table sort
   const [cfmMcSort, setCfmMcSort] = useState<{ key: 'unit' | 'time' | 'mode' | 'state'; dir: 'asc' | 'desc' }>({ key: 'unit', dir: 'asc' })
-
-  const ldSortedIndices = useMemo(() => {
-    const rows = folio?.rows ?? []
-    const indices = rows.map((_, i) => i)
-    if (!ldSortCol || !ldSortDir) return indices
-    return indices.sort((a, b) => {
-      let va: string, vb: string
-      if (ldSortCol === 'id') { va = rows[a].id; vb = rows[b].id }
-      else if (ldSortCol === 'time') { va = rows[a].time; vb = rows[b].time }
-      else { va = rows[a].state; vb = rows[b].state }
-      const na = parseFloat(va), nb = parseFloat(vb)
-      const cmp = (!isNaN(na) && !isNaN(nb)) ? na - nb : va.localeCompare(vb)
-      return ldSortDir === 'asc' ? cmp : -cmp
-    })
-  }, [folio?.rows, ldSortCol, ldSortDir])
 
   const toggleView = (t: ViewTab, multi: boolean) => {
     setQuadView(false)
@@ -890,11 +871,11 @@ export default function LifeData() {
       const newFolios: Folio[] = []
       for (const [groupId, rows] of ids) {
         seq++
-        const padded = [...rows.map(r => ({ ...r, key: makeKey() })), ...Array.from({ length: 3 }, newRow)]
+        const copiedRows = rows.map(r => ({ ...r, key: makeKey() }))
         newFolios.push({
           ...makeFolio(seq),
           name: `${folio.name} — ${groupId}`,
-          rows: padded,
+          rows: copiedRows,
           method: folio.method,
           ci: folio.ci,
           ciText: folio.ciText,
@@ -913,44 +894,8 @@ export default function LifeData() {
 
   // --- data table ---
 
-  const updateRow = useCallback((idx: number, field: 'id' | 'time' | 'state', value: string) =>
-    patchActive(f => ({
-      rows: f.rows.map((r, i) => i === idx ? { ...r, [field]: value } : r),
-    })), [patchActive])
-
-  const addRow = useCallback(() => {
-    const index = rowCountRef.current
-    patchActive(f => ({ rows: [...f.rows, newRow()] }))
-    setTimeout(() => tableRef.current?.querySelector<HTMLInputElement>(`[data-row="${index}"][data-col="time"]`)?.focus(), 0)
-  }, [patchActive])
-
-  const removeRow = useCallback((idx: number) => {
-    const target = Math.max(0, Math.min(idx, rowCountRef.current - 2))
-    patchActive(f => f.rows.length <= 1 ? {} : { rows: f.rows.filter((_, i) => i !== idx) })
-    setTimeout(() => tableRef.current?.querySelector<HTMLInputElement>(`[data-row="${target}"][data-col="time"]`)?.focus(), 0)
-  }, [patchActive])
-
-  // Row count via ref so the keydown handler stays referentially stable (cell
-  // edits don't change it; only add/remove do).
-  const rowCountRef = useRef(folio.rows.length)
-  rowCountRef.current = folio.rows.length
-
-  const visibleRowsRef = useRef(ldSortedIndices)
-  visibleRowsRef.current = ldSortedIndices
-  // Enter follows visible sort order; Tab leaves the table normally.
-  const handleTimeKeyDown = useCallback((e: React.KeyboardEvent, idx: number) => {
-    if (e.key !== 'Enter') return
-    e.preventDefault()
-    const next = visibleRowsRef.current[visibleRowsRef.current.indexOf(idx) + 1]
-    if (next === undefined) { addRow(); return }
-    setTimeout(() => tableRef.current?.querySelector<HTMLInputElement>(`[data-row="${next}"][data-col="time"]`)?.focus(), 0)
-  }, [addRow])
-
   const loadRows = (data: DataRow[]) => {
-    const padded = data.length < 3
-      ? [...data, ...Array.from({ length: 3 - data.length }, newRow)]
-      : data
-    patchActive({ rows: padded, dataSource: 'table', dataFormat: 'individual' })
+    patchActive({ rows: data, dataSource: 'table', dataFormat: 'individual' })
   }
 
   const handleCSV = (file: File) => {
@@ -1036,9 +981,7 @@ export default function LifeData() {
             const seq = s.folioSeq + 1
             const f = makeFolio(seq)
             f.name = file.name.replace(/\.csv$/i, '') || `Analysis ${seq}`
-            f.rows = imported.length < 3
-              ? [...imported, ...Array.from({ length: 3 - imported.length }, newRow)]
-              : imported
+            f.rows = imported
             return { ...s, folios: [...s.folios, f], activeId: f.id, folioSeq: seq }
           })
         }
@@ -1369,7 +1312,7 @@ export default function LifeData() {
     const fitted=await fitDistributions({failures:observations.failures,right_censored:observations.right_censored,
       distributions_to_fit:[distribution],method:folio.method,CI:folio.ci})
     const row=fitted.results.find(row=>row.Distribution===distribution)
-    if(!row?.fit_eligible) throw new Error(`The ${distribution} group fit is ineligible.`)
+    if(!row?.fit_eligible) throw new Error(`The ${distributionLabel(distribution)} group fit is ineligible.`)
     return {distribution,parameters:validateDistributionParameters(distribution,row.params ?? {}),quantity:folioQuantity(folio,sourceOptions)}
   }
 
@@ -1643,7 +1586,7 @@ export default function LifeData() {
       }).catch(() => {
         selectedCompareCurveFailedRef.current.add(request.key)
         setSelectedCompareCurveError(
-          `The curve for ${request.folio.name} (${request.distribution}) could not be loaded.`)
+          `The curve for ${request.folio.name} (${distributionLabel(request.distribution)}) could not be loaded.`)
       }).finally(() => {
         selectedCompareCurvePendingRef.current.delete(request.key)
         setSelectedCompareCurveLoading(selectedCompareCurvePendingRef.current.size > 0)
@@ -1970,6 +1913,18 @@ export default function LifeData() {
         ? (specialResult ? (SPECIAL_MODELS.find(m => m.value === specialResult.model)?.label ?? specialResult.model) : '')
         : parametricDist
   const activeFitRow = fitResult?.results.find(r => r.Distribution === parametricDist)
+  const exploredDistribution = folio.dataSource === 'spec' ? folio.specResult?.distribution : parametricDist
+  const exploredParameters = folio.dataSource === 'spec' ? folio.specResult?.params : activeFitRow?.params
+  const isAdoptedModel = (distribution: string | undefined, parameters: unknown) => {
+    if (adoptedSource.status !== 'current' || adoptedSource.model.distribution !== distribution || !parameters || typeof parameters !== 'object') return false
+    try {
+      // Fit rows also carry standard errors and confidence limits; only the
+      // distribution's canonical parameters define the adopted model.
+      return distributionFingerprint(adoptedSource.model.parameters)
+        === distributionFingerprint(validateDistributionParameters(distribution, parameters as Record<string, unknown>))
+    } catch { return false }
+  }
+  const selectionIsAdopted = isAdoptedModel(exploredDistribution, exploredParameters)
   const activePlot = fitResult?.plots?.[parametricDist] ?? null
   const uncertaintyPackageKey = JSON.stringify({
     analysis: folio.id,
@@ -2280,7 +2235,7 @@ export default function LifeData() {
   // The distribution type lives here rather than in the main plot title.
   const statsSubtitle = useMemo(() => {
     const parts: string[] = []
-    if (activeDist) parts.push(activeDist)
+    if (activeDist) parts.push(distributionLabel(activeDist))
     if (showStats && selectedParams) {
       const fmt = (v: number) => v >= 1000 || v < 0.01 ? v.toExponential(3) : v.toPrecision(4)
       for (const p of selectedParams.rows) {
@@ -2348,13 +2303,13 @@ export default function LifeData() {
         y: values,
         mode: 'lines',
         type: 'scatter',
-        name: `${distribution}${isBest ? ' (best)' : ''}`,
+        name: `${distributionLabel(distribution)}${isBest ? ' (best)' : ''}`,
         showlegend: false,
         line: {
           color: FIT_COMPARISON_COLORS[index % FIT_COMPARISON_COLORS.length],
           width: isBest ? 3 : 2,
         },
-        hovertemplate: `${distribution}<br>Time: %{x:.5g}<br>${fitComparisonView}: %{y:.5g}<extra></extra>`,
+        hovertemplate: `${distributionLabel(distribution)}<br>Time: %{x:.5g}<br>${fitComparisonView}: %{y:.5g}<extra></extra>`,
       }]
     })
     if (!fitComparisonShowData) return fitted
@@ -2844,7 +2799,7 @@ export default function LifeData() {
                       className="rounded text-violet-600" />
                     <span className="inline-block w-2.5 h-0.5 rounded"
                       style={{ backgroundColor: FIT_COMPARISON_COLORS[index % FIT_COMPARISON_COLORS.length] }} />
-                    <span>{distribution}</span>
+                    <span>{distributionLabel(distribution)}</span>
                     {distribution === fitResult?.best_distribution && (
                       <span className="rounded bg-green-100 text-green-700 px-1 text-[9px] font-semibold">best</span>
                     )}
@@ -3103,7 +3058,7 @@ export default function LifeData() {
   })()
 
   const tableColumns = [
-    { key: 'Distribution', label: 'Distribution' },
+    { key: 'Distribution', label: 'Distribution', format: distributionLabel },
     { key: 'method', label: 'Method' },
     { key: 'AICc', label: 'AICc' },
     { key: 'BIC', label: 'BIC' },
@@ -3167,9 +3122,9 @@ export default function LifeData() {
       x: model.curves?.x,
       y: model.curves?.[key],
       mode: 'lines',
-      name: `${model.name} (${model.distribution})`,
+      name: `${model.name} (${distributionLabel(model.distribution)})`,
       line: { color: FOLIO_COLORS[i % FOLIO_COLORS.length], width: 2 },
-      hovertemplate: `${model.name}<br>${model.distribution}<br>x=%{x:.5g}<br>y=%{y:.5g}<extra></extra>`,
+      hovertemplate: `${model.name}<br>${distributionLabel(model.distribution)}<br>x=%{x:.5g}<br>y=%{y:.5g}<extra></extra>`,
     })).filter(trace => trace.x && trace.y)
 
   const selectedPPData = (() => {
@@ -3181,7 +3136,7 @@ export default function LifeData() {
       if (!model.pp) return
       traces.push({
         x: model.pp.theoretical, y: model.pp.empirical, mode: 'markers',
-        name: `${model.name} (${model.distribution})`,
+        name: `${model.name} (${distributionLabel(model.distribution)})`,
         marker: { color: FOLIO_COLORS[i % FOLIO_COLORS.length], size: 5 },
       })
     })
@@ -3203,7 +3158,7 @@ export default function LifeData() {
       if (!model.qq) return
       traces.push({
         x: model.qq.theoretical, y: model.qq.empirical, mode: 'markers',
-        name: `${model.name} (${model.distribution})`,
+        name: `${model.name} (${distributionLabel(model.distribution)})`,
         marker: { color: FOLIO_COLORS[i % FOLIO_COLORS.length], size: 5 },
       })
     })
@@ -3338,6 +3293,53 @@ export default function LifeData() {
 
   // ==========================================================================
 
+  const toggleDataEditor = () => {
+    setDataEditorExpanded(value => !value)
+    requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('[data-life-data-editor] [data-expand-data]')?.focus())
+  }
+  const individualData = (folio.dataFormat ?? 'individual') === 'individual'
+  const lifeDataEditor = <section data-life-data-editor aria-label="Life Data editor"
+    className={dataExpanded ? 'flex min-h-0 flex-1 flex-col rounded-xl border border-slate-200 bg-white p-4 shadow-sm' : 'min-w-0'}>
+    <div className="mb-2 flex items-center gap-2">
+      <InfoLabel className="mb-0" tip={individualData
+        ? 'Enter failure (F) and suspension/right-censored (S) times. Paste tabular data or import a CSV file.'
+        : 'Enter exact-time frequencies or inspection intervals. Empty entry rows are ignored.'}>Life Data</InfoLabel>
+      <span className="ml-auto text-xs tabular-nums text-slate-500">{(() => {
+        const counts = folioObservationCounts(folio)
+        return `${counts.failures}F ${counts.censored}S`
+      })()}</span>
+      <button type="button" data-expand-data aria-expanded={dataExpanded}
+        aria-label={dataExpanded ? 'Collapse Life Data editor' : 'Expand Life Data editor'}
+        title={dataExpanded ? 'Return Life Data to the side panel' : 'Expand Life Data into the workspace'}
+        onClick={toggleDataEditor}
+        className="flex size-8 shrink-0 items-center justify-center rounded border border-slate-200 text-slate-600 hover:bg-blue-50 hover:text-blue-800 focus-visible:outline-2 focus-visible:outline-blue-700">
+        {dataExpanded ? <Minimize2 size={15} aria-hidden="true" /> : <Maximize2 size={15} aria-hidden="true" />}
+      </button>
+    </div>
+    <div className="mb-2 flex items-center gap-3">
+      <button type="button" onClick={() => (individualData ? fileRef : groupedFileRef).current?.click()}
+        className="flex min-h-8 items-center gap-1 rounded border border-dashed border-slate-300 px-2 text-xs text-slate-600 hover:border-blue-400 hover:bg-blue-50">
+        <Upload size={12} /> {individualData ? 'Import CSV' : 'Import grouped CSV'}
+      </button>
+      <input ref={individualData ? fileRef : groupedFileRef} type="file" accept=".csv" className="hidden"
+        onChange={event => { const file = event.target.files?.[0]; if (file) handleCSV(file); event.target.value = '' }} />
+      {individualData && <ExampleButton hasData={folio.rows.some(row => row.time.trim() !== '')}
+        onLoad={() => patchActive({ rows: EXAMPLE_ROWS.map(row => ({ key: makeKey(), id: '', time: row.time, state: row.state })),
+          dataSource: 'table', dataFormat: 'individual' })}
+        className="flex min-h-8 items-center gap-1 text-xs text-violet-700 hover:text-violet-900" />}
+    </div>
+    {individualData ? <div onPaste={handlePaste} className={dataExpanded ? 'flex min-h-0 flex-1 flex-col' : ''}>
+      <EditableLifeDataTable key={folio.id} rows={folio.rows} units={units} expanded={dataExpanded}
+        newRow={newRow} onChange={rows => patchActive({ rows })} />
+      {new Set(folio.rows.map(row => row.id.trim()).filter(Boolean)).size >= 2 && <button type="button" onClick={splitByGroupId}
+        className="mt-2 min-h-8 self-start rounded border border-slate-300 px-2 text-xs text-slate-600 hover:border-blue-400">Split IDs into analyses</button>}
+    </div> : (folio.dataFormat === 'frequency'
+      ? <GroupedDataGrid key={`${folio.id}:frequency`} format="frequency" rows={folio.frequencyRows ?? []} units={units}
+          expanded={dataExpanded} newRow={newFrequencyRow} onChange={frequencyRows => patchActive({ frequencyRows })} />
+      : <GroupedDataGrid key={`${folio.id}:interval`} format="interval" rows={folio.intervalRows ?? []} units={units}
+          expanded={dataExpanded} newRow={newIntervalRow} onChange={intervalRows => patchActive({ intervalRows })} />)}
+  </section>
+
   return (
     <InfluenceScope resetKey={state.activeId} className="flex flex-col h-full">
       {/* Folio tab bar */}
@@ -3384,7 +3386,7 @@ export default function LifeData() {
               </span>
               {(fAdopted.model || f.setDist) && (
                 <span className={`text-[10px] font-normal flex items-center gap-0.5 ${fAdopted.status==='current' ? 'text-emerald-800' : 'text-amber-900'}`}>
-                  {fAdopted.status==='current' && <Check size={8} />}{fAdopted.model?.distribution ?? f.setDist}{fAdopted.status!=='current' && ` · ${fAdopted.status}`}
+                  {fAdopted.status==='current' && <Check size={8} />}{distributionLabel(fAdopted.model?.distribution ?? f.setDist)}{fAdopted.status!=='current' && ` · ${fAdopted.status}`}
                 </span>
               )}
             </span>
@@ -3427,6 +3429,10 @@ export default function LifeData() {
         </button>
       </div>
 
+      {!isCompare && <div data-lda-dataset-toolbar className="relative z-20 flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-white px-4 py-2">
+        <p className="min-w-0 truncate text-xs text-slate-600">Dataset <strong className="font-medium text-slate-900">{folio.name}</strong></p>
+        <DatasetUnitsControl value={datasetQuantity} inherited={!folio.quantity} onChange={quantity => patchActive({ quantity })} />
+      </div>}
       {isCompare ? (
         /* ================= Compare view ================= */
         <div className="flex flex-1 overflow-hidden">
@@ -3479,10 +3485,10 @@ export default function LifeData() {
                           <span className={`text-[10px] flex items-center gap-0.5 ${confirmedDist ? 'text-green-600' : 'text-amber-600'}`}>
                             {confirmedDist && <Check size={8} />}
                             {confirmedDist
-                              ? `${confirmedDist} — confirmed`
+                              ? `${distributionLabel(confirmedDist)} — confirmed`
                               : f.setDist
-                                ? `${f.setDist} — unavailable/stale`
-                                : `${bestCandidate} — candidate, not confirmed`}
+                                ? `${distributionLabel(f.setDist)} — unavailable/stale`
+                                : `${distributionLabel(bestCandidate)} — candidate, not confirmed`}
                           </span>
                         )}
                       </span>
@@ -3495,8 +3501,7 @@ export default function LifeData() {
             <div className="rounded border border-blue-200 bg-blue-50/50 p-2.5">
               <p className="text-xs font-semibold text-blue-800">Selected Fits Comparison</p>
               <p className="text-[10px] text-blue-700 mt-1 leading-snug">
-                Uses each analysis&apos; confirmed model as-is. No distribution is substituted,
-                and source analyses are not changed.
+                Compare the confirmed dataset distributions.
               </p>
             </div>
 
@@ -3515,9 +3520,7 @@ export default function LifeData() {
               {state.compare.commonExpanded && (
                 <div className="border-t border-gray-200 p-2.5 flex flex-col gap-3">
                   <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded p-2 leading-snug">
-                    This optional test temporarily re-fits every dataset with one common
-                    family. It does not change the confirmed source models. Its conclusion
-                    is conditional on that family being appropriate for every dataset.
+                    Temporarily refit all datasets to one family. The test assumes this family fits every dataset; saved distributions are unchanged.
                   </p>
                   <div>
                     <InfoLabel tip="Family used only for temporary common-family fits and the pooled-versus-separate likelihood-ratio test. It does not replace any confirmed analysis model.">Common comparison model</InfoLabel>
@@ -3536,7 +3539,7 @@ export default function LifeData() {
                       className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400"
                     >
                       <option value="">— choose intentionally —</option>
-                      {ALL_DISTS.map(d => <option key={d} value={d}>{d}</option>)}
+                      {ALL_DISTS.map(d => <option key={d} value={d}>{distributionLabel(d)}</option>)}
                     </select>
                     {sharedConfirmedDistribution
                         && state.compare.commonDistribution === sharedConfirmedDistribution ? (
@@ -3612,7 +3615,7 @@ export default function LifeData() {
                         <option value="">— select —</option>
                         {fitted.map(f => {
                           const fd = folioFittedDist(f)!
-                          return <option key={f.id} value={f.id}>{f.name} ({fd.dist})</option>
+                          return <option key={f.id} value={f.id}>{f.name} ({distributionLabel(fd.dist)})</option>
                         })}
                       </select>
                     </div>
@@ -3624,7 +3627,7 @@ export default function LifeData() {
                         <option value="">— select —</option>
                         {fitted.map(f => {
                           const fd = folioFittedDist(f)!
-                          return <option key={f.id} value={f.id}>{f.name} ({fd.dist})</option>
+                          return <option key={f.id} value={f.id}>{f.name} ({distributionLabel(fd.dist)})</option>
                         })}
                       </select>
                     </div>
@@ -3644,7 +3647,7 @@ export default function LifeData() {
                 <div>
                   <h2 className="text-base font-semibold text-gray-800">Selected Fits Comparison</h2>
                   <p className="text-xs text-gray-500 mt-0.5">
-                    Descriptive, model-preserving comparison of each analysis&apos; confirmed distribution.
+                    Confirmed dataset distributions.
                   </p>
                 </div>
                 <span className="text-[10px] text-green-700 bg-green-50 border border-green-200 rounded-full px-2 py-1 whitespace-nowrap">
@@ -3655,7 +3658,7 @@ export default function LifeData() {
               {selectedFolios.length < 2 ? (
                 <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-8 text-center text-gray-400">
                   <p className="text-sm font-medium">Select at least two analyses</p>
-                  <p className="text-xs mt-1">Each analysis must have an explicitly confirmed eligible fit.</p>
+                  <p className="text-xs mt-1">Set a valid dataset distribution for each analysis first.</p>
                 </div>
               ) : selectedCompareIssues.length > 0 ? (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
@@ -3688,7 +3691,7 @@ export default function LifeData() {
                               style={{ color: FOLIO_COLORS[i % FOLIO_COLORS.length] }}>
                               {model.name}
                             </td>
-                            <td className="px-3 py-2 font-mono">{model.distribution}</td>
+                            <td className="px-3 py-2 font-mono">{distributionLabel(model.distribution)}</td>
                             <td className="px-3 py-2 font-mono text-[10px] whitespace-nowrap">
                               {(DIST_PARAM_FIELDS[model.distribution] ?? []).map(name =>
                                 `${name}=${fmt(model.params[name])}`).join(', ') || '—'}
@@ -3750,7 +3753,7 @@ export default function LifeData() {
                         <p className="text-xs text-gray-400 mb-2">
                           {selectedCompareView === 'P-P' || selectedCompareView === 'Q-Q'
                             ? 'Diagnostics are shown only for data-backed fits; directly specified models have no empirical points.'
-                            : `Confirmed ${selectedCompareView} curves are overlaid without substituting model families.`}
+                            : `Confirmed ${selectedCompareView} curves.`}
                         </p>
                         <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 460 }}>
                           <Plot
@@ -3797,11 +3800,11 @@ export default function LifeData() {
                     </div>
                     <div className="rounded-lg border bg-white border-gray-200 p-3">
                       <p className="text-xs text-gray-500">Stress model</p>
-                      <p className="text-sm font-semibold text-gray-900">{ss.stressDist}</p>
+                      <p className="text-sm font-semibold text-gray-900">{distributionLabel(ss.stressDist)}</p>
                     </div>
                     <div className="rounded-lg border bg-white border-gray-200 p-3">
                       <p className="text-xs text-gray-500">Strength model</p>
-                      <p className="text-sm font-semibold text-gray-900">{ss.strengthDist}</p>
+                      <p className="text-sm font-semibold text-gray-900">{distributionLabel(ss.strengthDist)}</p>
                     </div>
                   </div>
                   <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 320 }}>
@@ -3840,7 +3843,7 @@ export default function LifeData() {
                   <div>
                     <h2 className="text-base font-semibold text-gray-800">Common-Family Statistical Test</h2>
                     <p className="text-xs text-gray-500 mt-0.5">
-                      Temporary {commonResult.distribution} refits at {Math.round(commonResult.CI * 100)}% confidence;
+                      Temporary {distributionLabel(commonResult.distribution)} refits at {Math.round(commonResult.CI * 100)}% confidence;
                       confirmed source models remain unchanged.
                     </p>
                   </div>
@@ -3859,7 +3862,7 @@ export default function LifeData() {
                         : 'no significant difference detected under the common-family assumption'}
                     </p>
                     <p className="text-xs text-gray-600 mt-1">
-                      Pooled {commonResult.distribution} model vs separate temporary fits:
+                      Pooled {distributionLabel(commonResult.distribution)} model vs separate temporary fits:
                       {' '}χ² = {commonResult.lr_test.statistic} (df = {commonResult.lr_test.df}),
                       p-value = {commonResult.lr_test.p_value}
                       {' '}{commonResult.lr_test.different ? '<' : '≥'} α = {commonResult.lr_test.alpha}.
@@ -3883,7 +3886,7 @@ export default function LifeData() {
                 )}
 
                 <h3 className="text-sm font-semibold text-gray-700 mb-2">
-                  Temporary fit diagnostics ({commonResult.distribution})
+                  Temporary fit diagnostics ({distributionLabel(commonResult.distribution)})
                 </h3>
                 <div className="overflow-x-auto border border-gray-200 rounded-lg mb-3">
                   <table className="w-full text-xs">
@@ -4052,8 +4055,6 @@ export default function LifeData() {
               onClose={() => setWizardOpen(false)}
               onApply={p => { patchActive(p); setWizardOpen(false) }}
             />
-            <DatasetQuantityFields value={datasetQuantity} onChange={quantity=>patchActive({quantity})}/>
-            <p className="text-xs text-slate-600">Unit changes describe these values; they do not rescale observations. Adopted links require a current model in the stated units.</p>
             <div className="grid grid-cols-3 gap-1.5">
               {([
                 ['parametric', 'Parametric'],
@@ -4119,133 +4120,10 @@ export default function LifeData() {
             )}
 
             {folio.dataSource === 'table' ? (
-              (folio.dataFormat ?? 'individual') === 'individual' ? (
-                <>
-                {/* Data table (import/example live in its header row) */}
-                <div onPaste={handlePaste} ref={tableRef}>
-                  <div className="flex items-center gap-2 mb-1">
-                    <InfoLabel tip="Enter failure (F) and suspension/right-censored (S) times. Paste tabular data directly into the table, or import a CSV file." className="mb-0">Life Data</InfoLabel>
-                    <button
-                      onClick={() => fileRef.current?.click()}
-                      className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] border border-dashed border-gray-300 rounded hover:border-blue-400 hover:bg-blue-50 transition-colors text-gray-600"
-                    >
-                      <Upload size={10} /> Import CSV
-                    </button>
-                    <input ref={fileRef} type="file" accept=".csv" className="hidden"
-                      onChange={e => { const f = e.target.files?.[0]; if (f) handleCSV(f); e.target.value = '' }} />
-                    <ExampleButton
-                      hasData={folio.rows.some(r => r.time.trim() !== '')}
-                      onLoad={() => patchActive({
-                        rows: EXAMPLE_ROWS.map(r => ({ key: makeKey(), id: '', time: r.time, state: r.state })),
-                        dataSource: 'table',
-                        dataFormat: 'individual',
-                      })}
-                      className="flex items-center gap-1 text-[10px] text-violet-600 hover:text-violet-700"
-                    />
-                    <span className="ml-auto text-[10px] text-gray-400">
-                      {(() => { const { failures, rc } = folioData(folio); return `${failures.length}F ${rc.length}S` })()}
-                    </span>
-                  </div>
-                  <div className="border border-gray-200 rounded-lg overflow-hidden">
-                    <div className="max-h-[25vh] overflow-y-auto">
-                    <table className="perdura-data-table w-full text-xs">
-                      <caption className="sr-only">Life Data observations. Enter moves down or adds an observation. Tab moves between controls and leaves the table.</caption>
-                      <thead className="bg-gray-50 sticky top-0 z-10"><tr>
-                        {(['id', 'time', 'state'] as const).map(column => {
-                          const label = column === 'id' ? 'ID' : column === 'time' ? `Value (${units})` : 'State'
-                          return <th key={column} scope="col" className="px-2 py-1.5 text-left font-medium text-gray-600"
-                            aria-sort={ldSortCol === column ? (ldSortDir === 'asc' ? 'ascending' : 'descending') : 'none'}>
-                            <button type="button" className="perdura-sort-button" aria-label={`Sort by ${label}`} onClick={() => toggleLdSort(column)}>
-                              {label}<span aria-hidden="true">{ldSortCol === column ? (ldSortDir === 'asc' ? '▲' : '▼') : ''}</span>
-                            </button>
-                          </th>
-                        })}
-                        <th scope="col"><span className="sr-only">Row actions</span></th>
-                      </tr></thead>
-                      <tbody>
-                        {ldSortedIndices.map(i => (
-                          <DataGridRow
-                            key={folio.rows[i].key}
-                            row={folio.rows[i]}
-                            index={i}
-                            units={units}
-                            onUpdate={updateRow}
-                            onRemove={removeRow}
-                            onTimeKeyDown={handleTimeKeyDown}
-                          />
-                        ))}
-                      </tbody>
-                    </table>
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between mt-1.5">
-                    <button onClick={addRow}
-                      className="flex items-center gap-1 text-[11px] text-blue-600 hover:text-blue-800 transition-colors">
-                      <Plus size={11} /> Add row
-                    </button>
-                    {(() => {
-                      const idSet = new Set(folio.rows.map(r => r.id.trim()).filter(Boolean))
-                      return idSet.size >= 2 ? (
-                        <button onClick={splitByGroupId}
-                          title="Create a separate analysis for each unique ID in this dataset"
-                          className="flex items-center gap-1 px-2 py-0.5 text-[10px] border border-gray-300 rounded text-gray-500 hover:text-blue-600 hover:border-blue-400 transition-colors">
-                          Split IDs into Analyses ({idSet.size})
-                        </button>
-                      ) : <span className="text-[10px] text-gray-300">Enter moves down; Tab leaves the table</span>
-                    })()}
-                  </div>
-                </div>
-                </>
-              ) : (
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <InfoLabel
-                      className="mb-0"
-                      tip={(folio.dataFormat ?? 'individual') === 'frequency'
-                        ? 'Each row represents count repeated observations at one exact failure or suspension time. The likelihood is identical to expanding the row count times.'
-                        : 'Each row represents count observations in (lower, upper]. Blank lower means left-censored; blank upper means right-censored. No midpoint substitution is used.'}
-                    >
-                      {(folio.dataFormat ?? 'individual') === 'frequency'
-                        ? 'Exact-time Frequency Data' : 'Inspection-Interval Data'}
-                    </InfoLabel>
-                    <span className="text-[10px] text-gray-400">
-                      {(() => {
-                        const counts = folioObservationCounts(folio)
-                        return `${counts.failures}F ${counts.censored}S`
-                      })()}
-                    </span>
-                  </div>
-                  <div className="flex justify-end mb-1">
-                    <button onClick={() => groupedFileRef.current?.click()}
-                      className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] border border-dashed border-gray-300 rounded hover:border-blue-400 hover:bg-blue-50 text-gray-600">
-                      <Upload size={10} /> Import grouped CSV
-                    </button>
-                    <input ref={groupedFileRef} type="file" accept=".csv" className="hidden"
-                      onChange={e => {
-                        const file = e.target.files?.[0]
-                        if (file) handleCSV(file)
-                        e.target.value = ''
-                      }} />
-                  </div>
-                  {(folio.dataFormat ?? 'individual') === 'frequency' ? (
-                    <GroupedDataGrid
-                      format="frequency"
-                      rows={folio.frequencyRows ?? [newFrequencyRow()]}
-                      units={units}
-                      newRow={newFrequencyRow}
-                      onChange={frequencyRows => patchActive({ frequencyRows })}
-                    />
-                  ) : (
-                    <GroupedDataGrid
-                      format="interval"
-                      rows={folio.intervalRows ?? [newIntervalRow()]}
-                      units={units}
-                      newRow={newIntervalRow}
-                      onChange={intervalRows => patchActive({ intervalRows })}
-                    />
-                  )}
-                </div>
-              )
+              dataExpanded ? <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900">
+                <p className="font-medium">Life Data is expanded in the workspace.</p>
+                <button type="button" className="mt-2 min-h-8 rounded border border-blue-300 bg-white px-2" onClick={toggleDataEditor}>Return to side panel</button>
+              </div> : lifeDataEditor
             ) : (
               /* Distribution spec input */
               <div className="flex flex-col gap-3">
@@ -4288,7 +4166,7 @@ export default function LifeData() {
                         }}
                         className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400"
                       >
-                        {ALL_DISTS.map(d => <option key={d} value={d}>{d}</option>)}
+                        {ALL_DISTS.map(d => <option key={d} value={d}>{distributionLabel(d)}</option>)}
                       </select>
                     </div>
 
@@ -4314,7 +4192,7 @@ export default function LifeData() {
                   <>
                     {/* Equation mode: variable list + equation input */}
                     <div className="flex flex-col gap-2">
-                      <p className="text-xs text-slate-700">The equation uses each variable’s shown unit. Choose the output dataset quantity and unit above.</p>
+                      <p className="text-xs text-slate-700">Use the displayed variable units; set output units above.</p>
                       {folio.spec.mcVariables.map(v=><MonteCarloVariableInput key={v.id} value={v} onChange={updateVariable}
                         onRemove={()=>removeVariable(v.id)} canRemove={folio.spec.mcVariables.length>1}
                         folios={state.folios.filter(f=>f.id!==folio.id)} options={sourceOptions} quantity={datasetQuantity}/>)}
@@ -4447,21 +4325,22 @@ export default function LifeData() {
                   </InfluenceSource>
                 </div>
 
-                <div>
-                  <div className="flex items-center justify-between mb-1">
+                <fieldset aria-label="Distributions to fit" className="rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+                  <div className="flex items-center justify-between gap-2 mb-2">
                     <InfoLabel tip="Select which parametric distributions to fit. The best fit is chosen by AICc." className="mb-0">Distributions</InfoLabel>
-                    <div className="flex gap-1">
-                      <button onClick={() => patchActive({
+                    <span className="text-xs tabular-nums text-slate-500">{ALL_DISTS.filter(d => folio.selectedDists.includes(d)
+                      && ((folio.dataFormat ?? 'individual') !== 'interval' || INTERVAL_DISTS.includes(d))).length} selected</span>
+                  </div>
+                  <div className="mb-2 flex items-center gap-2">
+                      <button type="button" onClick={() => patchActive({
                         selectedDists: (folio.dataFormat ?? 'individual') === 'interval'
                           ? INTERVAL_DISTS : ALL_DISTS,
                       })}
-                        className="text-xs text-blue-600 hover:underline">All</button>
-                      <span className="text-gray-300">|</span>
-                      <button onClick={() => patchActive({ selectedDists: [] })}
-                        className="text-xs text-gray-500 hover:underline">None</button>
-                    </div>
+                        className="min-h-8 rounded border border-slate-300 bg-white px-2 text-xs font-medium text-blue-800 hover:bg-blue-50">Select all</button>
+                      <button type="button" onClick={() => patchActive({ selectedDists: [] })}
+                        className="min-h-8 rounded px-2 text-xs text-slate-600 hover:bg-slate-200">Clear</button>
                   </div>
-                  <div className="grid grid-cols-2 gap-x-2 gap-y-0.5">
+                  <div className="grid grid-cols-2 gap-1.5">
                     {ALL_DISTS.map(d => {
                       const unavailable = (folio.dataFormat ?? 'individual') === 'interval'
                         && !INTERVAL_DISTS.includes(d)
@@ -4470,26 +4349,29 @@ export default function LifeData() {
                         title={unavailable
                           ? 'Unavailable for interval data: grouped intervals weakly identify this distribution threshold/location parameter.'
                           : undefined}
-                        className={`flex min-h-6 items-center gap-1.5 text-xs ${
-                          unavailable ? 'text-gray-300 cursor-not-allowed' : 'text-gray-700 cursor-pointer'}`}>
-                        <input type="checkbox" disabled={unavailable}
+                        className={`flex min-h-11 min-w-0 items-center gap-2 rounded-md border px-2 py-1.5 text-xs leading-4 transition-colors focus-within:ring-2 focus-within:ring-blue-600 ${
+                          unavailable ? 'border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed'
+                            : folio.selectedDists.includes(d) ? 'border-blue-300 bg-blue-50 text-blue-950 cursor-pointer'
+                              : 'border-slate-200 bg-white text-slate-700 hover:border-slate-400 cursor-pointer'}`}>
+                        <input type="checkbox" disabled={unavailable} aria-label={distributionLabel(d)}
                           checked={!unavailable && folio.selectedDists.includes(d)}
                           onChange={() => patchActive(f => ({
                             selectedDists: f.selectedDists.includes(d)
                               ? f.selectedDists.filter(x => x !== d)
                               : [...f.selectedDists, d],
                           }))}
-                          className="rounded text-blue-600" />
-                        {d}
+                          className="h-3.5 w-3.5 shrink-0 rounded accent-blue-700" />
+                        <span className="min-w-0"><span className="block font-medium">{distributionLabel(d).split(' (')[0]}</span>
+                          <span className="block whitespace-nowrap text-[11px] opacity-80">({d.match(/_(\d+)P$/)?.[1]}-parameter)</span></span>
                       </label>
                     )})}
                   </div>
                   {(folio.dataFormat ?? 'individual') === 'interval' && (
-                    <p className="text-[10px] text-gray-400 mt-1">
+                    <p className="text-xs leading-4 text-slate-600 mt-2">
                       Threshold/location variants are disabled because inspection intervals do not identify the threshold reliably. Beta requires bounds within [0, 1].
                     </p>
                   )}
-                </div>
+                </fieldset>
 
               </>
             ) : folio.analysisMode === 'nonparametric' ? (
@@ -4527,9 +4409,6 @@ export default function LifeData() {
                   >
                     {SPECIAL_MODELS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
                   </select>
-                  <p className="text-[10px] text-gray-400 mt-1 leading-snug">
-                    Fitted to the failure (F) and suspension (S) data entered above.
-                  </p>
                 </div>
                 {folio.specialModel === 'mixture' && (
                   <div>
@@ -4645,7 +4524,7 @@ export default function LifeData() {
                     onChange={e => patchActive({ cfmDist: e.target.value })}
                     className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-hidden focus:ring-1 focus:ring-blue-400"
                   >
-                    {ALL_DISTS.map(d => <option key={d} value={d}>{d}</option>)}
+                    {ALL_DISTS.map(d => <option key={d} value={d}>{distributionLabel(d)}</option>)}
                   </select>
                 </div>
                 <div>
@@ -4679,7 +4558,7 @@ export default function LifeData() {
               </>
             ) : folio.analysisMode === 'stressstrength' ? (
               <>
-                <p className="text-xs text-slate-600">Project sources use their live adopted distribution and exact parameters. Manual and group models are explicit alternatives. Stress and strength are assumed independent.</p>
+                <p className="text-xs text-slate-600">Linked datasets use their current distributions. Stress and strength are assumed independent.</p>
                 <StressStrengthInputs label="Stress" value={stressInput} onChange={value=>patchActive({ssStressInput:value})}
                   folios={state.folios} options={sourceOptions} quantity={datasetQuantity}
                   groups={[...new Set(folio.rows.map(row=>row.id.trim()).filter(Boolean))]}/>
@@ -4692,13 +4571,17 @@ export default function LifeData() {
             {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
 
             <button
-              onClick={folio.analysisMode === 'parametric' && folio.dataSource === 'spec' && folio.spec.mcMode === 'single'
+              onClick={() => {
+                setDataEditorExpanded(false)
+                const analyze = folio.analysisMode === 'parametric' && folio.dataSource === 'spec' && folio.spec.mcMode === 'single'
                 ? showSpecModel
                 : folio.analysisMode === 'special' ? runSpecial
                 : folio.analysisMode === 'weibayes' ? runWeibayes
                 : folio.analysisMode === 'cfm' ? runCFM
                 : folio.analysisMode === 'stressstrength' ? runStressStrength
-                : run}
+                : run
+                void analyze()
+              }}
               disabled={loading || (folio.analysisMode === 'parametric' && folio.dataSource === 'spec' && folio.spec.mcMode === 'equation')}
               data-shortcut-primary
               data-shortcut-label="Run life data analysis"
@@ -4718,16 +4601,17 @@ export default function LifeData() {
           </div>
 
           {/* Main content */}
-          <div className="flex-1 overflow-hidden flex flex-col">
+          <div className="flex-1 min-w-0 overflow-hidden flex flex-col">
+            {dataExpanded ? <div className="flex min-h-0 flex-1 bg-slate-50 p-4" data-life-data-workspace>{lifeDataEditor}</div> : <>
             {folio.analysisMode === 'parametric' && (fitResult || folio.specResult) && <section aria-label="Dataset distribution selection"
               className="shrink-0 flex flex-wrap items-center justify-between gap-3 border-b border-blue-200 bg-blue-50 px-4 py-3">
               <div className="min-w-0 text-sm text-slate-800">
-                <p>Exploring: <strong>{folio.dataSource==='spec' ? folio.specResult?.distribution : activeDist}</strong></p>
-                <p className="mt-1 text-xs">Dataset distribution: <strong>{adoptedSource.model?.distribution ?? 'Not set'}</strong>
+                <p>Exploring: <strong>{distributionLabel(folio.dataSource==='spec' ? folio.specResult?.distribution : activeDist)}</strong></p>
+                <p className="mt-1 text-xs">Dataset distribution: <strong>{adoptedSource.model ? distributionLabel(adoptedSource.model.distribution) : 'Not set'}</strong>
                   {adoptedSource.model && <> · {Object.entries(adoptedSource.model.parameters).map(([k,v])=>`${k}=${v}`).join(', ')} · {adoptedSource.model.quantity.unit}</>}</p>
                 <p className={`mt-1 text-xs ${adoptedSource.status==='current' ? 'text-emerald-800' : 'text-amber-900'}`}>{adoptedSource.reason}</p>
               </div>
-              <button type="button" className="min-h-11 rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-50"
+              {!selectionIsAdopted && <button type="button" className="min-h-11 rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-50"
                 disabled={!isLifeDataFitCurrent(folio,sourceOptions) || (folio.dataSource!=='spec' && !activeFitRow?.fit_eligible)}
                 onClick={()=>{
                   try {
@@ -4735,7 +4619,7 @@ export default function LifeData() {
                     const adoptedDistribution=adoptDistribution(folio,distribution,sourceOptions)
                     patchActive({adoptedDistribution,quantity:adoptedDistribution.quantity,setDist:distribution})
                   } catch(e) { setError(e instanceof Error ? e.message : 'Unable to adopt model.') }
-                }}>Set as dataset distribution</button>
+                }}>Set as dataset distribution</button>}
             </section>}
             <StaleBanner show={isStale}
               onRerun={folio.analysisMode === 'special' ? runSpecial
@@ -4754,7 +4638,7 @@ export default function LifeData() {
                     Fitting distributions… {fitProgress.done}/{fitProgress.total}
                   </p>
                   {fitProgress.current && (
-                    <p className="text-xs text-gray-400 mt-0.5">{fitProgress.current}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">{distributionLabel(fitProgress.current)}</p>
                   )}
                 </div>
               </div>
@@ -4823,9 +4707,9 @@ export default function LifeData() {
                   ))}
                 </div>
                 <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 420 }}>
-                  <Plot
+                  <Plot reportLabel={plotTitle('spec', `${folio.specResult.distribution} (specified) — ${curveTab}`)}
                     data={curvePlotData as Plotly.Data[]}
-                    layout={{ ...curveLayout, title: { text: plotTitle('spec', `${folio.specResult.distribution} (specified) — ${curveTab}`), font: { size: 13 } } } as any}
+                    layout={{ ...curveLayout, title: { text: plotTitle('spec', `${distributionLabel(folio.specResult.distribution)} (specified) — ${curveTab}`), font: { size: 13 } } } as any}
                     config={{ responsive: true }}
                     style={{ width: '100%', height: '100%' }}
                     useResizeHandler
@@ -4862,10 +4746,10 @@ export default function LifeData() {
                       {folio.fitTableCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
                       <span className="min-w-0">
                         Fit Results — best: <span className="text-green-700 font-semibold">
-                          {fitResult.best_distribution ?? 'No eligible AICc model'}
+                          {fitResult.best_distribution ? distributionLabel(fitResult.best_distribution) : 'No eligible AICc model'}
                         </span>
                         {folio.fitTableCollapsed && adoptedSource.model && (
-                          <span className="block text-[10px] text-slate-700 mt-0.5">Dataset: {adoptedSource.model.distribution} · {adoptedSource.status}</span>
+                          <span className="block text-[10px] text-slate-700 mt-0.5">Dataset: {distributionLabel(adoptedSource.model.distribution)} · {adoptedSource.status}</span>
                         )}
                       </span>
                     </button>
@@ -4879,8 +4763,7 @@ export default function LifeData() {
                           highlightFirst={false}
                           onRowClick={row => patchActive({ selectedDist: row.Distribution as string })}
                           rowClassName={row => {
-                            if (adoptedSource.status==='current' && row.Distribution===adoptedSource.model.distribution
-                              && distributionFingerprint(row.params)===distributionFingerprint(adoptedSource.model.parameters)) return 'bg-green-50 ring-1 ring-inset ring-green-300'
+                            if (isAdoptedModel(String(row.Distribution), row.params)) return 'bg-green-50 ring-1 ring-inset ring-green-300'
                             if (row.fit_eligible === false) return 'bg-red-50/70'
                             return ''
                           }}
@@ -4897,7 +4780,7 @@ export default function LifeData() {
                     )}
                     {adoptedSource.model && !folio.fitTableCollapsed && (
                       <p className="text-[10px] text-slate-700 mt-1 flex items-center gap-1">
-                        {adoptedSource.status==='current' && <Check size={10} />} Dataset: {adoptedSource.model.distribution} · {adoptedSource.status}
+                        {adoptedSource.status==='current' && <Check size={10} />} Dataset: {distributionLabel(adoptedSource.model.distribution)} · {adoptedSource.status}
                       </p>
                     )}
                     <InfluenceTarget influences="lda.confidence">
@@ -5139,7 +5022,7 @@ export default function LifeData() {
                     {selectedParams && selectedParams.rows.length > 0 && (
                       <InfluenceTarget influences="lda.confidence" className="mt-4">
                         <p className="text-xs font-medium text-gray-500 mb-2">
-                          Parameters — <span className="font-semibold text-gray-700">{selectedParams.dist}</span>
+                          Parameters — <span className="font-semibold text-gray-700">{distributionLabel(selectedParams.dist)}</span>
                           <span className="text-gray-400"> ({ciPct}% CI · {
                             (activeUncertaintyPackage?.parameters[0]?.method
                               ?? fitResult.results.find(r => r.Distribution === parametricDist)?.parameter_ci_method)
@@ -5176,7 +5059,7 @@ export default function LifeData() {
                       <div className="mt-4 border border-gray-200 rounded-lg p-3 bg-gray-50">
                         <p className="text-xs font-medium text-gray-700 mb-2 flex items-center gap-1.5">
                           <Calculator size={12} /> Calculator
-                          <span className="text-gray-400 font-normal">({folio.setDist})</span>
+                          <span className="text-gray-400 font-normal">({distributionLabel(folio.setDist)})</span>
                         </p>
                         <div className="grid grid-cols-2 gap-2 mb-2">
                           <InfluenceSource influence="lda.calc.mission" className="-m-1 p-1">
@@ -5779,7 +5662,7 @@ export default function LifeData() {
 
                   {cfmView === 'params' && (
                     <div className="space-y-4">
-                      <p className="text-xs text-gray-500">Distribution: {cfm.distribution} | Method: {cfm.method} | CI: {Math.round(cfm.CI * 100)}%</p>
+                      <p className="text-xs text-gray-500">Distribution: {distributionLabel(cfm.distribution)} | Method: {cfm.method} | CI: {Math.round(cfm.CI * 100)}%</p>
                       <table className="w-full text-xs border border-gray-200 rounded overflow-hidden">
                         <thead className="bg-gray-50">
                           <tr>
@@ -5916,8 +5799,8 @@ export default function LifeData() {
                           </button>
                         </div>
                         <p className="text-[10px] text-gray-400">
-                          Generates synthetic units using the fitted per-mode distributions. For each unit, the earliest-failing mode determines the failure; other modes become suspensions at that time.
-                          {' '}With a test/observation time set, units that survive past it are right-censored (suspended) at that time — yielding a realistic mix of failures and suspensions for a fixed-duration test.
+                          Simulate units from fitted mode distributions. The first mode to fail sets failure time; other modes are censored then.
+                          {' '}Units surviving the observation period are right-censored at its end.
                         </p>
 
                         {mcResult && (
@@ -6035,19 +5918,19 @@ export default function LifeData() {
                 </div>
                 {folio.ssSource === 'data' && (
                   <p className="text-[11px] text-gray-500 mb-3 font-mono">
-                    Stress = {folio.ssStressDist} ({folio.ssStressGroup}): {Object.entries(folio.ssStressParams ?? {}).map(([k, v]) => `${k}=${fmt(parseFloat(v))}`).join(', ')}
+                    Stress = {distributionLabel(folio.ssStressDist)} ({folio.ssStressGroup}): {Object.entries(folio.ssStressParams ?? {}).map(([k, v]) => `${k}=${fmt(parseFloat(v))}`).join(', ')}
                     {'  ·  '}
-                    Strength = {folio.ssStrengthDist} ({folio.ssStrengthGroup}): {Object.entries(folio.ssStrengthParams ?? {}).map(([k, v]) => `${k}=${fmt(parseFloat(v))}`).join(', ')}
+                    Strength = {distributionLabel(folio.ssStrengthDist)} ({folio.ssStrengthGroup}): {Object.entries(folio.ssStrengthParams ?? {}).map(([k, v]) => `${k}=${fmt(parseFloat(v))}`).join(', ')}
                   </p>
                 )}
                 <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 420 }}>
                   <Plot
                     data={[
                       { x: folio.ssResult.curves.x, y: folio.ssResult.curves.stress_pdf, mode: 'lines',
-                        name: `Stress (${folio.ssStressDist ?? 'Normal_2P'})`, line: { color: '#ef4444', width: 2 },
+                        name: `Stress (${distributionLabel(folio.ssStressDist ?? 'Normal_2P')})`, line: { color: '#ef4444', width: 2 },
                         fill: 'tozeroy', fillcolor: 'rgba(239,68,68,0.15)' },
                       { x: folio.ssResult.curves.x, y: folio.ssResult.curves.strength_pdf, mode: 'lines',
-                        name: `Strength (${folio.ssStrengthDist ?? 'Normal_2P'})`, line: { color: '#3b82f6', width: 2 },
+                        name: `Strength (${distributionLabel(folio.ssStrengthDist ?? 'Normal_2P')})`, line: { color: '#3b82f6', width: 2 },
                         fill: 'tozeroy', fillcolor: 'rgba(59,130,246,0.15)' },
                     ] as Plotly.Data[]}
                     layout={{
@@ -6077,6 +5960,7 @@ export default function LifeData() {
                 </div>
               </div>
             )}
+            </>}
           </div>
         </div>
       )}

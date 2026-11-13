@@ -112,6 +112,7 @@ export interface FMEAStructureNode {
   id: string; name: string; level: string; parent_id?: string
   description: string; interface: string; element_type?: string
   source_ref?: FMEAStructureSourceRef
+  system_definition_ref?: import('./systemDefinition').CanonicalSystemRef
 }
 
 export interface FMEAFunction {
@@ -120,12 +121,16 @@ export interface FMEAFunction {
   function_type: 'primary'|'supporting'|'interface'|'monitoring'|'system_response'
   operating_modes: string[]; owner: string; notes: string
   system_definition_ref?: import('./systemDefinition').CanonicalSystemRef
+  interface_origin?: import('./systemDefinition').InterfaceFunctionOrigin
+  definition?: import('./systemDefinition').StructuredFunctionDefinition
 }
 
 export interface FMEAFunctionLink {
   id: string; source_function_id: string; target_function_id: string
   relationship: 'decomposes_to'|'depends_on'|'provides_input'|'enables'|'monitors'|'responds_to'
   label: string; rationale: string
+  mode_ids?: string[]
+  generated?: boolean
 }
 
 export interface FMEAFunctionalRequirement {
@@ -153,6 +158,7 @@ export interface FMEABlockDiagramNode {
   expanded?: boolean
   label: string
   external_kind?: 'adjacent_system'|'person'|'environment'|'other'
+  ports?: import('./systemDefinition').SystemPort[]
   x: number
   y: number
   width: number
@@ -162,6 +168,7 @@ export interface FMEABlockDiagramNode {
 
 export interface FMEABlockDiagram {
   version: 2
+  connectorStyle?: 'orthogonal'|'curved'|'straight'
   density: 'dense'|'compact'|'comfortable'|'spacious'|'expanded'
   layoutOptions?: import('../components/shared/adaptiveDiagramLayout.mjs').DiagramLayoutOptions
   boundary: {
@@ -193,6 +200,9 @@ export interface FMEAInterface {
   function_ids: string[]; requirement_ids: string[]
   /** Canonical interface semantics are edited in System Definition. */
   system_definition_ref?: import('./systemDefinition').CanonicalSystemRef
+  transfers?: import('./systemDefinition').ResourceTransfer[]
+  generated?: boolean
+  mode_ids?: string[]
 }
 
 export interface FMEAPDiagramItem {
@@ -277,11 +287,21 @@ export interface FMEARatingProfile {
   checksum?: string
 }
 
+export interface FmeaSystemBinding {
+  version: 1
+  system_model_id: string
+  scope_instance_id: string
+  mode_id?: string
+  included_piece_part_ids?: string[]
+}
+
 export interface AIAGVDAFMEAAnalysis {
   id: string; name: string; kind: FMEAKind; revision: string
   status: 'draft'|'in_review'|'finalized'
+  system_binding?: FmeaSystemBinding
   rating_profile_id?: string; planning: FMEAPlanning
   structure_nodes: FMEAStructureNode[]; functions: FMEAFunction[]
+  resources: import('./systemDefinition').SystemResource[]
   block_diagram: FMEABlockDiagram
   function_links: FMEAFunctionLink[]
   functional_requirements: FMEAFunctionalRequirement[]

@@ -1,4 +1,4 @@
-/** Real IndexedDB assurance: migration, 50k nodes, incremental writes and conflicts. */
+/** Real IndexedDB assurance: format isolation, 50k nodes, incremental writes and conflicts. */
 import assert from 'node:assert/strict'
 import { createServer } from 'vite'
 import { chromium } from '@playwright/test'
@@ -41,7 +41,7 @@ try {
   browser = await chromium.launch({ headless: true })
   const page = await browser.newPage()
   await page.goto(`${origin}/__storage_test`)
-  const migration = await page.evaluate(async () => {
+  const legacyIsolation = await page.evaluate(async () => {
     const legacy = { projectName: 'Legacy FTA', identity: { projectId: 'legacy-project' },
       units: 'hours', analysisRuns: [], exportLedger: [], modules: { faultTree: {
         _folioWrap: true, activeId: 'f0', folios: [{ id: 'f0', name: 'Legacy tree', state: {
@@ -57,13 +57,15 @@ try {
     const project = await import('/src/store/project.ts')
     await project.hydrateProjectStorage()
     return { name: project.getProjectState().projectName, saved: project.projectExists('Legacy FTA'),
-      result: project.getProjectState().modules.faultTree.folios[0].state.result,
+      legacyLoaded: Boolean(project.getProjectState().modules.faultTree),
       legacyRetained: localStorage.getItem('perdura:project-schema:7:session') === raw }
   })
-  assert.equal(migration.name, 'Legacy FTA')
-  assert.equal(migration.saved, true)
-  assert.equal(migration.legacyRetained, true)
-  assert.equal(migration.result.top_event_probability, 0.1)
+  assert.notEqual(legacyIsolation.name, 'Legacy FTA')
+  assert.equal(legacyIsolation.saved, false)
+  assert.equal(legacyIsolation.legacyRetained, true)
+  assert.equal(legacyIsolation.legacyLoaded, false)
+  const storageNamespace = await page.evaluate(async () =>
+    (await import('/src/store/project.ts')).PROJECT_STORAGE_NAMESPACE)
 
   const scale = await page.evaluate(async () => {
     const project = await import('/src/store/project.ts')
@@ -102,7 +104,7 @@ try {
       result: loaded.modules.faultTree.folios[1].state.result.top_event_probability,
       puts: puts.filter(item => item.store === 'records').map(item => item.key), saved, opened,
       active: project.getProjectState().modules.faultTree.activeId,
-      localProjectKeys: Object.keys(localStorage).filter(key => key.startsWith('perdura:project-schema:9:') && !key.endsWith('recent-projects')) }
+      localProjectKeys: Object.keys(localStorage).filter(key => key.startsWith(`${project.PROJECT_STORAGE_NAMESPACE}:`) && !key.endsWith('recent-projects')) }
   })
   assert.equal(scale.count, 500)
   assert.equal(scale.nodeCount, 50000)
@@ -113,7 +115,7 @@ try {
   assert.equal(scale.active, 'tree-0')
   assert.deepEqual(scale.localProjectKeys, [])
 
-  const reports = await page.evaluate(async () => {
+  const reports = await page.evaluate(async namespace => {
     const { ProjectPersistence } = await import('/src/store/projectPersistence.ts')
     const adapter = new ProjectPersistence()
     const image = `data:image/png;base64,${'a'.repeat(100000)}`
@@ -135,7 +137,7 @@ try {
     } finally { IDBObjectStore.prototype.put = originalPut }
     const loaded = await new ProjectPersistence().read('named:Reports')
     const db = await new Promise((resolve, reject) => {
-      const req = indexedDB.open('perdura:project-schema:9')
+      const req = indexedDB.open(namespace)
       req.onsuccess = () => resolve(req.result)
       req.onerror = () => reject(req.error)
     })
@@ -150,7 +152,7 @@ try {
       otherReport: loaded.modules.reportBuilder.reports[1].title,
       snapshotRoundtrip: loaded.modules.reportBuilder.plotSnapshots[0].png === image,
       reportRecordsContainImage: rows.filter(row => row.key.startsWith('report:')).some(row => JSON.stringify(row.value).includes(image)) }
-  })
+  }, storageNamespace)
   assert.deepEqual(reports.puts, ['report:report-a'])
   assert.equal(reports.blobCount, 1, 'the same image in multiple reports and snapshots has one committed blob')
   assert.equal(reports.imageRoundtrip, true)
@@ -225,28 +227,44 @@ try {
   assert.equal(failures.finalName, 'Other tab committed')
   const recoveryPage = await browser.newPage()
   await recoveryPage.goto(`${origin}/__storage_test`)
-  const malformedRecovery = await recoveryPage.evaluate(async () => {
-    const source = JSON.stringify({ projectName: 'Malformed legacy library', modules: { faultTree: {
+  const malformedRecovery = await recoveryPage.evaluate(async namespace => {
+    const source = { projectName: 'Malformed current library', identity: { projectId: 'malformed-current' }, units: 'hours', analysisRuns: [], exportLedger: [], modules: { faultTree: {
       _folioWrap: true, activeId: 'valid', folios: [{ id: 'valid', state: { nodes: [], edges: [] } },
         { name: 'Missing identity must survive', state: { nodes: [{ id: 'saved-event' }], edges: [] } }],
-    } } })
-    localStorage.setItem('perdura:project-schema:7:session', source)
-    const project = await import('/src/store/project.ts')
+    } } }
     const { ProjectPersistence } = await import('/src/store/projectPersistence.ts')
+    const persistence = new ProjectPersistence()
+    // Seed corrupt bytes below the validated writer, as an interrupted/foreign
+    // database write would. Normal saves correctly reject missing identities.
+    await persistence.read('session')
+    const db = await new Promise((resolve, reject) => {
+      const request = indexedDB.open(namespace)
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    await new Promise((resolve, reject) => {
+      const transaction = db.transaction(['documents', 'records'], 'readwrite')
+      const { modules, ...snapshot } = source
+      transaction.objectStore('documents').put({ id: 'session', sequence: 1, snapshot, moduleKeys: ['faultTree'] })
+      transaction.objectStore('records').put({ documentId: 'session', key: 'module:faultTree', value: modules.faultTree })
+      transaction.oncomplete = resolve
+      transaction.onabort = () => reject(transaction.error)
+    })
+    db.close()
+    const project = await import('/src/store/project.ts')
     let error = ''
     try { await project.hydrateProjectStorage() } catch (cause) { error = cause.message }
     const recovery = project.buildRecoveryExport()
-    const persistence = new ProjectPersistence()
-    return { error, retained: localStorage.getItem('perdura:project-schema:7:session') === source,
+    return { error, retained: JSON.stringify(await persistence.read('session')) === JSON.stringify(source),
       recoveredFolios: recovery.modules.faultTree.folios.length,
       recoveredEvent: recovery.modules.faultTree.folios[1].state.nodes[0].id,
       savedSession: await persistence.read('session'), migrated: await persistence.migrationComplete() }
-  })
+  }, storageNamespace)
   assert.match(malformedRecovery.error, /FTA library contains/)
   assert.equal(malformedRecovery.retained, true)
   assert.equal(malformedRecovery.recoveredFolios, 2)
   assert.equal(malformedRecovery.recoveredEvent, 'saved-event')
-  assert.equal(malformedRecovery.savedSession, null)
+  assert.equal(malformedRecovery.savedSession.projectName, 'Malformed current library')
   assert.equal(malformedRecovery.migrated, false)
   await recoveryPage.evaluate(() => import('/__storage_app.tsx'))
   const recoveryDownload = recoveryPage.waitForEvent('download')
@@ -256,7 +274,7 @@ try {
   assert.equal(downloadedRecovery.modules.faultTree.folios.length, 2)
   assert.equal(downloadedRecovery.modules.faultTree.folios[1].state.nodes[0].id, 'saved-event')
   await recoveryPage.close()
-  const evidence = { schemaVersion: 1, status: 'passed', migration, scale, reports, saveRaces, failures, malformedRecovery }
+  const evidence = { schemaVersion: 1, status: 'passed', legacyIsolation, scale, reports, saveRaces, failures, malformedRecovery }
   await writeFile(join(output, 'browser.json'), JSON.stringify(evidence, null, 2) + '\n')
   console.log(JSON.stringify(evidence, null, 2))
 } finally {

@@ -2,7 +2,7 @@
   "app": "Perdura",
   "subtitle": "Reliability Engineering and Statistics Suite",
   "website": "https://perdurareliability.com",
-  "schemaVersion": 6,
+  "schemaVersion": 11,
   "createdWith": {
     "version": "0.7.0",
     "commit": "dev",
@@ -82,7 +82,7 @@
         "buildStatus": "development"
       },
       "runId": "run-3f228443-83b9-4b8b-9879-3ac1ccce1df1",
-      "moduleLabel": "Reliability Testing — Bayesian Demonstration Testing",
+      "moduleLabel": "Reliability Testing \u2014 Bayesian Demonstration Testing",
       "analysisName": "Temperature ALT",
       "fingerprintSha256": "ed065d84cbd4340f78c8d6a05b7436d378fc5c372e3712b5f073d1240be7ac3b"
     }

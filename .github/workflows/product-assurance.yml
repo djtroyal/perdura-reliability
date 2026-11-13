@@ -389,10 +389,78 @@ jobs:
         run: >-
           npm run assurance:diagram-layout --prefix gui/frontend --
           --output-dir ../../evidence/dynamic/diagram-layout
-      - name: Verify project migration and incremental browser persistence
+      - name: Verify full-screen diagram editing and keyboard behavior
+        run: >-
+          npm run assurance:diagram-fullscreen --prefix gui/frontend --
+          --output-dir ../../evidence/dynamic/diagram-fullscreen
+      - name: Verify project format isolation and incremental browser persistence
         run: >-
           npm run assurance:project-persistence --prefix gui/frontend --
           --output-dir ../../evidence/dynamic/project-persistence
+      - name: Verify startup recovery with blank and file projects
+        run: >-
+          npm run assurance:startup-recovery --prefix gui/frontend --
+          --output-dir ../../evidence/dynamic/startup-recovery
+      - name: Verify display preferences and distribution labels
+        run: >-
+          npm run assurance:display-preferences --prefix gui/frontend --
+          --output-dir ../../evidence/dynamic/display-preferences
+      - name: Verify the bundled aircraft example and L4 diagram navigation
+        run: >-
+          npm run assurance:aircraft-example --prefix gui/frontend --
+          --output-dir ../../evidence/dynamic/aircraft-example
+      - name: Verify popup dismissal and simplified project units
+        run: >-
+          npm run assurance:popover-menus --prefix gui/frontend --
+          --output-dir ../../evidence/dynamic/popover-menus
+      - name: Verify RBD library navigation and linked analyses
+        run: >-
+          npm run assurance:rbd-library --prefix gui/frontend --
+          --output-dir ../../evidence/dynamic/rbd-library
+      - name: Verify Life Data placeholder rows and keyboard editing
+        run: >-
+          npm run assurance:life-data-entry --prefix gui/frontend --
+          --output-dir ../../evidence/dynamic/life-data-entry
+      - name: Verify Interfaces canvas editing and inspector controls
+        run: >-
+          npm run assurance:system-interfaces --prefix gui/frontend --
+          --output-dir ../../evidence/dynamic/system-interfaces
+      - name: Verify hierarchy visibility and interface display filters
+        run: >-
+          npm run assurance:interface-visibility --prefix gui/frontend --
+          --output-dir ../../evidence/dynamic/interface-visibility
+      - name: Verify live FMEA system editing and calculation inputs
+        run: >-
+          npm run assurance:shared-fmea --prefix gui/frontend --
+          --output-dir ../../evidence/dynamic/shared-fmea
+      - name: Verify focused FMEA interfaces and accessible diagram navigation
+        run: >-
+          npm run assurance:shared-fmea-diagram --prefix gui/frontend --
+          --output-dir ../../evidence/dynamic/shared-fmea-diagram
+      - name: Verify portable FMEA system bindings and engineering freshness
+        run: >-
+          npm run assurance:shared-fmea-persistence --prefix gui/frontend --
+          --output-dir ../../evidence/dynamic/shared-fmea-persistence
+      - name: Verify structured functions and explicit resource transfers
+        run: >-
+          npm run assurance:simplified-functions --prefix gui/frontend --
+          --output-dir ../../evidence/dynamic/simplified-functions
+      - name: Verify input selection and collapsed supplier dependencies
+        run: >-
+          npm run assurance:inherited-inputs --prefix gui/frontend --
+          --output-dir ../../evidence/dynamic/inherited-inputs
+      - name: Verify process external terminals and complementary functions
+        run: >-
+          npm run assurance:process-transfer-authoring --prefix gui/frontend --
+          --output-dir ../../evidence/dynamic/process-transfer-authoring
+      - name: Verify canonical FMEA prerequisites and read-only invalidation
+        run: >-
+          npm run assurance:canonical-fmea-workflow --prefix gui/frontend --
+          --output-dir ../../evidence/dynamic/canonical-fmea-workflow
+      - name: Verify FMEA readiness and controlled lifecycle against backend handlers
+        run: >-
+          npm run assurance:fmea-readiness --prefix gui/frontend --
+          --output-dir ../../evidence/dynamic/fmea-readiness
       - name: Run Lighthouse laboratory profile
         shell: bash
         run: |

@@ -24,6 +24,127 @@ Worksheets, diagrams, FMES groupings, Control Plans, and Report Builder assets
 are projections of the authoritative model. They are not independent copies
 that must be reconciled manually.
 
+## Project System Model and focused interfaces
+
+New DFMEA and FMEA-MSR studies use the project's single System Model. Installed
+hierarchy, physical interfaces, canonical functions, and linked failure modes
+are live projections of that model. System edits from either workspace apply
+project-wide; FMEA ratings, effects, causes, controls, actions, requirements, and
+evidence remain study-owned. Function and failure edits for an installed item
+use occurrence overrides; reusable defaults remain explicitly editable in
+System Modeling. Definition descriptions apply to every reuse of a definition.
+
+Study scope and operating mode determine engineering inputs. **Item of focus**
+only controls diagram navigation. A focused assembly shows interfaces with
+exactly one original endpoint in its subtree, including interfaces attached to
+hidden piece parts. Endpoint blocks retain their installed hierarchy and are
+shown within their ancestor containers. Collapsed containers and hidden piece
+parts route connections through the nearest visible ancestor without changing
+the underlying endpoints. Internal and unrelated neighbor-to-neighbor interfaces
+are omitted. Bundled connections retain their original endpoint paths and
+individually editable records.
+
+Selecting an item in the hierarchy or function analysis establishes focus.
+On the canvas, a click inspects and **Focus here** or a double-click drills in.
+Breadcrumbs, Back/Up, and the searchable selector support navigation; piece
+parts can be explicitly included in that selector. A study boundary does not
+clip connections to equipment outside the study. All views use shared system
+geometry; focus, expansion, visibility, and viewport preferences are stored
+separately and do not invalidate numerical results. Bookmarks and captured
+diagram assets retain their focus context.
+
+Functions use the same compact **Inputs → Function → Output** editor in System
+Modeling and FMEA. A Transform function has one or more resource inputs, an
+authored action, and exactly one output. Source functions have one output and no
+inputs. Maintain State functions describe a condition without resource I/O; their
+optional verb is Maintain, Secure, Support, Contain, Isolate, or Protect. Function
+statements are qualitative definitions, not executable mathematical equations.
+
+Each output Resource has one producing installed function or typed external
+terminal. Resource names may repeat: stable producer and resource identities,
+shown with their block path, distinguish them. A resource may feed multiple
+functions, and outputs need not be consumed. A function cannot consume its own
+output; feedback between distinct functions is allowed. Selecting an input
+establishes its dependence on that exact producer. Same-block dependencies do
+not require block self-loop interfaces. Cross-block inputs require a compatible
+resource transfer covering the consumer's applicable modes. Generated routes
+are cleaned up when their inputs are removed; authored interface records remain.
+
+Occurrence resource bindings override only I/O resource IDs so repeated blocks
+can share authored function descriptions while producing distinct Resources.
+Occurrence-only functions and selected failures remain disabled on future
+installations unless explicitly enabled there. Copying a subtree creates fresh
+output identities and remaps its internal input bindings. Incoming resources retain their explicit external producer identity.
+Drawing a connection can establish either a resource flow or a physical relation:
+force and torque are physical flows, while attachment or clearance relates blocks
+or Maintain State functions without synthetic resource I/O. Physical relations
+have no causal failure direction unless an explicit propagation rule establishes
+one.
+
+Every active child function must support an immediate-parent function in each
+applicable mode. The editor infers an allocation only when one eligible parent
+function exists; otherwise it presents a focused selection. Decomposition is
+allocation, not causal failure propagation. Failure suggestions are optional
+records nested under their function. Selecting a suggestion never fabricates
+causes, effects, ratings, or supporting evidence. Incomplete definitions remain
+savable drafts and are reported on the affected function.
+
+The shared canvas offers Curved (default), Orthogonal, and Straight connectors.
+Routing avoids block interiors, including the source and target. Straight uses
+a direct segment when clear and a safe detour when another block intervenes.
+The inspector opens and closes from the same toolbar icon. System Modeling uses
+the canvas as the top-level system boundary; internal assembly containers retain
+their hierarchy.
+
+PFMEA retains its process hierarchy, functions, and process interfaces. Process
+steps can link to installed equipment, including multiple steps using the same
+item. **View linked interfaces** opens the physical equipment view without
+replacing the process structure.
+
+Physical studies require canonical references; independent physical structures
+and legacy Prediction imports are not promoted into executable studies. Project
+schema 11, System Model contract 4, and FMEA study schema 4 reject older alpha
+formats without migration. PFMEA remains process-owned with explicit physical
+equipment links. Missing sources retain analysis work and block dependent steps
+until repaired or explicitly removed. Revisions and releases are immutable.
+
+## Cumulative prerequisite enforcement
+
+`POST /fmea/readiness` accepts a study and its canonical model context, rating
+profiles, and program requirements. It returns a semantic fingerprint, findings
+with step/record/path addresses, per-step `complete` and `eligible` states, and
+`can_analyze`/`can_release`. A stage is eligible only when preceding stages have
+no errors. Drafts may be saved; progress cannot be marked complete manually.
+
+1. Planning requires a supported method configuration. Subject, scope narrative,
+   intent, and responsible team are optional context; missing details generate
+   suggestions and do not block authoring, calculation, or release. The canonical
+   study scope is still required under Structure.
+2. Structure requires a valid named hierarchy, canonical scope, and ancestor
+   context. Physical snapshots must match canonical identities and statements.
+3. Function analysis requires block coverage, complete actions and required I/O,
+   unique output ownership, connected resource inputs, and immediate-parent
+   support across modes. Maintain State functions need no resource I/O.
+4. Failure analysis requires coverage of studied functions, a complete
+   cause–mode–effect chain, a cause function or element reference, and an affected
+   function or structured stakeholder/system effect context.
+5. Risk analysis requires valid ratings under an approved profile and a documented
+   basis for every applicable rating axis. Default values alone are incomplete.
+6. Optimization applies action disposition, completion, evidence, and control
+   plan rules.
+7. Documentation/release applies evidence, failure-flow, and governance checks.
+
+Only study functions, referenced boundary functions, and their ancestor support
+chains are prerequisites. Unrelated peer functions and sibling drafts do not
+block the study. Prediction-only piece parts are exempt until explicitly included
+or used as actual interface endpoints. Hiding a symbol does not change this scope.
+
+Calculation requires steps 1–5. Review, approval, and release require the later
+applicable gates as well. The backend independently checks prerequisites and
+rebuilds physical projections; direct API calls cannot bypass UI gating.
+Invalidated downstream records remain available read-only until their
+prerequisites are repaired. Display-only changes do not invalidate readiness.
+
 ## Method profiles and claims
 
 Every method profile has an ID, edition, capabilities, implementation status,
@@ -282,8 +403,11 @@ A controlled revision embeds and hashes canonical engineering content:
 
 Object keys are sorted before serialization and the UTF-8 bytes are hashed with
 SHA-256. Revision metadata stores the complete snapshot, content hash, and the
-prior revision hash.
-Capturing unchanged content is rejected. Semantic comparison addresses list
+prior revision hash. Physical revisions also capture the canonical System Model
+and a hash of the study’s semantic architecture dependency closure. Review,
+approval, and release require that closure to match the current architecture;
+unrelated branches and diagram placement do not change it.
+Capturing unchanged study and architecture content is rejected. Semantic comparison addresses list
 records by stable ID, so harmless row reordering does not appear as an
 engineering change.
 
@@ -294,11 +418,11 @@ attestation.
 The release manifest includes:
 
 - study, revision, method, and rating-profile identity;
-- engineering-content SHA-256;
+- engineering-content SHA-256 and canonical architecture context SHA-256;
 - software version and commit;
 - release time and findings;
 - attestations and their assurance mode;
-- the engineering snapshot, method and rating profiles, issue index, FMEDA
+- the engineering snapshot and canonical System Model, method and rating profiles, issue index, FMEDA
   metrics and uncertainty, requirements checksum, and lifecycle event; and
 - a SHA-256 over the manifest itself.
 
@@ -308,7 +432,8 @@ provider and subject. Authentication identifies the approver; it does not
 replace technical review.
 
 Released content is immutable. Editing after release creates a new draft.
-Verification recomputes both hashes and checks the study identity.
+Verification recomputes the content, manifest, and self-contained canonical
+context hashes and checks the study identity.
 
 ## Performance and limits
 

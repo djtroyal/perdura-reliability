@@ -153,49 +153,14 @@ def _profile_value_issues(
     return issues
 
 
-def upgrade_system_definition(model: Mapping[str, Any]) -> dict[str, Any]:
-    """Upgrade v1 JSON to v2 without changing stable IDs or authored content."""
-    upgraded = deepcopy(dict(model))
-    upgraded["version"] = 2
-    upgraded.setdefault("propagation_assertions", [])
-    for definition in upgraded.get("definitions", ()):
-        classification = str(definition.get("classification", "component")).lower()
-        inferred = (
-            "piece_part" if classification in {"part", "piece part", "piece_part"}
-            else "system" if classification == "system"
-            else "subsystem" if classification == "subsystem"
-            else "assembly" if classification == "assembly"
-            else "component"
-        )
-        definition.setdefault("kind", inferred)
-        definition.setdefault("revision", upgraded.get("revision", "A"))
-        definition.setdefault("properties", {})
-        definition.setdefault("analysis_profiles", [])
-        for port in definition.get("ports", ()):
-            port.setdefault("properties", {})
-        for function in definition.get("functions", ()):
-            function.setdefault("port_ids", [])
-    for instance in upgraded.get("instances", ()):
-        instance.setdefault("origin", "ad_hoc")
-        instance.setdefault("definition_revision", "")
-        instance.setdefault("properties", {})
-        instance.setdefault("profile_overrides", [])
-    for external in upgraded.get("externals", ()):
-        external.setdefault("ports", [])
-    for interface in upgraded.get("interfaces", ()):
-        interface.setdefault("strength", "unknown")
-        interface.setdefault("nature", "unknown")
-        interface.setdefault("properties", {})
-    for diagram in upgraded.get("diagrams", ()):
-        diagram.setdefault("density", "standard")
-        diagram.setdefault("boundary", {
-            "label": "System Boundary", "x": -40, "y": -40,
-            "width": 1200, "height": 700,
-        })
-        diagram.setdefault("viewport", {"x": 0, "y": 0, "zoom": 1})
-        diagram.setdefault("snap_to_grid", True)
-        diagram.setdefault("mode_ids", [])
-    return upgraded
+def normalize_system_definition(model: Mapping[str, Any]) -> dict[str, Any]:
+    """Copy the current architecture contract; older alpha models are rejected."""
+    if model.get("version") != 4:
+        raise ValueError("System Model version 4 is required. Create a new project; older alpha architectures are not migrated.")
+    normalized = deepcopy(dict(model))
+    for collection in ("resources", "propagation_assertions", "externals", "interfaces", "function_links", "propagation_rules", "diagrams"):
+        normalized.setdefault(collection, [])
+    return normalized
 
 
 @dataclass(frozen=True)
@@ -258,10 +223,10 @@ def _unique_issues(items: list[Mapping[str, Any]], collection: str) -> list[dict
 
 def validate_system_definition(model: Mapping[str, Any]) -> dict[str, Any]:
     """Return field-addressable issues without mutating the submitted model."""
-    model = upgrade_system_definition(model)
+    model = normalize_system_definition(model)
     issues: list[dict[str, Any]] = []
     collections = [
-        "modes", "definitions", "instances", "externals", "interfaces",
+        "modes", "resources", "definitions", "instances", "externals", "interfaces",
         "function_links", "propagation_rules", "propagation_assertions", "diagrams",
     ]
     for name in collections:
@@ -425,6 +390,13 @@ def validate_system_definition(model: Mapping[str, Any]) -> dict[str, Any]:
                         "path": f"instances.{instance_id}.failure_mode_overrides",
                         "message": "Failure-mode override references a missing inherited failure mode.",
                     })
+                if (override.get("function_id") is not None
+                        and override["function_id"] not in function_ids[definition_id]):
+                    issues.append({
+                        "severity": "error", "code": "missing_override_failure_function",
+                        "path": f"instances.{instance_id}.failure_mode_overrides",
+                        "message": "Failure-mode override references a missing inherited function.",
+                    })
                 if override.get("mode_ids") is not None:
                     validate_mode_ids(override, f"instances.{instance_id}.failure_mode_overrides")
             for override in instance.get("profile_overrides", ()):
@@ -477,7 +449,7 @@ def validate_system_definition(model: Mapping[str, Any]) -> dict[str, Any]:
                 })
                 return
             definition_id = instance.get("definition_id")
-            if endpoint.get("port_id") not in port_ids.get(definition_id, set()):
+            if endpoint.get("port_id") and endpoint.get("port_id") not in port_ids.get(definition_id, set()):
                 issues.append({
                     "severity": "error", "code": "missing_endpoint_port",
                     "path": path, "message": "Endpoint port does not exist on the instance definition.",
@@ -539,13 +511,11 @@ def validate_system_definition(model: Mapping[str, Any]) -> dict[str, Any]:
                 {"instance_id": target_instance, "function_id": function_id},
                 f"interfaces.{item_id}.target_function_ids",
             )
-        if source_instance and target_instance and (
-                not item.get("source_function_ids")
-                or not item.get("target_function_ids")):
+        if source_instance and target_instance and not item.get("transfers"):
             issues.append({
                 "severity": "warning", "code": "unmapped_interface_functions",
                 "path": f"interfaces.{item_id}",
-                "message": "Interface needs source and target function mappings for propagation.",
+                "message": "Interface needs explicit provider/receiver resource transfers for propagation.",
             })
 
     function_graph: dict[str, list[str]] = defaultdict(list)
@@ -569,10 +539,18 @@ def validate_system_definition(model: Mapping[str, Any]) -> dict[str, Any]:
         if rule.get("target"):
             validate_function_ref(rule["target"], f"propagation_rules.{rule.get('id')}.target")
 
+    from reliability.FMEA_readiness import architecture_context as _architecture_context
+    assertion_context = _architecture_context(model, {"scope_instance_id": model.get("root_instance_id")})
+    derived_transition_ids = set()
+    for key, function in assertion_context["functions"].items():
+        for io in (function.get("definition") or {}).get("io", []):
+            providers = assertion_context["owners"].get(io.get("resource_id"), [])
+            if io.get("direction") == "input" and len(providers) == 1 and providers[0].get("key") != key and providers[0].get("instance_id") == function["instance_id"]:
+                derived_transition_ids.add(_hash("resource", [providers[0]["key"], key, io["id"]]))
     for assertion in model.get("propagation_assertions", ()):
         validate_mode_ids(
             assertion, f"propagation_assertions.{assertion.get('id')}")
-        if assertion.get("transition_id") not in interfaces and not any(
+        if assertion.get("transition_id") not in interfaces | derived_transition_ids and not any(
                 link.get("id") == assertion.get("transition_id")
                 for link in model.get("function_links", ())):
             issues.append({
@@ -612,6 +590,15 @@ def validate_system_definition(model: Mapping[str, Any]) -> dict[str, Any]:
                     "message": "Diagram node references a missing external actor.",
                 })
 
+    # Missing structured content is a draft, but supplied references must be valid.
+    from reliability.FMEA_readiness import architecture_context, architecture_findings
+    context = architecture_context(model, {"scope_instance_id": model.get("root_instance_id")}, include_inactive=True)
+    context["scope"] = set(instances)
+    context["context_instances"] = set(instances)
+    context["required"] = set(context["functions"])
+    context["interfaces"] = model.get("interfaces", [])
+    issues.extend(architecture_findings(model, context, include_completeness=False))
+
     return {
         "valid": not any(item["severity"] == "error" for item in issues),
         "issues": issues,
@@ -630,7 +617,8 @@ def validate_system_definition(model: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _resolved_model(model: Mapping[str, Any], mode_id: str | None) -> dict[str, Any]:
-    model = upgrade_system_definition(model)
+    from reliability.FMEA_readiness import effective_function, occurrence_enabled
+    model = normalize_system_definition(model)
     definitions = {item["id"]: item for item in model.get("definitions", ())}
     functions: dict[str, dict[str, Any]] = {}
     failures: list[dict[str, Any]] = []
@@ -644,7 +632,7 @@ def _resolved_model(model: Mapping[str, Any], mode_id: str | None) -> dict[str, 
         }
         for function in definition.get("functions", ()):
             override = function_overrides.get(function["id"], {})
-            if override.get("enabled", True) is False:
+            if occurrence_enabled(function, override) is False:
                 continue
             modes = override.get("mode_ids")
             modes = function.get("mode_ids", ()) if modes is None else modes
@@ -653,7 +641,13 @@ def _resolved_model(model: Mapping[str, Any], mode_id: str | None) -> dict[str, 
             key = f"{instance_id}::{function['id']}"
             functions[key] = {
                 **function,
-                "description": override.get("description") or function["description"],
+                "description": (override["description"]
+                    if override.get("description") is not None else function["description"]),
+                "definition": effective_function(function, override).get("definition"),
+                "function_type": override.get("function_type") or function.get("function_type", "primary"),
+                "canonical_verb_id": (override["canonical_verb_id"]
+                    if override.get("canonical_verb_id") is not None
+                    else function.get("canonical_verb_id")),
                 "instance_id": instance_id,
                 "instance_name": instance.get("name") or definition.get("name", instance_id),
                 "definition_id": definition.get("id"),
@@ -666,21 +660,25 @@ def _resolved_model(model: Mapping[str, Any], mode_id: str | None) -> dict[str, 
         }
         for failure in definition.get("failure_modes", ()):
             override = failure_overrides.get(failure["id"], {})
-            if override.get("enabled", True) is False:
+            if occurrence_enabled(failure, override) is False:
                 continue
             modes = override.get("mode_ids")
             modes = failure.get("mode_ids", ()) if modes is None else modes
-            function_key = f"{instance_id}::{failure['function_id']}"
+            function_id = override.get("function_id") or failure["function_id"]
+            function_key = f"{instance_id}::{function_id}"
             if function_key not in functions or not _applies(modes, mode_id):
                 continue
             failures.append({
                 **failure,
                 "id": f"{instance_id}::{failure['id']}",
                 "template_failure_mode_id": failure["id"],
+                "function_id": function_id,
                 "function_key": function_key,
                 "instance_id": instance_id,
-                "description": override.get("description") or failure["description"],
-                "deviation_id": override.get("deviation_id") or failure["deviation_id"],
+                "description": (override["description"]
+                    if override.get("description") is not None else failure["description"]),
+                "deviation_id": (override["deviation_id"]
+                    if override.get("deviation_id") is not None else failure["deviation_id"]),
                 "mode_ids": list(modes or ()),
             })
     return {"functions": functions, "failures": failures, "instances": instances}
@@ -691,10 +689,11 @@ def propagate_system_definition(
     source_failure_mode_ids: Iterable[str] = (), max_paths: int = 10000,
     max_depth: int = 100,
 ) -> dict[str, Any]:
-    model = upgrade_system_definition(model)
+    model = normalize_system_definition(model)
     validation = validate_system_definition(model)
     fingerprint_model = deepcopy(model)
     fingerprint_model.pop("propagation_assertions", None)
+    fingerprint_model.pop("diagrams", None)
     fingerprint = sha256(_canonical({
         "model": fingerprint_model, "mode_id": mode_id,
         "source_failure_mode_ids": sorted(source_failure_mode_ids),
@@ -716,10 +715,20 @@ def propagate_system_definition(
     transitions: dict[str, list[dict[str, Any]]] = defaultdict(list)
 
     for link in model.get("function_links", ()):
-        if not _applies(link.get("mode_ids"), mode_id):
+        if link.get("relationship") == "decomposes_to" or not _applies(link.get("mode_ids"), mode_id):
             continue
         source_key, target_key = _ref_key(link["source"]), _ref_key(link["target"])
+        if link.get("generated") and link.get("relationship") == "provides_input" and link["source"].get("instance_id") != link["target"].get("instance_id"):
+            # The cross-block flow supplies the exact resource, I/O, route, and
+            # mode evidence. Its derived dependency is a summary, not a second
+            # propagation path or a fallback for an unresolved route.
+            continue
         if source_key in functions and target_key in functions:
+            if link.get("generated") and link.get("relationship") == "provides_input":
+                outputs = {io.get("resource_id") for io in (functions[source_key].get("definition") or {}).get("io", []) if io.get("direction") == "output" and io.get("resource_id")}
+                inputs = {io.get("resource_id") for io in (functions[target_key].get("definition") or {}).get("io", []) if io.get("direction") == "input" and io.get("resource_id")}
+                if not outputs & inputs:
+                    continue
             transitions[source_key].append({
                 "kind": "function_link", "id": link["id"],
                 "source": source_key, "target": target_key,
@@ -729,26 +738,53 @@ def propagate_system_definition(
     for interface in model.get("interfaces", ()):
         if not _applies(interface.get("mode_ids"), mode_id):
             continue
-        source_instance = interface.get("source", {}).get("instance_id")
-        target_instance = interface.get("target", {}).get("instance_id")
-        forward = [
-            (f"{source_instance}::{source}", f"{target_instance}::{target}")
-            for source in interface.get("source_function_ids", ())
-            for target in interface.get("target_function_ids", ())
-        ] if source_instance and target_instance else []
-        pairs = list(forward)
-        if interface.get("directionality") in {"bidirectional", "undirected"}:
-            pairs.extend((target, source) for source, target in forward)
-        for source_key, target_key in pairs:
+        # Explicitly paired transfers never form a Cartesian product of functions.
+        pairs = []
+        for transfer in interface.get("transfers", []):
+            if transfer.get("kind") != "flow" or not _applies(transfer.get("mode_ids"), mode_id):
+                continue
+            source, target = transfer.get("source", {}), transfer.get("target", {})
+            if source.get("kind") != "function" or target.get("kind") != "function":
+                continue
+            pairs.append((_ref_key(source), _ref_key(target), transfer))
+        for source_key, target_key, transfer in pairs:
             if source_key not in functions or target_key not in functions:
                 continue
             transitions[source_key].append({
                 "kind": "interface", "id": interface["id"],
+                "transfer_id": transfer["id"], "resource_id": transfer["resource_id"],
                 "source": source_key, "target": target_key,
                 "interface_type": interface.get("interface_type"),
                 "directionality": interface.get("directionality"),
                 "flow_description": interface.get("flow_description", ""),
             })
+
+    # Same-block resources imply functional dependence without a block self-loop.
+    from reliability.FMEA_readiness import resource_owners
+    owners = resource_owners(functions, model.get("externals", []))
+    for target_key, fn in functions.items():
+        for io in (fn.get("definition") or {}).get("io", []):
+            candidates = owners.get(io.get("resource_id"), [])
+            if io.get("direction") != "input" or len(candidates) != 1:
+                continue
+            owner = candidates[0]
+            source_key = owner.get("key")
+            if not source_key or source_key == target_key or owner.get("instance_id") != fn["instance_id"]:
+                continue
+            if any(edge["target"] == target_key for edge in transitions[source_key]):
+                continue
+            transitions[source_key].append({"kind": "resource_dependency", "id": _hash("resource", [source_key, target_key, io["id"]]), "source": source_key, "target": target_key, "resource_id": io["resource_id"], "relationship": "provides_input"})
+    # A physical relation carries no causal direction by itself. Explicit rules
+    # may establish a reviewed direction between functions on its endpoint blocks.
+    interface_by_id = {item["id"]: item for item in model.get("interfaces", [])}
+    for rule in model.get("propagation_rules", []):
+        interface = interface_by_id.get(rule.get("interface_id"))
+        source_key, target_key = _ref_key(rule.get("source") or {}), _ref_key(rule.get("target") or {})
+        if not interface or not any(item.get("kind") == "relation" for item in interface.get("transfers", [])) or not _applies(rule.get("mode_ids"), mode_id) or not _applies(interface.get("mode_ids"), mode_id):
+            continue
+        terminals = {interface.get(side, {}).get("instance_id") for side in ("source", "target")}
+        if source_key in functions and target_key in functions and functions[source_key]["instance_id"] in terminals and functions[target_key]["instance_id"] in terminals:
+            transitions[source_key].append({"kind": "interface", "id": interface["id"], "source": source_key, "target": target_key, "interface_type": interface.get("interface_type"), "directionality": "directed", "flow_description": interface.get("flow_description", "")})
 
     rules = [item for item in model.get("propagation_rules", ())
              if _applies(item.get("mode_ids"), mode_id)]
@@ -779,8 +815,22 @@ def propagate_system_definition(
     proposals: dict[str, dict[str, Any]] = {}
     paths: list[dict[str, Any]] = []
     truncated = False
+    processed_sources: list[str] = []
+    truncated_sources: list[str] = []
+    omitted_frontier_branches = 0
 
-    for source in sources:
+    for source_index, source in enumerate(sources):
+        if len(paths) >= max_paths:
+            truncated = True
+            break
+        processed_sources.append(source["id"])
+        # Preserve a path for later authored failures instead of spending the
+        # entire response budget on the first highly connected source. Small
+        # complete graphs retain their existing breadth-first traversal order.
+        reserved_paths = min(len(sources) - source_index - 1,
+                             max_paths - len(paths) - 1)
+        source_path_limit = max_paths - reserved_paths
+        source_truncated = False
         initial_key = f"{source['function_key']}::{source['deviation_id']}"
         queue = deque([({
             "function_key": source["function_key"],
@@ -803,6 +853,9 @@ def propagate_system_definition(
                     "termination": "maximum_depth",
                 })
                 truncated = True
+                source_truncated = True
+                if len(paths) >= source_path_limit:
+                    break
                 continue
             outgoing = transitions.get(state["function_key"], ())
             if not outgoing:
@@ -812,12 +865,18 @@ def propagate_system_definition(
                     "edge_ids": path_edges, "terminated": True,
                     "termination": "no_downstream_mapping",
                 })
-                if len(paths) >= max_paths:
-                    truncated = True
+                if len(paths) >= source_path_limit:
+                    if queue:
+                        truncated = True
+                        source_truncated = True
                     break
                 continue
             advanced = False
             for transition in outgoing:
+                if len(paths) >= source_path_limit:
+                    truncated = True
+                    source_truncated = True
+                    break
                 rule = matching_rule(transition, state["deviation_id"])
                 action = rule.get("action", "pass_through") if rule else "pass_through"
                 proposal_basis = {
@@ -902,13 +961,24 @@ def propagate_system_definition(
                         "termination": "cycle_collapsed",
                     })
                 else:
-                    queue.append(({
-                        "function_key": target_key, "deviation_id": deviation,
-                        "description": description,
-                    }, next_path, visited | {node_id}, depth + 1))
+                    # Every pending route must eventually produce at least one
+                    # terminal, cycle, or maximum-depth path. Reserving its
+                    # response slot now bounds the BFS frontier without losing
+                    # any result that would fit in an untruncated response.
+                    if len(paths) + len(queue) < source_path_limit:
+                        queue.append(({
+                            "function_key": target_key, "deviation_id": deviation,
+                            "description": description,
+                        }, next_path, visited | {node_id}, depth + 1))
+                    else:
+                        truncated = True
+                        source_truncated = True
+                        omitted_frontier_branches += 1
                 advanced = True
-            if len(paths) >= max_paths:
-                truncated = True
+            if len(paths) >= source_path_limit:
+                if queue:
+                    truncated = True
+                    source_truncated = True
                 break
             if not advanced:
                 path_id = _hash("path", [source["id"], path_edges, "blocked"])
@@ -917,12 +987,18 @@ def propagate_system_definition(
                     "edge_ids": path_edges, "terminated": True,
                     "termination": "blocked",
                 })
-        if truncated:
-            break
+        if source_truncated:
+            truncated_sources.append(source["id"])
 
     mapped_functions = {edge["transition"]["source"] for edge in graph_edges.values()}
+    processed_source_ids = set(processed_sources)
     coverage = {
         "source_failure_modes": len(sources),
+        "processed_source_failure_modes": len(processed_sources),
+        "unprocessed_source_failure_mode_ids": [source["id"] for source in sources
+                                                if source["id"] not in processed_source_ids],
+        "truncated_source_failure_mode_ids": truncated_sources,
+        "omitted_frontier_branches": omitted_frontier_branches,
         "functions_total": len(functions),
         "functions_with_downstream_mapping": len(mapped_functions),
         "unmapped_function_ids": sorted(set(functions) - set(transitions)),
@@ -930,8 +1006,7 @@ def propagate_system_definition(
             item["id"] for item in model.get("interfaces", ())
             if item.get("source", {}).get("instance_id")
             and item.get("target", {}).get("instance_id")
-            and (not item.get("source_function_ids")
-                 or not item.get("target_function_ids"))
+            and not item.get("transfers")
         ],
         "truncated": truncated,
         "reviewed_proposals": sum(
@@ -941,9 +1016,23 @@ def propagate_system_definition(
             proposal.get("review_required", True)
             for proposal in proposals.values()),
     }
+    issues = list(validation["issues"])
+    if truncated:
+        issues.append({
+            "severity": "warning", "code": "propagation_truncated",
+            "path": "propagation",
+            "message": (
+                "Partial propagation results: a requested limit was reached "
+                f"({max_paths} paths or {max_depth} transitions per path). "
+                f"{len(truncated_sources)} source failure modes have incomplete paths; "
+                f"{len(sources) - len(processed_sources)} were not explored. "
+                "Select fewer source failure modes or increase the limits to "
+                "inspect additional paths. This is not a complete fault map."
+            ),
+        })
     return {
         "valid": True, "fingerprint": fingerprint,
-        "issues": validation["issues"],
+        "issues": issues,
         "nodes": list(graph_nodes.values()), "edges": list(graph_edges.values()),
         "paths": paths, "proposals": list(proposals.values()),
         "coverage": coverage,
@@ -963,7 +1052,7 @@ def resolve_analysis_profile(
     analysis_overrides: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Resolve definition → instance → analysis-local profile precedence."""
-    model = upgrade_system_definition(model)
+    model = normalize_system_definition(model)
     validation = validate_system_definition(model)
     index = SystemGraphIndex.build(model)
     instance = index.instances.get(instance_id)
@@ -1024,7 +1113,7 @@ def plan_definition_composition(
     model: Mapping[str, Any], instance_id: str,
 ) -> dict[str, Any]:
     """Create a review-only plan for synchronizing reusable child slots."""
-    model = upgrade_system_definition(model)
+    model = normalize_system_definition(model)
     validation = validate_system_definition(model)
     index = SystemGraphIndex.build(model)
     root = index.instances.get(instance_id)
@@ -1042,6 +1131,8 @@ def plan_definition_composition(
     for link in model.get("function_links", ()):
         referenced.update((link["source"]["instance_id"], link["target"]["instance_id"]))
     proposals: list[dict[str, Any]] = []
+    occupied_instance_ids = set(index.instances)
+    occupied_resource_ids = {item["id"] for item in model.get("resources", [])}
     visited: set[str] = set()
 
     def visit(parent: Mapping[str, Any]) -> None:
@@ -1057,7 +1148,27 @@ def plan_definition_composition(
             if not child:
                 child_definition = index.definitions.get(slot.get("definition_id"), {})
                 proposed_id = _hash("instance", [parent["id"], slot_id])
+                suffix = 1
+                while proposed_id in occupied_instance_ids:
+                    proposed_id = _hash("instance", [parent["id"], slot_id, suffix])
+                    suffix += 1
+                occupied_instance_ids.add(proposed_id)
+                resources_by_id = {item["id"]: item for item in model.get("resources", [])}
+                output_ids = {io["resource_id"] for fn in child_definition.get("functions", []) if fn.get("default_enabled", True) for io in (fn.get("definition") or {}).get("io", []) if io.get("direction") == "output" and io.get("resource_id") in resources_by_id}
+                resource_map = {}
+                for ident in sorted(output_ids):
+                    resource_id = _hash("resource", [proposed_id, ident])
+                    suffix = 1
+                    while resource_id in occupied_resource_ids:
+                        resource_id = _hash("resource", [proposed_id, ident, suffix])
+                        suffix += 1
+                    occupied_resource_ids.add(resource_id)
+                    resource_map[ident] = resource_id
+                fresh_resources = [{**deepcopy(resources_by_id[ident]), "id": resource_map[ident]} for ident in sorted(resource_map)]
+                bindings = [{"function_id": fn["id"], "resource_bindings": {io["id"]: resource_map[io["resource_id"]] for io in (fn.get("definition") or {}).get("io", []) if io.get("resource_id") in resource_map}} for fn in child_definition.get("functions", []) if fn.get("default_enabled", True)]
+                bindings = [item for item in bindings if item["resource_bindings"]]
                 proposals.append({
+                    "resources": fresh_resources,
                     "id": _hash("composition", ["add", proposed_id]),
                     "action": "add", "review_required": True,
                     "parent_instance_id": parent["id"], "slot_id": slot_id,
@@ -1067,7 +1178,7 @@ def plan_definition_composition(
                         "name": slot.get("name") or child_definition.get("name", ""),
                         "quantity": slot.get("quantity", 1),
                         "reference_designators": [], "mode_ids": [],
-                        "function_overrides": [], "failure_mode_overrides": [],
+                        "function_overrides": bindings, "failure_mode_overrides": [],
                         "legacy_refs": [], "origin": "definition_slot",
                         "definition_revision": child_definition.get("revision", "A"),
                         "properties": {}, "profile_overrides": [],
@@ -1222,7 +1333,7 @@ def project_system_definition(
     current_analysis: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Create a linked, reviewable projection into a Perdura analysis module."""
-    model = upgrade_system_definition(model)
+    model = normalize_system_definition(model)
     validation = validate_system_definition(model)
     index = SystemGraphIndex.build(model)
     scoped = [item for item in _scope_instances(index, scope_instance_id)
@@ -1342,6 +1453,13 @@ def project_system_definition(
         structures = []
         functions = []
         failures = []
+        resolved = _resolved_model(model, mode_id)
+        functions_by_instance: dict[str, list[dict[str, Any]]] = {}
+        failures_by_function: dict[str, list[dict[str, Any]]] = {}
+        for function in resolved["functions"].values():
+            functions_by_instance.setdefault(function["instance_id"], []).append(function)
+        for failure in resolved["failures"]:
+            failures_by_function.setdefault(failure["function_key"], []).append(failure)
         for instance in scoped:
             definition = index.definitions.get(instance.get("definition_id"), {})
             variants = expanded(instance)
@@ -1369,35 +1487,34 @@ def project_system_definition(
                     "quantity": quantity,
                     "system_ref": ref, "linked": True,
                 })
-                for function in definition.get("functions", ()):
-                    if not _applies(function.get("mode_ids"), mode_id):
-                        continue
+                for function in functions_by_instance.get(instance["id"], ()):
                     function_id = f"sys-{projection_instance_id}-{function['id']}"
                     functions.append({
                         "id": function_id, "structure_node_id": f"sys-{projection_instance_id}",
                         "description": function["description"],
                         "canonical_verb_id": function.get("canonical_verb_id"),
+                        "definition": deepcopy(function.get("definition")),
                         "function_type": function.get("function_type", "primary"),
                         "system_ref": {**ref, "function_id": function["id"]}, "linked": True,
                     })
-                    for failure in definition.get("failure_modes", ()):
-                        if failure.get("function_id") == function["id"] and _applies(
-                                failure.get("mode_ids"), mode_id):
-                            failures.append({
-                                "id": f"sys-{projection_instance_id}-{failure['id']}",
-                                "function_id": function_id,
-                                "description": failure["description"],
-                                "deviation_id": failure.get("deviation_id", "custom"),
-                                "system_ref": {**ref, "function_id": function["id"],
-                                               "failure_mode_id": failure["id"]},
-                                "linked": True,
-                            })
+                    for failure in failures_by_function.get(function["key"], ()):
+                        failure_id = failure["template_failure_mode_id"]
+                        failures.append({
+                            "id": f"sys-{projection_instance_id}-{failure_id}",
+                            "function_id": function_id,
+                            "description": failure["description"],
+                            "deviation_id": failure.get("deviation_id", "custom"),
+                            "system_ref": {**ref, "function_id": function["id"],
+                                           "failure_mode_id": failure_id},
+                            "linked": True,
+                        })
         interfaces = [deepcopy(item) for item in model.get("interfaces", ())
                       if any(item.get(side, {}).get("instance_id") in scoped_ids
                              for side in ("source", "target"))]
         assertions = [deepcopy(item) for item in model.get("propagation_assertions", ())
                       if item.get("status") == "accepted"]
         projection = {
+            "resources": deepcopy(model.get("resources", [])),
             "structures": structures, "functions": functions,
             "failure_modes": failures, "interfaces": interfaces,
             "accepted_propagations": assertions,
@@ -1571,7 +1688,7 @@ def analyze_system_impact(
     model: Mapping[str, Any], bindings: Iterable[Mapping[str, Any]],
 ) -> dict[str, Any]:
     """Compare saved binding checksums with current canonical entities."""
-    model = upgrade_system_definition(model)
+    model = normalize_system_definition(model)
     index = SystemGraphIndex.build(model)
     results: list[dict[str, Any]] = []
     for binding in bindings:
@@ -1613,7 +1730,7 @@ def generate_system_starter(
     source_failure_mode_ids: Iterable[str] = (), selected_path_ids: Iterable[str] = (),
     max_paths: int = 10000, max_depth: int = 100,
 ) -> dict[str, Any]:
-    model = upgrade_system_definition(model)
+    model = normalize_system_definition(model)
     propagation = propagate_system_definition(
         model, mode_id=mode_id, source_failure_mode_ids=source_failure_mode_ids,
         max_paths=max_paths, max_depth=max_depth,
@@ -1711,7 +1828,7 @@ def generate_system_starter(
 
 __all__ = [
     "PROFILE_ADAPTERS", "SystemGraphIndex", "profile_adapters",
-    "upgrade_system_definition", "resolve_analysis_profile",
+    "normalize_system_definition", "resolve_analysis_profile",
     "plan_definition_composition", "project_system_definition",
     "analyze_system_impact",
     "validate_system_definition", "propagate_system_definition",

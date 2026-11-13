@@ -409,7 +409,7 @@ export function MultiStress() {
     </div>
   )
 
-  return <ToolLayout intro="Two-stress log-life ALT with full-rank/conditioning checks, explicit physical coefficient directions, common-dispersion diagnostics, convex-hull leverage warnings and a parametric-bootstrap interval at the use point." controls={controls} err={err} loading={loading} onRun={run} runLabel="Analyze" results={results} />
+  return <ToolLayout intro="Fit a two-stress log-life model and estimate life at the use condition." controls={controls} err={err} loading={loading} onRun={run} runLabel="Analyze" results={results} />
 }
 
 // ─── HALT ─────────────────────────────────────────────────────────────────────
@@ -539,7 +539,7 @@ export function HALT() {
     </div>
   )
 
-  return <ToolLayout intro="Highly Accelerated Life Test (HALT): step the stress beyond specification to find the operating limit (first anomaly) and destruct limit (permanent failure), and report the design margins." controls={controls} err={err} loading={loading} onRun={run} runLabel="Analyze" results={results} />
+  return <ToolLayout intro="Find operating and destruct limits from stepped stress, then calculate design margins." controls={controls} err={err} loading={loading} onRun={run} runLabel="Analyze" results={results} />
 }
 
 // ─── Margin Test ──────────────────────────────────────────────────────────────
@@ -610,7 +610,7 @@ export function MarginTest() {
     </div>
   )
 
-  return <ToolLayout intro="Margin test: demonstrate reliability at specification conditions from an over-stress test. The test exposure is scaled by the acceleration factor to an equivalent time at spec, then a lower confidence bound on reliability is computed." controls={controls} err={err} loading={loading} onRun={run} runLabel="Compute" results={results} />
+  return <ToolLayout intro="Scale over-stress exposure by the acceleration factor to estimate a lower reliability bound at specification conditions." controls={controls} err={err} loading={loading} onRun={run} runLabel="Compute" results={results} />
 }
 
 // ─── Container ────────────────────────────────────────────────────────────────

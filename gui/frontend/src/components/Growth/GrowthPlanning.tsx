@@ -90,9 +90,7 @@ export default function GrowthPlanning({ state, setState, units }: {
   return (
     <div className="flex flex-1 overflow-hidden">
       <aside className="w-80 shrink-0 overflow-y-auto border-r border-gray-200 bg-white p-4 space-y-4">
-        <div className="rounded border border-blue-100 bg-blue-50 p-2 text-[11px] text-blue-800">
-          Plan a target trajectory from an established current point. Fit recurrence data in Growth Models first; this view does not infer a growth rate from these planning inputs.
-        </div>
+        <p className="text-xs text-gray-500">Project the target trajectory using the supplied growth rate.</p>
         <div className="grid grid-cols-2 gap-2">
           <div><InfoLabel tip="Accumulated test exposure at the planning baseline.">Current test time</InfoLabel><input type="number" min="0" value={state.currentTime} onChange={event => patch({ currentTime: event.target.value })} className={inputCls} /></div>
           <div><InfoLabel tip="Instantaneous MTBF supported or adopted at the planning baseline.">Current MTBF</InfoLabel><input type="number" min="0" value={state.currentMtbf} onChange={event => patch({ currentMtbf: event.target.value })} className={inputCls} /></div>

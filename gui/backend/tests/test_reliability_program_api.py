@@ -86,7 +86,7 @@ def test_rcm_override_requires_explicit_rationale():
 
 def test_aiag_vda_route_and_profile_discovery_contract():
     request = FMEAAnalyzeRequest(studies=[{
-        "schema_version": 2,
+        "schema_version": 4,
         "id": "DFMEA-1",
         "lifecycle_status": "draft",
         "method_profile_id": "aiag_vda_2019_public",
@@ -213,6 +213,9 @@ def test_aiag_vda_route_and_profile_discovery_contract():
             }],
             "cause": "Open circuit", "severity": 8,
             "occurrence": 4, "detection": 7,
+            "severity_rationale": "Loss of commanded output prevents the system function.",
+            "occurrence_rationale": "Connector service history supports this occurrence band.",
+            "detection_rationale": "System test has limited coverage of intermittent opens.",
             "prevention_controls": "Connector retention feature",
             "prevention_control_method_id":
                 "prevention_control:requirement-or-design-rule",
@@ -227,10 +230,35 @@ def test_aiag_vda_route_and_profile_discovery_contract():
         }],
         },
     }])
+    # Author the route fixture against the current canonical architecture contract.
+    from system_definition_schemas import SystemDefinitionModel
+    from schemas import FMEAStudy
+    model = request.studies[0].model.model_dump()
+    model["system_binding"] = {"version": 1, "system_model_id": "controller-system", "scope_instance_id": "ST-1"}
+    model["resources"] = [{"id": "command", "name": "Command word", "category": "information"}, {"id": "integrity", "name": "Connection integrity", "category": "state"}, {"id": "result", "name": "Controlled output", "category": "information"}]
+    for node in model["structure_nodes"]:
+        node["system_definition_ref"] = {"system_model_id": "controller-system", "instance_id": node["id"], "definition_id": node["id"]}
+    fn = model["functions"][0]
+    fn.update(description="Import command word", canonical_verb_id="function_verb:import", definition={"role": "transform", "action": "Control output", "io": [{"id": "input", "resource_id": "command", "direction": "input"}, {"id": "out", "resource_id": "result", "direction": "output"}]}, system_definition_ref={**model["structure_nodes"][0]["system_definition_ref"], "function_id": "FN-1"})
+    model["functions"].append({"id": "FN-2", "structure_node_id": "ST-2", "description": "Regulate connection integrity", "operating_modes": [], "definition": {'role': 'maintain_state', 'action': 'Operational integrity', 'io': []}, "system_definition_ref": {**model["structure_nodes"][1]["system_definition_ref"], "function_id": "FN-2"}})
+    model["failure_chains"][0]["cause_structure_node_id"] = "ST-2"
+    model["failure_chains"].append({"id": "FC-2", "function_id": "FN-2", "cause_structure_node_id": "ST-2", "effect_function_id": "FN-1", "failure_mode": "Connection lost", "cause": "Contact opens", "effect": "Command lost", "severity": 3, "occurrence": 2, "detection": 2, "severity_rationale": "Transient command loss is recoverable.", "occurrence_rationale": "Qualified interconnect limits occurrence.", "detection_rationale": "Continuity verification detects opens before installation."})
+    transfer = {"id": "command-transfer", "kind": "flow", "resource_id": "command", "source": {"kind": "external", "external_id": "command-source", "port_id": "output"}, "target": {"kind": "function", "instance_id": "ST-1", "function_id": "FN-1", "io_id": "input"}, "mode_ids": []}
+    edge = model["interfaces"][0]
+    edge["transfers"] = [transfer]
+    edge["system_definition_ref"] = {"system_model_id": "controller-system", "interface_id": "command"}
+    canonical = {"version": 4, "id": "controller-system", "name": "Controller", "root_instance_id": "ST-1", "resources": model["resources"],
+        "definitions": [{"id": node["id"], "name": node["name"], "kind": "system" if index == 0 else "component", "ports": [{"id": "p", "name": "Command", "interface_type": "information", "direction": "input"}], "functions": [{key: fn[key] for key in ("id", "description", "definition", "canonical_verb_id") if key in fn} for fn in model["functions"] if fn["structure_node_id"] == node["id"]]} for index, node in enumerate(model["structure_nodes"])],
+        "instances": [{"id": node["id"], "definition_id": node["id"], "name": node["name"], "parent_instance_id": node["parent_id"]} for node in model["structure_nodes"]],
+        "externals": [{"id": "command-source", "name": "Command source", "ports": [{"id": "output", "name": "Command", "interface_type": "information", "direction": "output", "resource_id": "command"}]}],
+        "interfaces": [{"id": "command", **{key: edge[key] for key in ("name", "interface_type", "directionality", "flow_description", "transfers")}, "source": {"external_id": "command-source", "port_id": "output"}, "target": {"instance_id": "ST-1", "port_id": "p"}}],
+        "function_links": [{"id": "support", "relationship": "decomposes_to", "source": {"instance_id": "ST-1", "function_id": "FN-1"}, "target": {"instance_id": "ST-2", "function_id": "FN-2"}}]}
+    request.canonical_system = SystemDefinitionModel.model_validate(canonical)
+    request.studies = [FMEAStudy.model_validate({**request.studies[0].model_dump(), "model": model})]
     response = analyze_fmea(request)
     result = response["studies"][0]["analysis"]
     assert result["failure_chains"][0]["action_priority"] == "H"
-    assert result["functions"][0]["canonical_verb_id"] == "function_verb:supply"
+    assert result["functions"][0]["canonical_verb_id"] == "function_verb:import"
     assert result["functional_requirements"][0]["verification_method_id"] == (
         "verification_method:test")
     assert result["failure_chains"][0]["deviation_id"] == (

@@ -106,7 +106,6 @@ export default function Slim() {
 
   return (
     <ToolLayout
-      intro="SLIM-MAUD — weight and rate the performance shaping factors to form a Success Likelihood Index (SLI), then calibrate log10(HEP) = a·SLI + b from two anchor tasks with known HEP."
       controls={controls} err={error} loading={loading} onRun={run} runLabel="Compute HEP" results={results} />
   )
 }

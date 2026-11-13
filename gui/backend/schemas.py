@@ -3,6 +3,12 @@
 import math
 from typing import Any, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+if __package__:
+    from .system_definition_schemas import (InterfaceFunctionOrigin, StructuredFunctionDefinition, SystemResource,
+                                            ResourceTransfer, SystemDefinitionModel, SystemPort)
+else:
+    from system_definition_schemas import (InterfaceFunctionOrigin, StructuredFunctionDefinition, SystemResource,
+                                            ResourceTransfer, SystemDefinitionModel, SystemPort)
 
 
 # --- Life Data ---
@@ -877,6 +883,29 @@ class FMEAStructureSourceRef(BaseModel):
     category: Optional[str] = Field(None, max_length=512)
 
 
+class FMEACanonicalSystemRef(BaseModel):
+    """Stable identity of an installed element or shared system statement."""
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    system_model_id: str = Field(min_length=1, max_length=128)
+    instance_id: Optional[str] = Field(None, min_length=1, max_length=128)
+    definition_id: Optional[str] = Field(None, min_length=1, max_length=128)
+    function_id: Optional[str] = Field(None, min_length=1, max_length=128)
+    failure_mode_id: Optional[str] = Field(None, min_length=1, max_length=128)
+    interface_id: Optional[str] = Field(None, min_length=1, max_length=128)
+    revision: Optional[str] = Field(None, max_length=128)
+    checksum: Optional[str] = Field(None, max_length=128)
+
+
+class FmeaSystemBinding(BaseModel):
+    """Live FMEA scope in the project's canonical System Definition."""
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    version: Literal[1] = 1
+    system_model_id: str = Field(min_length=1, max_length=128)
+    scope_instance_id: str = Field(min_length=1, max_length=128)
+    included_piece_part_ids: list[str] = Field(default_factory=list, max_length=10000)
+    mode_id: Optional[str] = Field(None, min_length=1, max_length=128)
+
+
 class FMEAStructureNode(BaseModel):
     """One element in the Step 2 structure hierarchy."""
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
@@ -891,6 +920,7 @@ class FMEAStructureNode(BaseModel):
     interface: str = ""
     element_type: str = ""
     source_ref: Optional[FMEAStructureSourceRef] = None
+    system_definition_ref: Optional[FMEACanonicalSystemRef] = None
 
 
 class FMEAFunction(BaseModel):
@@ -906,9 +936,14 @@ class FMEAFunction(BaseModel):
     operating_modes: list[str] = Field(default_factory=list, max_length=100)
     owner: str = ""
     notes: str = ""
+    system_definition_ref: Optional[FMEACanonicalSystemRef] = None
+    interface_origin: Optional[InterfaceFunctionOrigin] = None
+    definition: Optional[StructuredFunctionDefinition] = None
 
 
 class FMEAFunctionLink(BaseModel):
+    generated: Optional[bool] = None
+    mode_ids: list[str] = Field(default_factory=list, max_length=100)
     """Directed semantic relationship between two Step 3 functions."""
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     id: str = Field(min_length=1, max_length=128)
@@ -958,6 +993,7 @@ class FMEAFunctionRequirementLink(BaseModel):
 
 
 class FMEABlockDiagramNode(BaseModel):
+    ports: list[SystemPort] = Field(default_factory=list, max_length=1000)
     """One internal or external asset placed on the FMEA boundary diagram."""
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     id: str = Field(min_length=1, max_length=128)
@@ -1017,9 +1053,13 @@ class FMEABlockDiagram(BaseModel):
         default_factory=FMEABlockDiagramViewport)
     snap_to_grid: bool = True
     layoutOptions: Optional[DiagramLayoutOptions] = None
+    connectorStyle: Literal["orthogonal", "curved", "straight"] = "curved"
 
 
 class FMEAInterface(BaseModel):
+    mode_ids: list[str] = Field(default_factory=list, max_length=100)
+    generated: Optional[bool] = None
+    transfers: list[ResourceTransfer] = Field(default_factory=list, max_length=10000)
     """Directional internal or external input/output interface."""
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     id: str = Field(min_length=1, max_length=128)
@@ -1051,6 +1091,7 @@ class FMEAInterface(BaseModel):
     operating_condition: str = ""
     function_ids: list[str] = Field(default_factory=list, max_length=1000)
     requirement_ids: list[str] = Field(default_factory=list, max_length=1000)
+    system_definition_ref: Optional[FMEACanonicalSystemRef] = None
 
 
 class FMEAPDiagramItem(BaseModel):
@@ -1128,6 +1169,7 @@ class FMEAFailureChain(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     id: str = Field(min_length=1, max_length=128)
     system_definition_edge_id: Optional[str] = Field(None, max_length=128)
+    system_definition_ref: Optional[FMEACanonicalSystemRef] = None
     function_id: Optional[str] = Field(None, max_length=128)
     effect: str
     effect_statement_id: Optional[str] = Field(None, max_length=128)
@@ -1238,6 +1280,7 @@ class FMEARatingProfile(BaseModel):
 
 
 class AIAGVDAFMEAAnalysis(BaseModel):
+    resources: list[SystemResource] = Field(default_factory=list, max_length=10000)
     """A revision-controlled seven-step DFMEA, PFMEA, or FMEA-MSR."""
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     id: str = Field(min_length=1, max_length=128)
@@ -1245,6 +1288,7 @@ class AIAGVDAFMEAAnalysis(BaseModel):
     kind: Literal["dfmea", "pfmea", "fmea_msr"]
     revision: str = "A"
     status: Literal["draft", "in_review", "finalized"] = "draft"
+    system_binding: Optional[FmeaSystemBinding] = None
     rating_profile_id: Optional[str] = Field(None, max_length=128)
     planning: FMEAPlanning = Field(default_factory=FMEAPlanning)
     structure_nodes: list[FMEAStructureNode] = Field(
@@ -1780,6 +1824,8 @@ class FMEAFailureFlowSnapshot(BaseModel):
 
 
 class FMEARevisionRecord(BaseModel):
+    canonical_context_sha256: Optional[str] = Field(None, pattern=r"^[a-f0-9]{64}$")
+    canonical_system: Optional[SystemDefinitionModel] = None
     """Content-addressed snapshot metadata for one controlled revision."""
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     id: str = Field(min_length=1, max_length=128)
@@ -1793,6 +1839,8 @@ class FMEARevisionRecord(BaseModel):
 
 
 class FMEAReleaseRecord(BaseModel):
+    canonical_context_sha256: Optional[str] = Field(None, pattern=r"^[a-f0-9]{64}$")
+    canonical_system: Optional[SystemDefinitionModel] = None
     """Immutable release manifest retained with the project."""
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     id: str = Field(min_length=1, max_length=128)
@@ -1822,7 +1870,7 @@ class FMEAReleaseRecord(BaseModel):
 class FMEAStudy(BaseModel):
     """Authoritative FMEA model plus evidence and controlled lifecycle data."""
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
-    schema_version: Literal[2] = 2
+    schema_version: Literal[4]
     id: str = Field(min_length=1, max_length=128)
     lifecycle_status: Literal[
         "draft", "in_review", "approved", "released", "superseded", "retired",
@@ -1901,12 +1949,21 @@ class FMEAStudy(BaseModel):
 
 
 class FMEAAnalyzeRequest(BaseModel):
+    canonical_system: Optional[SystemDefinitionModel] = None
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     studies: list[FMEAStudy] = Field(default_factory=list, max_length=1000)
     rating_profiles: list[FMEARatingProfile] = Field(
         default_factory=list, max_length=100)
     program_requirements: list[ReliabilityRequirementRow] = Field(
         default_factory=list, max_length=10000)
+
+
+class FMEAReadinessRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    study: FMEAStudy
+    canonical_system: Optional[SystemDefinitionModel] = None
+    rating_profiles: list[FMEARatingProfile] = Field(default_factory=list, max_length=100)
+    program_requirements: list[ReliabilityRequirementRow] = Field(default_factory=list, max_length=10000)
 
 
 class FMEADiffRequest(BaseModel):
@@ -1916,6 +1973,7 @@ class FMEADiffRequest(BaseModel):
 
 
 class FMEARevisionRequest(BaseModel):
+    canonical_system: Optional[SystemDefinitionModel] = None
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     study: FMEAStudy
     created_by: str = Field(min_length=1, max_length=512)
@@ -1923,6 +1981,7 @@ class FMEARevisionRequest(BaseModel):
 
 
 class FMEAReleaseRequest(BaseModel):
+    canonical_system: Optional[SystemDefinitionModel] = None
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     study: FMEAStudy
     rating_profiles: list[FMEARatingProfile] = Field(
@@ -1942,6 +2001,9 @@ class FMEAVerifyReleaseRequest(BaseModel):
 
 
 class FMEALifecycleTransitionRequest(BaseModel):
+    rating_profiles: list[FMEARatingProfile] = Field(default_factory=list, max_length=100)
+    program_requirements: list[ReliabilityRequirementRow] = Field(default_factory=list, max_length=10000)
+    canonical_system: Optional[SystemDefinitionModel] = None
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     study: FMEAStudy
     target_status: Literal[
@@ -1990,6 +2052,7 @@ class FMEASuggestionRequest(BaseModel):
 
 
 class ReliabilityProgramRequest(BaseModel):
+    canonical_system: Optional[SystemDefinitionModel] = None
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     hazards: list[HazardRow] = Field(default_factory=list, max_length=10000)
     fracas: list[FRACASRow] = Field(default_factory=list, max_length=10000)

@@ -102,7 +102,7 @@ export default function Sherpa() {
 
   return (
     <ToolLayout
-      intro="Error-mode likelihood screen — a SHERPA-inspired task-step taxonomy with local L/M/H numeric anchors. It supports prioritization but is not the complete SHERPA analysis and reduction workflow."
+      intro="SHERPA-inspired screening with local likelihood anchors; not a full SHERPA analysis."
       controls={controls} err={error} loading={loading} onRun={run} runLabel="Aggregate" results={results} />
   )
 }

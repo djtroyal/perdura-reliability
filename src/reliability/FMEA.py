@@ -10,6 +10,8 @@ import json
 from math import exp
 from typing import Any, Iterable, Mapping
 
+from reliability.FMEA_readiness import require_fmea_readiness, evaluate_fmea_readiness
+
 from reliability.AIAG_VDA_FMEA import (
     analyze_aiag_vda_fmea,
 )
@@ -94,7 +96,7 @@ METHOD_PROFILES: tuple[dict[str, Any], ...] = (
 )
 
 
-STUDY_SCHEMA_VERSION = 2
+STUDY_SCHEMA_VERSION = 4
 LIFECYCLE_TRANSITIONS: dict[str, frozenset[str]] = {
     "draft": frozenset({"in_review", "retired"}),
     "in_review": frozenset({"draft", "approved", "retired"}),
@@ -1067,8 +1069,14 @@ def analyze_studies(
     *,
     rating_profiles: Iterable[Mapping[str, Any]] = (),
     program_requirements: Iterable[Mapping[str, Any]] = (),
+    canonical_system: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    records = [deepcopy(dict(item)) for item in studies]
+    rating_profiles, program_requirements = list(rating_profiles), list(program_requirements)
+    submitted = list(studies)
+    source_studies = {str(item["id"]): deepcopy(dict(item)) for item in submitted}
+    if len(source_studies) != len(submitted):
+        raise ValueError("FMEA study IDs must be unique.")
+    records = [require_fmea_readiness(item, canonical_system, rating_profiles=rating_profiles, program_requirements=program_requirements) for item in source_studies.values()]
     core = analyze_aiag_vda_fmea(
         [item["model"] for item in records],
         rating_profiles=rating_profiles,
@@ -1139,7 +1147,7 @@ def analyze_studies(
             "study_id": study["id"],
             "method_profile_id": study["method_profile_id"],
             "method_profile": method,
-            "content_sha256": study_sha256(study),
+            "content_sha256": study_sha256(source_studies[str(study["id"])]),
             "analysis": analysis,
             "evidence_findings": evidence_findings,
             "flowdown_findings": flowdown_findings,
@@ -1218,14 +1226,34 @@ def semantic_diff(before: Any, after: Any, path: str = "") -> list[dict[str, Any
     }]
 
 
+def _canonical_context_hash(study, canonical_system):
+    if not canonical_system or study.get("model", {}).get("kind") == "pfmea":
+        return None
+    from reliability.FMEA_readiness import architecture_context
+    return canonical_sha256(architecture_context(canonical_system, study["model"].get("system_binding") or {})["semantic"])
+
+
+def _require_current_canonical_revision(study, canonical_system):
+    if study.get("model", {}).get("kind") == "pfmea":
+        return
+    revisions = study.get("revisions", [])
+    expected = _canonical_context_hash(study, canonical_system)
+    if not revisions or not revisions[-1].get("canonical_system") or revisions[-1].get("canonical_context_sha256") != expected:
+        raise ValueError("Capture the current canonical architecture context as a revision before review, approval, or release.")
+
+
 def create_revision(
     study: Mapping[str, Any], *, created_by: str, change_summary: str,
+    canonical_system: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    if study.get("model", {}).get("kind") != "pfmea":
+        require_fmea_readiness(study, canonical_system, through_step=2)
     now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     content_hash = study_sha256(study)
+    context_hash = _canonical_context_hash(study, canonical_system)
     revisions = study.get("revisions", [])
     parent_hash = revisions[-1]["content_sha256"] if revisions else None
-    if parent_hash == content_hash:
+    if parent_hash == content_hash and revisions[-1].get("canonical_context_sha256") == context_hash:
         raise ValueError(
             "The FMEA has not changed since the latest controlled revision.")
     revision = str(study["model"].get("revision", "")).strip() or "A"
@@ -1238,6 +1266,8 @@ def create_revision(
         "content_sha256": content_hash,
         "parent_sha256": parent_hash,
         "snapshot": deepcopy(_study_payload(study)),
+        "canonical_system": deepcopy(canonical_system),
+        "canonical_context_sha256": _canonical_context_hash(study, canonical_system),
     }
 
 
@@ -1249,9 +1279,11 @@ def create_release(
     software_version: str,
     software_commit: str,
     attestations: list[Mapping[str, Any]],
+    canonical_system: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     rating_profiles = list(rating_profiles)
     program_requirements = list(program_requirements)
+    require_fmea_readiness(study, canonical_system, through_step=7, rating_profiles=rating_profiles, program_requirements=program_requirements)
     if study.get("lifecycle_status", "draft") != "approved":
         raise ValueError(
             "A controlled release requires an approved FMEA baseline.")
@@ -1267,7 +1299,7 @@ def create_release(
             "A release cannot include a rejected attestation.")
     result = analyze_studies(
         [study], rating_profiles=rating_profiles,
-        program_requirements=program_requirements,
+        program_requirements=program_requirements, canonical_system=canonical_system,
     )["studies"][0]
     if not result["release_ready"]:
         raise ValueError(
@@ -1281,6 +1313,7 @@ def create_release(
     if not revisions or revisions[-1].get("content_sha256") != content_hash:
         raise ValueError(
             "Capture the approved engineering content as a revision before release.")
+    _require_current_canonical_revision(study, canonical_system)
     now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     assurance = (
         "authenticated_hosted"
@@ -1319,6 +1352,8 @@ def create_release(
         "method_profile": deepcopy(method),
         "rating_profile": deepcopy(rating),
         "engineering_snapshot": deepcopy(_study_payload(study)),
+        "canonical_system": deepcopy(canonical_system),
+        "canonical_context_sha256": _canonical_context_hash(study, canonical_system),
         "analysis_summary": {
             "summary": deepcopy(result["analysis"].get("summary", {})),
             "issue_index": deepcopy(result.get("issue_index", [])),
@@ -1344,10 +1379,14 @@ def verify_release(
     manifest = dict(release)
     expected_manifest = manifest.pop("manifest_sha256", "")
     manifest_actual = canonical_sha256(manifest)
+    canonical_matches = (release.get("canonical_context_sha256") == _canonical_context_hash(study, release.get("canonical_system")))
+    if study.get("model", {}).get("kind") != "pfmea" and not release.get("canonical_system"):
+        canonical_matches = False
     return {
         "valid": (
             content_actual == release.get("content_sha256")
             and manifest_actual == expected_manifest
+            and canonical_matches
             and study.get("id") == release.get("study_id")
             and (
                 not release.get("engineering_snapshot")
@@ -1357,6 +1396,7 @@ def verify_release(
         ),
         "content_matches": content_actual == release.get("content_sha256"),
         "manifest_matches": manifest_actual == expected_manifest,
+        "canonical_context_matches": canonical_matches,
         "study_matches": study.get("id") == release.get("study_id"),
         "snapshot_matches": (
             not release.get("engineering_snapshot")
@@ -1457,8 +1497,13 @@ def transition_lifecycle(
     actor: str,
     rationale: str,
     attestations: Iterable[Mapping[str, Any]] = (),
+    canonical_system: Mapping[str, Any] | None = None,
+    rating_profiles: Iterable[Mapping[str, Any]] = (),
+    program_requirements: Iterable[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
     """Return a study copy after a validated lifecycle transition."""
+    if target_status in {"in_review", "approved", "released"}:
+        require_fmea_readiness(study, canonical_system, through_step=7, rating_profiles=rating_profiles, program_requirements=program_requirements)
     current = str(study.get("lifecycle_status", "draft"))
     if target_status not in LIFECYCLE_TRANSITIONS.get(current, frozenset()):
         raise ValueError(
@@ -1476,6 +1521,8 @@ def transition_lifecycle(
                 "content_sha256") != study_sha256(study):
             raise ValueError(
                 "Capture the current engineering content as a revision first.")
+    if target_status in {"in_review", "approved"}:
+        _require_current_canonical_revision(study, canonical_system)
     if target_status == "approved" and any(
         item["severity"] == "error" for item in validate_governance(study)
     ):

@@ -2,6 +2,11 @@ import { emptySystemDefinition, type SystemDefinitionState } from '../components
 import type { SystemBlockDefinition, SystemBlockInstance, SystemDefinitionModel } from '../api/systemDefinition'
 import type { PredictionPart } from '../api/client'
 import { systemInputFingerprint } from './sharedSystemFingerprint'
+import { canonicalFmeaBinding, fmeaSemanticFingerprint, inspectFmeaBinding } from './sharedFmeaModel'
+import { populateSystemInterfaceFunctions } from './interfaceFunctions'
+import { validateArchitectureIntegrity } from './systemArchitecture'
+import { assertFmeaDraftIntegrity } from './fmeaDraftIntegrity'
+import type { AIAGVDAFMEAAnalysis } from '../api/reliabilityProgram'
 export { systemInputFingerprint } from './sharedSystemFingerprint'
 
 export interface SharedPredictionBlock {
@@ -27,6 +32,15 @@ const sharedBlockKeys = new Set(['id', 'name', 'parentId', 'quantity', 'system_r
 const record = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value)
   ? value as Record<string, unknown> : {}
 const same = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right)
+const immutableOrResultKeys = new Set(['result', 'results', 'resultProvenance', 'canonicalDependencies',
+  'snapshot', 'engineering_snapshot', 'revisions', 'releases'])
+function canonicalReference(source: Record<string, unknown>): Record<string, unknown> {
+  const ref = record(source.systemRef ?? source.system_ref ?? source.system_definition_ref)
+  if (Object.keys(ref).length) return ref
+  const legacy = record(source.source_ref)
+  return legacy.module === 'system_definition'
+    ? { system_model_id: legacy.analysis_id, instance_id: legacy.entity_id } : {}
+}
 const predictionAdapters: Record<string, string> = {
   'MIL-HDBK-217F': 'prediction.mil-hdbk-217f', Telcordia: 'prediction.telcordia-sr332',
   '217Plus': 'prediction.217plus', FIDES: 'prediction.fides', NSWC: 'prediction.nswc-98-le1',
@@ -45,6 +59,10 @@ export function createProjectSystem(name = 'Project system'): SystemDefinitionSt
 }
 
 export function validateProjectSystem(model: SystemDefinitionModel): void {
+  if (model.version !== 4 || !Array.isArray(model.resources))
+    throw new Error('System Model version 4 is required. Older architecture models are not migrated.')
+  const architectureIssues = validateArchitectureIntegrity(model)
+  if (architectureIssues.length) throw new Error(architectureIssues[0].message)
   const byId = new Map(model.instances.map(item => [item.id, item]))
   const definitions = new Map(model.definitions.map(item => [item.id, item]))
   if (byId.size !== model.instances.length || definitions.size !== model.definitions.length)
@@ -98,6 +116,48 @@ export function normalizeSharedSystemModules(modules: Record<string, unknown>): 
       if (Object.keys(record(scenario.partInputs)).some(id => !partIds.has(id))
           || Object.keys(record(scenario.blockInputs)).some(id => !blockIds.has(id)))
         throw new Error('Prediction scenario inputs reference missing system items or the wrong item kind.')
+    }
+  }
+  for (const moduleKey of ['fmea', 'reliabilityProgram']) {
+    if (modules[moduleKey] === undefined) continue
+    const moduleValue = modules[moduleKey]
+    if (!moduleValue || typeof moduleValue !== 'object' || Array.isArray(moduleValue))
+      throw new Error(`${moduleKey} requires a current module object.`)
+    const raw = record(moduleValue)
+    if (raw._folioWrap && (!Array.isArray(raw.folios) || !raw.folios.length))
+      throw new Error('FMEA requires at least one current folio with a valid identity.')
+    if (raw._folioWrap) {
+      const folios = raw.folios as unknown[], ids = folios.map(folio => record(folio).id)
+      if (ids.some(id => typeof id !== 'string' || !id.trim()) || new Set(ids).size !== ids.length)
+        throw new Error('FMEA folio identities must be unique nonempty strings.')
+      if (typeof raw.activeId !== 'string' || !ids.includes(raw.activeId))
+        throw new Error('FMEA active folio must reference an existing folio identity.')
+      if (folios.some(value => { const state = record(value).state; return !state || typeof state !== 'object' || Array.isArray(state) }))
+        throw new Error('FMEA folios must contain current module state objects.')
+    }
+    const slices = raw._folioWrap ? (raw.folios as unknown[]).map(folio => record(record(folio).state)) : [raw]
+    for (const slice of slices) {
+      const analyses = slice[moduleKey === 'fmea' ? 'analyses' : 'aiagAnalyses']
+      // Reliability Program may contain only other disciplines; FMEA owns its required collection.
+      if (analyses === undefined && moduleKey === 'reliabilityProgram') continue
+      if (!Array.isArray(analyses)) throw new Error('Current FMEA module state requires an analysis array.')
+      const ids = new Set<string>()
+      for (const value of analyses) {
+        assertFmeaDraftIntegrity(value)
+        if (ids.has(value.id)) throw new Error('FMEA analysis identities must be unique within a folio.')
+        ids.add(value.id)
+      }
+      const validateEnvelope = (value: unknown): void => {
+        if (Array.isArray(value)) { value.forEach(validateEnvelope); return }
+        if (!value || typeof value !== 'object') return
+        const item = record(value)
+        if (item.model && item.method_profile_id) {
+          if (item.schema_version !== 4) throw new Error('Historical FMEA snapshots must use study format 4; older snapshots are not migrated.')
+          assertFmeaDraftIntegrity(item.model)
+        }
+        Object.values(item).forEach(validateEnvelope)
+      }
+      validateEnvelope(slice.governance)
     }
   }
   return modules.systemDefinition === undefined ? { ...modules, systemDefinition: source } : modules
@@ -161,15 +221,27 @@ export function canonicalDependencyUpdates(modules: Record<string, unknown>, bef
   const definitions = new Map(after.model.definitions.map(item => [item.id, item]))
   const oldInstances = new Map(before.model.instances.map(item => [item.id, item]))
   const oldDefinitions = new Map(before.model.definitions.map(item => [item.id, item]))
-  for (const moduleKey of ['faultTree', 'system', 'fmea', 'markov']) {
+  for (const moduleKey of ['faultTree', 'system', 'fmea', 'reliabilityProgram', 'markov']) {
     const raw = record(modules[moduleKey])
     const updateState = (value: unknown) => {
+      if (moduleKey === 'fmea' || moduleKey === 'reliabilityProgram') {
+        const state = record(value), items = state[moduleKey === 'fmea' ? 'analyses' : 'aiagAnalyses']
+        const analyses = (Array.isArray(items) ? items : []) as AIAGVDAFMEAAnalysis[]
+        const linked = analyses.filter(analysis => canonicalFmeaBinding(before.model, analysis))
+        if (!linked.length || fmeaSemanticFingerprint(before.model, linked) === fmeaSemanticFingerprint(after.model, linked)) return value
+        const issues = linked.flatMap(analysis => inspectFmeaBinding(after.model, analysis))
+        const missing = issues.filter(issue => ['missing_system', 'missing_scope', 'missing_mode', 'missing_instance', 'unavailable_reference'].includes(issue.code))
+        return { ...state, canonicalDependencies: { status: missing.length ? 'broken' : 'stale',
+          missingInstanceIds: [...new Set(missing.flatMap(issue => issue.instanceId ? [issue.instanceId] : []))],
+          message: missing.length ? 'Shared system items changed or were deleted. Reconcile linked FMEA work before recalculating.'
+            : 'Shared system inputs changed. Review linked inputs and recalculate.' } }
+      }
       let changed = false
       const broken: string[] = []
       const visit = (node: unknown): unknown => {
         if (Array.isArray(node)) return node.map(visit)
         if (!node || typeof node !== 'object') return node
-        const source = node as Record<string, unknown>, reference = record(source.systemRef ?? source.system_ref ?? source.system_definition_ref)
+        const source = node as Record<string, unknown>, reference = canonicalReference(source)
         let next = source
         if (reference.system_model_id === before.model.id) {
           const id = String(reference.instance_id ?? '')
@@ -192,7 +264,7 @@ export function canonicalDependencyUpdates(modules: Record<string, unknown>, bef
         }
         const output: Record<string, unknown> = { ...next }
         for (const [key, child] of Object.entries(next)) {
-          if (!['result', 'results', 'resultProvenance', 'canonicalDependencies'].includes(key)) output[key] = visit(child)
+          if (!immutableOrResultKeys.has(key)) output[key] = visit(child)
         }
         return output
       }
@@ -296,9 +368,9 @@ export function splitPredictionUpdate<T extends PredictionView>(system: SystemDe
       || model.function_links.some(edge => edge.source.instance_id === item.id || edge.target.instance_id === item.id)
       || model.propagation_rules.some(edge => edge.source?.instance_id === item.id || edge.target?.instance_id === item.id)))
     throw new Error('Remove or reassign System Definition interfaces and functional links before deleting their items.')
-  const nextModel = { ...model, definitions: [...definitions.values()], instances: nextInstances,
+  const nextModel = populateSystemInterfaceFunctions({ ...model, definitions: [...definitions.values()], instances: nextInstances,
     diagrams: removed.length ? model.diagrams.map(diagram => ({ ...diagram,
-      nodes: diagram.nodes.filter(node => !node.instance_id || desired.has(node.instance_id)) })) : model.diagrams }
+      nodes: diagram.nodes.filter(node => !node.instance_id || desired.has(node.instance_id)) })) : model.diagrams }, model)
   validateProjectSystem(nextModel)
   const unchanged = same(model, nextModel)
   const { parts: _, blocks: _blocks, blockSeq: _seq, ...settings } = next
@@ -335,7 +407,7 @@ export function brokenSystemReferences(value: unknown, model: SystemDefinitionMo
   const visit = (node: unknown) => {
     if (Array.isArray(node)) { node.forEach(visit); return }
     if (!node || typeof node !== 'object') return
-    const source = node as Record<string, unknown>, ref = record(source.systemRef ?? source.system_ref ?? source.system_definition_ref)
+    const source = node as Record<string, unknown>, ref = canonicalReference(source)
     if (Object.keys(ref).length) {
       const instance = instances.get(String(ref.instance_id ?? ''))
       const definition = definitions.get(String(ref.definition_id ?? instance?.definition_id ?? ''))
@@ -346,7 +418,7 @@ export function brokenSystemReferences(value: unknown, model: SystemDefinitionMo
       else if (ref.failure_mode_id && !definition?.failure_modes.some(item => item.id === ref.failure_mode_id)) missing.add(`failure:${ref.failure_mode_id}`)
       else if (ref.interface_id && !model.interfaces.some(item => item.id === ref.interface_id)) missing.add(`interface:${ref.interface_id}`)
     }
-    for (const [key, child] of Object.entries(source)) if (!['result', 'results', 'resultProvenance', 'canonicalDependencies'].includes(key)) visit(child)
+    for (const [key, child] of Object.entries(source)) if (!immutableOrResultKeys.has(key)) visit(child)
   }
   visit(value)
   return [...missing]

@@ -1,4 +1,6 @@
 import Papa from 'papaparse'
+import { assertFmeaDraftIntegrity } from '../../store/fmeaDraftIntegrity'
+import { structuredFunctionStatement } from '../../store/systemArchitecture'
 
 import { downloadArtifact } from '../../store/artifactExport'
 import type {
@@ -22,6 +24,7 @@ import type {
   FMEAPDiagramItem,
   FMEAStructureNode,
   FMEAStructureSourceRef,
+  FmeaSystemBinding,
   RequirementInput,
 } from '../../api/reliabilityProgram'
 import { classifyFunctionStatement } from './fmeaVocabulary'
@@ -160,9 +163,9 @@ function fmesMemberships(
   }
   if (dimension === 'function') {
     return [fn
-      ? fmesText(fn.description, `Unnamed function (${fn.id})`)
+      ? fmesText(fn.description, `Unnamed function [${fn.id}]`)
       : chain.function_id
-        ? `Unknown function (${chain.function_id})`
+        ? `Unknown function [${chain.function_id}]`
         : 'No function linked']
   }
   if (dimension === 'structure') {
@@ -220,7 +223,7 @@ function fmesAggregate(
     return fn?.description
       ? fn.description
       : chain.function_id
-        ? `Unknown function (${chain.function_id})`
+        ? `Unknown function [${chain.function_id}]`
         : 'No function linked'
   })
   return {
@@ -387,7 +390,8 @@ export function arrangeStructureNodes(
   const target = targetId
     ? nodes.find(node => node.id === targetId)
     : undefined
-  if (!dragged || (placement !== 'root' && !target)) return nodes
+  if (!dragged || dragged.source_ref?.module === 'prediction'
+      || (placement !== 'root' && !target)) return nodes
   if (target?.id === dragged.id) return nodes
   if (target) {
     const byId = new Map(nodes.map(node => [node.id, node]))
@@ -422,7 +426,7 @@ export function indentStructureNode(
   nodeId: string,
 ): FMEAStructureNode[] {
   const node = nodes.find(item => item.id === nodeId)
-  if (!node) return nodes
+  if (!node || node.source_ref?.module === 'prediction') return nodes
   const siblings = nodes.filter(item =>
     (item.parent_id ?? '') === (node.parent_id ?? ''))
   const siblingIndex = siblings.findIndex(item => item.id === nodeId)
@@ -440,7 +444,7 @@ export function outdentStructureNode(
   nodeId: string,
 ): FMEAStructureNode[] {
   const node = nodes.find(item => item.id === nodeId)
-  if (!node?.parent_id) return nodes
+  if (!node?.parent_id || node.source_ref?.module === 'prediction') return nodes
   return arrangeStructureNodes(nodes, nodeId, node.parent_id, 'after')
 }
 
@@ -449,7 +453,7 @@ export function removeStructureNode(
   nodeId: string,
 ): FMEAStructureNode[] {
   const node = nodes.find(item => item.id === nodeId)
-  if (!node) return nodes
+  if (!node || node.source_ref?.module === 'prediction') return nodes
   return orderedStructureNodes(nodes)
     .filter(item => item.id !== nodeId)
     .map(item => item.parent_id === nodeId
@@ -467,6 +471,7 @@ export function defaultFmeaBlockDiagram(label = ''): FMEABlockDiagram {
   return {
     version: 2,
     density: 'comfortable',
+    connectorStyle: 'curved',
     boundary: {
       label,
       x: 80,
@@ -500,6 +505,7 @@ export function createFmeaAnalysis(
     structure_nodes: [],
     block_diagram: defaultFmeaBlockDiagram(defaultAnalysisName(kind)),
     functions: [],
+    resources: [],
     function_links: [],
     functional_requirements: [],
     function_requirement_links: [],
@@ -624,254 +630,20 @@ function canonicalInterfaceType(
   return 'information'
 }
 
-/**
- * Upgrade the immediately preceding Function Analysis shape once, then return
- * only the current contract. This is intentionally a normalization boundary,
- * not a permanent dual-schema renderer.
- */
-export function normalizeFmeaAnalysis(
-  source: AIAGVDAFMEAAnalysis,
-): AIAGVDAFMEAAnalysis {
+/** Current-format normalization never infers a structured model from old prose. */
+export function normalizeFmeaAnalysis(source: AIAGVDAFMEAAnalysis): AIAGVDAFMEAAnalysis {
+  if (!Array.isArray(source.resources) || !source.block_diagram || !Array.isArray(source.functions))
+    throw new Error('This FMEA uses an older model format. Create a new structured analysis or open a current-format file.')
+  if (source.functions.some(fn => 'requirement' in fn || 'specification' in fn))
+    throw new Error('Legacy freeform function records cannot be imported into the structured model.')
+  assertFmeaDraftIntegrity(source)
   const analysis = structuredClone(source)
-  const legacyFunctions = (analysis.functions ?? []) as unknown as LegacyFunction[]
-  const functionalRequirements = [
-    ...(analysis.functional_requirements ?? []),
-  ]
-  const requirementLinks = [
-    ...(analysis.function_requirement_links ?? []),
-  ]
-  const usedRequirementIds = new Set(
-    functionalRequirements.map(item => item.id))
-  const usedLinkIds = new Set(requirementLinks.map(item => item.id))
-  const blockDiagram = structuredClone(
-    (analysis as AIAGVDAFMEAAnalysis & {
-      block_diagram?: FMEABlockDiagram
-    }).block_diagram
-      ?? defaultFmeaBlockDiagram(
-        analysis.planning?.subject || analysis.name,
-      ),
-  )
-  const diagramNodeIds = new Set(blockDiagram.nodes.map(item => item.id))
-  let diagramSequence = blockDiagram.nodes.length + 1
-  const nextDiagramId = () => {
-    let value = `BDN-${diagramSequence++}`
-    while (diagramNodeIds.has(value)) value = `BDN-${diagramSequence++}`
-    diagramNodeIds.add(value)
-    return value
-  }
-  const ensureStructureBlock = (structureId: string) => {
-    const existing = blockDiagram.nodes.find(item =>
-      item.kind === 'structure'
-      && item.structure_node_id === structureId)
-    if (existing) return existing.id
-    const structure = analysis.structure_nodes.find(
-      item => item.id === structureId)
-    const index = blockDiagram.nodes.filter(
-      item => item.kind === 'structure').length
-    const created = {
-      id: nextDiagramId(),
-      kind: 'structure' as const,
-      structure_node_id: structureId,
-      label: structure?.name || structureId,
-      x: 150 + (index % 4) * 210,
-      y: 150 + Math.floor(index / 4) * 120,
-      width: 180,
-      height: 72,
-      inside_boundary: true,
-    }
-    blockDiagram.nodes.push(created)
-    return created.id
-  }
-  const ensureExternalBlock = (label: string) => {
-    const normalized = label.trim()
-    const existing = blockDiagram.nodes.find(item =>
-      item.kind === 'external'
-      && item.label.trim().toLowerCase() === normalized.toLowerCase())
-    if (existing) return existing.id
-    const index = blockDiagram.nodes.filter(
-      item => item.kind === 'external').length
-    const created = {
-      id: nextDiagramId(),
-      kind: 'external' as const,
-      label: normalized || 'External element',
-      external_kind: 'adjacent_system' as const,
-      x: 1040,
-      y: 120 + index * 100,
-      width: 180,
-      height: 72,
-      inside_boundary: false,
-    }
-    blockDiagram.nodes.push(created)
-    return created.id
-  }
-  blockDiagram.nodes = blockDiagram.nodes.map(node => {
-    if (node.kind !== 'structure') return {
-      ...node,
-      container_parent_block_id: undefined,
-      expanded: false,
-    }
-    const structure = analysis.structure_nodes.find(
-      item => item.id === node.structure_node_id)
-    const container = blockDiagram.nodes.find(
-      item => item.id === node.container_parent_block_id)
-    const containerStructure = analysis.structure_nodes.find(
-      item => item.id === container?.structure_node_id)
-    const validContainer = structure
-      && container?.kind === 'structure'
-      && structure.parent_id === containerStructure?.id
-    return {
-      ...node,
-      label: structure?.name ?? node.label,
-      expanded: Boolean(node.expanded),
-      container_parent_block_id: validContainer
-        ? node.container_parent_block_id : undefined,
-    }
+  analysis.functions = analysis.functions.map(fn => {
+    if (!fn.definition) return fn
+    const { canonical_verb_id: _verb, ...fields } = fn
+    return { ...fields, description: structuredFunctionStatement(fn.definition, analysis.resources) }
   })
-  const normalizedDiagramById = new Map(
-    blockDiagram.nodes.map(node => [node.id, node]))
-  const inheritedBoundaryScope = (
-    node: FMEABlockDiagramNode,
-    trail = new Set<string>(),
-  ): boolean => {
-    if (!node.container_parent_block_id || trail.has(node.id)) {
-      return node.inside_boundary
-    }
-    const parent = normalizedDiagramById.get(node.container_parent_block_id)
-    if (!parent) return node.inside_boundary
-    return inheritedBoundaryScope(parent, new Set(trail).add(node.id))
-  }
-  blockDiagram.nodes = blockDiagram.nodes.map(node => ({
-    ...node,
-    inside_boundary: inheritedBoundaryScope(node),
-  }))
-  blockDiagram.density = [
-    'dense', 'compact', 'comfortable', 'spacious', 'expanded',
-  ].includes(blockDiagram.density)
-    ? blockDiagram.density : 'comfortable'
-  blockDiagram.version = 2
-  const interfaces = ((analysis.interfaces ?? []) as unknown as LegacyInterface[])
-    .map(raw => {
-      const sourceBlockId = raw.source_block_id
-        || (raw.source_structure_node_id
-          ? ensureStructureBlock(raw.source_structure_node_id)
-          : raw.external_source
-            ? ensureExternalBlock(raw.external_source)
-            : undefined)
-      const targetBlockId = raw.target_block_id
-        || (raw.target_structure_node_id
-          ? ensureStructureBlock(raw.target_structure_node_id)
-          : raw.external_target
-            ? ensureExternalBlock(raw.external_target)
-            : undefined)
-      const interfaceType = canonicalInterfaceType(raw.interface_type)
-      return {
-        id: raw.id,
-        name: raw.name ?? '',
-        interface_type: interfaceType,
-        source_block_id: sourceBlockId,
-        target_block_id: targetBlockId,
-        source_handle: raw.source_handle,
-        target_handle: raw.target_handle,
-        linkage: raw.linkage
-          ?? (interfaceType === 'clearance' ? 'indirect' : 'direct'),
-        directionality: raw.directionality
-          ?? (interfaceType === 'physical' || interfaceType === 'clearance'
-            ? 'undirected' : 'directed'),
-        relationship_strength: raw.relationship_strength ?? 'unspecified',
-        relationship_nature: raw.relationship_nature ?? 'unspecified',
-        interface_detail: raw.interface_detail ?? '',
-        source_structure_node_id: raw.source_structure_node_id,
-        target_structure_node_id: raw.target_structure_node_id,
-        external_source: raw.external_source ?? '',
-        external_target: raw.external_target ?? '',
-        flow_description: raw.flow_description ?? '',
-        operating_condition: raw.operating_condition ?? '',
-        function_ids: raw.function_ids ?? [],
-        requirement_ids: raw.requirement_ids ?? [],
-      } satisfies FMEAInterface
-    })
-
-  const functions = legacyFunctions.map(raw => {
-    const {
-      requirement = '',
-      characteristic_type = '',
-      specification = '',
-      ...current
-    } = raw
-    if ([requirement, characteristic_type, specification]
-      .some(value => String(value).trim())) {
-      let requirementId = `FREQ-${raw.id}`
-      let suffix = 2
-      while (usedRequirementIds.has(requirementId)) {
-        requirementId = `FREQ-${raw.id}-${suffix++}`
-      }
-      usedRequirementIds.add(requirementId)
-      functionalRequirements.push({
-        id: requirementId,
-        statement: requirement || `${raw.description} requirement`,
-        requirement_type: normalizeLegacyRequirementType(characteristic_type),
-        measure: '',
-        target: '',
-        unit: '',
-        acceptance_criteria: specification,
-        operating_condition: '',
-        source: 'Migrated from inline FMEA function requirement',
-        owner: '',
-        confidence: '',
-        verification_method: '',
-        evidence_ids: [],
-        special_characteristic: characteristic_type,
-      })
-      let linkId = `FRC-${raw.id}`
-      let linkSuffix = 2
-      while (usedLinkIds.has(linkId)) linkId = `FRC-${raw.id}-${linkSuffix++}`
-      usedLinkIds.add(linkId)
-      requirementLinks.push({
-        id: linkId,
-        function_id: raw.id,
-        requirement_id: requirementId,
-        strength: 'strong',
-        rationale: 'Migrated from the prior inline requirement.',
-      })
-    }
-    const vocabularyMatch = classifyFunctionStatement(current.description)
-    return {
-      id: current.id,
-      structure_node_id: current.structure_node_id,
-      description: current.description,
-      canonical_verb_id: current.canonical_verb_id
-        ?? ((vocabularyMatch.status === 'canonical'
-          || vocabularyMatch.status === 'alias')
-          ? vocabularyMatch.term?.id : undefined),
-      function_type: current.function_type ?? 'primary',
-      operating_modes: current.operating_modes ?? [],
-      owner: current.owner ?? '',
-      notes: current.notes ?? '',
-    }
-  })
-  return {
-    ...analysis,
-    block_diagram: blockDiagram,
-    functions,
-    function_links: analysis.function_links ?? [],
-    functional_requirements: functionalRequirements,
-    function_requirement_links: requirementLinks,
-    interfaces,
-    p_diagrams: analysis.p_diagrams ?? [],
-  }
-}
-
-function normalizeLegacyRequirementType(
-  value: string,
-): FMEAFunctionalRequirement['requirement_type'] {
-  const normalized = value.trim().toLowerCase()
-  if (normalized.includes('process')) return 'process'
-  if (normalized.includes('performance')) return 'performance'
-  if (normalized.includes('interface')) return 'interface'
-  if (normalized.includes('safety')) return 'safety'
-  if (normalized.includes('regulat')) return 'regulatory'
-  if (normalized.includes('customer')) return 'customer'
-  return 'functional'
+  return analysis
 }
 
 export function programRequirementSnapshot(requirement: RequirementInput) {
@@ -991,6 +763,7 @@ export async function readFmeaFile(file: File): Promise<{
   rows: Record<string, string>[]
   sheets?: FmeaWorkbookSheets
 }> {
+  if (!file.name.toLowerCase().endsWith('.xlsx')) throw new Error('Import a current-format Perdura XLSX workbook. Worksheet CSV is a report export, not a structured model.')
   if (/\.xlsx$/i.test(file.name)) {
     const { default: readXlsxFile } = await import('read-excel-file/browser')
     const sheets = await readXlsxFile(await file.arrayBuffer())
@@ -1210,12 +983,16 @@ export function functionWorkbookSheets(
     interface: item.interface, element_type: item.element_type ?? '',
     prediction_source_ref: item.source_ref
       ? JSON.stringify(item.source_ref) : '',
+    system_definition_ref: item.system_definition_ref
+      ? JSON.stringify(item.system_definition_ref) : '',
   }))
   const functions: WorkbookRow[] = analysis.functions.map(item => ({
     id: item.id, structure_node_id: item.structure_node_id,
     description: item.description, function_type: item.function_type,
     operating_modes: jsonList(item.operating_modes), owner: item.owner,
     notes: item.notes,
+    canonical_verb_id: item.canonical_verb_id ?? '',
+    definition: item.definition ? JSON.stringify(item.definition) : '',
     system_definition_ref: item.system_definition_ref
       ? JSON.stringify(item.system_definition_ref) : '',
   }))
@@ -1229,9 +1006,9 @@ export function functionWorkbookSheets(
   const correlations: WorkbookRow[] =
     analysis.function_requirement_links.map(item => ({ ...item }))
   const functionLinks: WorkbookRow[] =
-    analysis.function_links.map(item => ({ ...item }))
+    analysis.function_links.map(item => ({ ...item, mode_ids: jsonList(item.mode_ids ?? []) }))
   const interfaces: WorkbookRow[] = analysis.interfaces.map(item => ({
-    ...item,
+    ...item, transfers: JSON.stringify(item.transfers ?? []), mode_ids: jsonList(item.mode_ids ?? []),
     system_definition_ref: item.system_definition_ref
       ? JSON.stringify(item.system_definition_ref) : '',
     source_structure_node_id: item.source_structure_node_id ?? '',
@@ -1256,6 +1033,7 @@ export function functionWorkbookSheets(
     viewport_zoom: analysis.block_diagram.viewport.zoom,
     snap_to_grid: analysis.block_diagram.snap_to_grid,
     density: analysis.block_diagram.density,
+    connectorStyle: analysis.block_diagram.connectorStyle ?? 'curved',
   }, ...analysis.block_diagram.nodes.map(item => ({
     record_type: 'node',
     id: item.id,
@@ -1263,6 +1041,7 @@ export function functionWorkbookSheets(
     structure_node_id: item.structure_node_id ?? '',
     label: item.label,
     external_kind: item.external_kind ?? '',
+    ports: JSON.stringify(item.ports ?? []),
     container_parent_block_id: item.container_parent_block_id ?? '',
     expanded: Boolean(item.expanded),
     x: item.x,
@@ -1295,6 +1074,11 @@ export function functionWorkbookSheets(
     source_revision: item.source_revision ?? '',
   }))
   const workbook = [
+    { name: 'Perdura Format', rows: [{ schema_version: 4, system_model_version: 4, kind: analysis.kind }] },
+    { name: 'Resources', rows: analysis.resources.map(resource => ({ ...resource })) },
+    ...(analysis.system_binding ? [{ name: 'System Binding', rows: [{
+      analysis_id: analysis.id, system_binding: JSON.stringify(analysis.system_binding),
+    }] }] : []),
     { name: 'FMEA Worksheet', rows: worksheetRows(analysis) },
     { name: 'Structure', rows: structures },
     { name: 'Functions', rows: functions },
@@ -1480,6 +1264,7 @@ const workbookStructureSource = (
       imported_at: String(parsed.imported_at),
       source_checksum: String(parsed.source_checksum),
       source_name: String(parsed.source_name),
+      piece_key: parsed.piece_key ? String(parsed.piece_key) : undefined,
       reference_designators: Array.isArray(parsed.reference_designators)
         ? parsed.reference_designators.map(String) : [],
       part_number: parsed.part_number ? String(parsed.part_number) : undefined,
@@ -1500,11 +1285,29 @@ const workbookSystemDefinitionRef = (
   if (!text) return undefined
   try {
     const parsed = JSON.parse(text) as FMEAInterface['system_definition_ref']
-    if (!parsed?.system_model_id || !parsed.interface_id) return undefined
-    return parsed
+    if (!parsed || typeof parsed.system_model_id !== 'string' || !parsed.system_model_id.trim()) return undefined
+    const fields = ['instance_id', 'definition_id', 'function_id', 'failure_mode_id', 'interface_id', 'revision', 'checksum'] as const
+    if (!parsed.instance_id && !parsed.interface_id) return undefined
+    if (fields.some(field => parsed[field] != null && typeof parsed[field] !== 'string')) return undefined
+    return Object.fromEntries([['system_model_id', parsed.system_model_id],
+      ...fields.filter(field => parsed[field] != null).map(field => [field, parsed[field]])]) as NonNullable<FMEAInterface['system_definition_ref']>
   } catch {
     return undefined
   }
+}
+
+const workbookInterfaceOrigin = (value: string | undefined): FMEAFunction['interface_origin'] => {
+  if (!value) return undefined
+  try {
+    const parsed = JSON.parse(value) as FMEAFunction['interface_origin']
+    if (!parsed || !['source', 'target'].includes(parsed.endpoint)
+      || typeof parsed.interface_id !== 'string' || !parsed.interface_id
+      || typeof parsed.instance_id !== 'string' || !parsed.instance_id
+      || typeof parsed.generated_description !== 'string'
+      || !Array.isArray(parsed.generated_mode_ids) || parsed.generated_mode_ids.some(mode => typeof mode !== 'string')) return undefined
+    return { interface_id: parsed.interface_id, endpoint: parsed.endpoint, instance_id: parsed.instance_id,
+      generated_description: parsed.generated_description, generated_mode_ids: [...parsed.generated_mode_ids] }
+  } catch { return undefined }
 }
 
 export const FAILURE_FLOW_WORKBOOK_SHEETS = [
@@ -1668,6 +1471,7 @@ export function importFailureFlowWorkbook(
 }
 
 export const FUNCTION_WORKBOOK_SHEETS = [
+  'Perdura Format', 'Resources', 'System Binding',
   'Structure', 'Functions', 'Requirements', 'Correlations',
   'Function Links', 'Block Diagram', 'Interfaces', 'P-Diagrams', 'Control Plan',
 ] as const
@@ -1688,7 +1492,42 @@ export function importFunctionWorkbook(
   analysis: AIAGVDAFMEAAnalysis,
   sheets: FmeaWorkbookSheets,
 ): AIAGVDAFMEAAnalysis {
+  for (const [name, rows] of Object.entries(sheets)) if (!Array.isArray(rows) || rows.some(row => !row || typeof row !== 'object' || Array.isArray(row)))
+    throw new Error(`Invalid current-format workbook sheet: ${name}.`)
+  const format = sheets['Perdura Format']?.[0]
+  if (Number(format?.schema_version) !== 4 || Number(format?.system_model_version) !== 4)
+    throw new Error('This workbook requires Perdura FMEA format 4. Older workbooks are not migrated.')
+  if (format.kind !== analysis.kind) throw new Error('The workbook analysis kind must match the destination study.')
+  if (!sheets.Resources) throw new Error('The current-format workbook must include its Resources registry.')
+  const jsonValue = <T,>(value: string | undefined, fallback: T): T => {
+    if (!value) return fallback
+    try { return JSON.parse(value) as T } catch { throw new Error('Invalid structured JSON in FMEA workbook.') }
+  }
   const next = structuredClone(analysis)
+  next.resources = sheets.Resources.map(row => ({ id: row.id, name: row.name, category: row.category as AIAGVDAFMEAAnalysis['resources'][number]['category'], quantity: row.quantity || undefined, unit: row.unit || undefined }))
+  if (next.resources.some(resource => !resource.id || !resource.name || !['energy','information','material','physical','human_machine','clearance','state'].includes(resource.category))
+    || new Set(next.resources.map(resource => resource.id)).size !== next.resources.length) throw new Error('The workbook contains invalid resource identities or categories.')
+  let workbookAnalysisId = analysis.id
+  if (sheets['System Binding']) {
+    const bindings = sheets['System Binding']
+    // A single-analysis workbook can be imported into a new folio. The source
+    // system identity belongs to the workbook, not the destination folio ID.
+    const row = bindings.find(item => !item.analysis_id || item.analysis_id === analysis.id)
+      ?? (bindings.length === 1 ? bindings[0] : undefined)
+    if (bindings.length && !row) throw new Error('Select an unambiguous System Binding for this FMEA workbook.')
+    if (row?.system_binding) {
+      workbookAnalysisId = row.analysis_id || analysis.id
+      let parsed: FmeaSystemBinding
+      try { parsed = JSON.parse(row.system_binding) as FmeaSystemBinding }
+      catch { throw new Error('Invalid System Binding in the FMEA workbook.') }
+      if (!parsed || parsed.version !== 1 || typeof parsed.system_model_id !== 'string' || !parsed.system_model_id.trim()
+        || typeof parsed.scope_instance_id !== 'string' || !parsed.scope_instance_id.trim()
+        || (parsed.mode_id != null && (typeof parsed.mode_id !== 'string' || !parsed.mode_id.trim())))
+        throw new Error('Invalid System Binding in the FMEA workbook.')
+      next.system_binding = { version: 1, system_model_id: parsed.system_model_id,
+        scope_instance_id: parsed.scope_instance_id, ...(parsed.included_piece_part_ids ? { included_piece_part_ids: parsed.included_piece_part_ids } : {}), ...(parsed.mode_id ? { mode_id: parsed.mode_id } : {}) }
+    }
+  }
   if (sheets.Structure) {
     next.structure_nodes = sheets.Structure.map((row, index): FMEAStructureNode => ({
       id: workbookValue(row, 'id', `SE-${index + 1}`),
@@ -1699,20 +1538,18 @@ export function importFunctionWorkbook(
       interface: workbookValue(row, 'interface'),
       element_type: workbookValue(row, 'element_type'),
       source_ref: workbookStructureSource(row.prediction_source_ref),
+      system_definition_ref: workbookSystemDefinitionRef(row.system_definition_ref),
     }))
   }
   if (sheets.Functions) {
     next.functions = sheets.Functions.map((row, index): FMEAFunction => {
       const description = workbookValue(row, 'description')
-      const vocabularyMatch = classifyFunctionStatement(description)
       return {
         id: workbookValue(row, 'id', `FN-${index + 1}`),
         structure_node_id: workbookValue(row, 'structure_node_id'),
         description,
-        canonical_verb_id:
-          vocabularyMatch.status === 'canonical'
-          || vocabularyMatch.status === 'alias'
-            ? vocabularyMatch.term?.id : undefined,
+        canonical_verb_id: workbookValue(row, 'canonical_verb_id') || undefined,
+        definition: jsonValue<FMEAFunction['definition']>(row.definition, undefined),
         function_type: (workbookValue(row, 'function_type', 'primary')
           || 'primary') as FMEAFunction['function_type'],
         operating_modes: workbookList(row.operating_modes),
@@ -1768,7 +1605,8 @@ export function importFunctionWorkbook(
         relationship: (workbookValue(row, 'relationship', 'decomposes_to')
           || 'decomposes_to') as FMEAFunctionLink['relationship'],
         label: workbookValue(row, 'label'),
-        rationale: workbookValue(row, 'rationale'),
+        rationale: workbookValue(row, 'rationale'), mode_ids: workbookList(row.mode_ids),
+        ...(row.generated === undefined ? {} : { generated: workbookBoolean(row.generated) }),
       }))
   }
   if (sheets['Block Diagram']) {
@@ -1778,6 +1616,8 @@ export function importFunctionWorkbook(
       row => workbookValue(row, 'record_type') === 'node')
     next.block_diagram = {
       version: 2,
+      connectorStyle: (['orthogonal', 'curved', 'straight'].includes(workbookValue(boundary ?? {}, 'connectorStyle'))
+        ? workbookValue(boundary ?? {}, 'connectorStyle') : 'curved') as FMEABlockDiagram['connectorStyle'],
       density: ([
         'dense', 'compact', 'comfortable', 'spacious', 'expanded',
       ].includes(workbookValue(boundary ?? {}, 'density'))
@@ -1799,6 +1639,7 @@ export function importFunctionWorkbook(
         label: workbookValue(row, 'label'),
         external_kind: (workbookValue(row, 'external_kind')
           || undefined) as FMEABlockDiagramNode['external_kind'],
+        ports: jsonValue<FMEABlockDiagramNode['ports']>(row.ports, []),
         container_parent_block_id:
           workbookValue(row, 'container_parent_block_id') || undefined,
         expanded: workbookBoolean(row.expanded),
@@ -1847,6 +1688,8 @@ export function importFunctionWorkbook(
       external_target: workbookValue(row, 'external_target'),
       flow_description: workbookValue(row, 'flow_description'),
       operating_condition: workbookValue(row, 'operating_condition'),
+      transfers: jsonValue<FMEAInterface['transfers']>(row.transfers, []), mode_ids: workbookList(row.mode_ids),
+      ...(row.generated === undefined ? {} : { generated: workbookBoolean(row.generated) }),
       function_ids: workbookList(row.function_ids),
       requirement_ids: workbookList(row.requirement_ids),
       system_definition_ref: workbookSystemDefinitionRef(
@@ -1904,7 +1747,7 @@ export function importFunctionWorkbook(
       sheets['FMEA Worksheet']
         .filter(row => {
           const analysisId = workbookValue(row, 'analysis_id')
-          return !analysisId || analysisId === analysis.id
+          return !analysisId || analysisId === workbookAnalysisId
         })
         .map(row => [workbookValue(row, 'id'), row]),
     )
@@ -1928,6 +1771,7 @@ export function importFunctionWorkbook(
       }
     })
   }
+  assertFmeaDraftIntegrity(next)
   return next
 }
 

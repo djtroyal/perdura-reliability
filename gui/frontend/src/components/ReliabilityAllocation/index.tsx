@@ -165,8 +165,7 @@ function ReliabilityAllocationContent() {
         {/* Left control panel */}
         <div className="w-80 shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-3">
           <p className="text-xs text-gray-500 leading-snug">
-            Top-down allocation of a system reliability (or MTBF) target across the subsystems of a
-            series system. Pick a method and enter the per-subsystem attributes it needs.
+            Allocate a reliability or MTBF target among subsystems in a series system.
           </p>
           <InfluenceSource influence="allocation.method" className="-m-1 p-1">
             <InfoLabel tip="Equal: every subsystem gets the same reliability. ARINC: split the allowable failure rate proportional to each subsystem's current/predicted failure rate. AGREE: use complexity divided by importance as relative weights, normalized so the series allocation meets the target. Feasibility of effort: weight by how hard each subsystem is to improve.">Method</InfoLabel>

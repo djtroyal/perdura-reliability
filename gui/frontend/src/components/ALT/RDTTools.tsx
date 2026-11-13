@@ -222,7 +222,7 @@ function ParametricBinomial() {
   )
 
   return <ToolLayout
-    intro="Parametric binomial demonstration: demonstrate a reliability at a time assuming a Weibull life with a known shape. Solve for either the required sample size (given test time) or the required test time (given sample size)."
+    intro="Solve for sample size or test time assuming Weibull life with a known shape."
     controls={controls} err={err} loading={loading} onRun={run} runLabel="Compute" results={results} />
 }
 
@@ -288,7 +288,7 @@ function NonParametricBinomial() {
   )
 
   return <ToolLayout
-    intro="Non-parametric binomial demonstration: no distribution assumption, for one-shot / pass-fail devices. Computes the required sample size to demonstrate a reliability at a confidence level given the allowable failures."
+    intro="Plan a pass-fail demonstration without assuming a lifetime distribution."
     controls={controls} err={err} loading={loading} onRun={run} runLabel="Compute" results={results} />
 }
 
@@ -378,7 +378,7 @@ function ExpChiSquared() {
   )
 
   return <ToolLayout
-    intro="Exponential chi-squared demonstration: assumes a constant failure rate (exponential life). Computes the accumulated test time required to demonstrate a reliability-at-time or an MTTF at a confidence level with a given number of allowable failures."
+    intro="Calculate required test exposure assuming a constant failure rate."
     controls={controls} err={err} loading={loading} onRun={run} runLabel="Compute" results={results} />
 }
 
@@ -546,7 +546,7 @@ function Bayesian() {
   )
 
   return <ToolLayout
-    intro="Non-parametric Bayesian demonstration: a Beta prior on reliability is built from expert opinion (worst / most-likely / best) or from subsystem test data, then combined with the demonstration test to solve for sample size, demonstrated reliability, or confidence."
+    intro="Combine a Beta prior from expert estimates or subsystem tests with demonstration-test evidence."
     controls={controls} err={err} loading={loading} onRun={run} runLabel="Compute" results={results} />
 }
 

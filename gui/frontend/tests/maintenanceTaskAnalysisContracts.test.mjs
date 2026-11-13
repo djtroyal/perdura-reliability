@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { createServer as createHttpServer } from 'node:http'
-import { createServer } from 'vite'
+import { createSsrTestServer } from './viteTestLifecycle.mjs'
 
 const component = readFileSync(new URL(
   '../src/components/Maintenance/TaskAnalysis.tsx',
@@ -42,7 +42,8 @@ assert.doesNotMatch(component, /Publish a revision-linked snapshot downstream/)
 assert.match(component, /WEEKDAYS/)
 assert.match(component, /FIELD_HELP/)
 assert.match(component, /data-dropdown-menu/)
-assert.match(component, /document\.addEventListener\('pointerdown'/)
+assert.match(component, /import DropdownDetails from '\.\.\/shared\/DropdownDetails'/)
+assert.equal((component.match(/<DropdownDetails\b/g) ?? []).length, 2)
 assert.match(component, /Uncertain duration/)
 assert.match(component, /Expected duration:/)
 assert.match(component, /timelineLabels/)
@@ -60,7 +61,7 @@ assert.match(component, /overtime_rate_multiplier/)
 assert.match(router, /task-analysis\/analyze\/stream/)
 
 const hmrServer = createHttpServer()
-const vite = await createServer({
+const vite = await createSsrTestServer({
   root: new URL('..', import.meta.url).pathname,
   appType: 'custom',
   server: { middlewareMode: true, ws: { server: hmrServer } },

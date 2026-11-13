@@ -73,9 +73,7 @@ export default function AboutModal({ open, onClose, update, onDismissUpdate }: {
 
         <div className="px-6 py-4 flex flex-col gap-4 text-sm text-gray-700">
           <p className="text-[13px] leading-relaxed text-gray-600">
-            A comprehensive, local-first suite for reliability engineering and statistics — life-data
-            analysis, accelerated testing, system modeling, maintenance, human reliability, Six Sigma,
-            and more. Your data stays in your browser.
+            Tools for reliability engineering, system modeling, and statistical analysis.
           </p>
 
           {/* Update / changelog */}

@@ -1,3 +1,4 @@
+import { distributionTitle } from './distributionLabels'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Bookmark, ChevronDown, Image, Table2, Gauge, X } from 'lucide-react'
 import { enumerateAssets } from '../../store/assetExtractors'
@@ -8,6 +9,7 @@ import {
 import { useStoreVersion } from '../../store/project'
 import type { AssetDescriptor, AssetSource } from '../../store/reportAssets'
 import { toast } from './toast'
+import { useDismissiblePopover } from './useDismissiblePopover'
 
 const iconFor = (type: AssetDescriptor['type']) =>
   type === 'plot' ? Image : type === 'table' ? Table2 : Gauge
@@ -25,7 +27,7 @@ export function BookmarkAssetButton({
   return (
     <button
       type="button"
-      aria-label={`${active ? 'Remove bookmark for' : 'Bookmark'} ${asset.label}`}
+      aria-label={`${active ? 'Remove bookmark for' : 'Bookmark'} ${distributionTitle(asset.label)}`}
       aria-pressed={active}
       title={active ? 'Remove bookmark' : 'Bookmark this result'}
       onClick={event => {
@@ -54,26 +56,20 @@ export function ModuleBookmarkMenu({
 }) {
   const [open, setOpen] = useState(false)
   const panel = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const close = (event: MouseEvent) => {
-      if (!panel.current?.contains(event.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', close)
-    return () => document.removeEventListener('mousedown', close)
-  }, [open])
+  const trigger = useRef<HTMLButtonElement>(null)
+  useDismissiblePopover({ open, onDismiss: () => setOpen(false),
+    elements: () => [panel.current], trigger: () => trigger.current })
 
   if (activeTab === 'dashboard' || activeTab === 'report-builder') return null
   return (
     <div className="relative" ref={panel}>
-      <button type="button" onClick={() => setOpen(value => !value)}
+      <button ref={trigger} type="button" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(value => !value)}
         title="Bookmark analysis results"
         className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1.5 text-[11px] font-medium text-gray-500 hover:border-amber-300 hover:text-amber-700">
         <Bookmark size={13} /> Results <ChevronDown size={11} />
       </button>
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-1 w-80 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl">
+        <div role="dialog" aria-label="Bookmark results" className="absolute right-0 top-full z-50 mt-1 w-80 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl">
           <div className="border-b border-gray-100 px-3 py-2">
             <p className="text-xs font-semibold text-gray-700">Bookmark results</p>
             <p className="text-[10px] text-gray-400">The same assets available to Report Builder.</p>
@@ -107,7 +103,7 @@ function ModuleBookmarkResults({ activeTab, activeModuleKey }: {
                   }`}>
                   <Icon size={12} className="shrink-0" />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate">{asset.label}</span>
+                    <span className="block truncate">{distributionTitle(asset.label)}</span>
                     <span className="block truncate text-[9px] text-gray-400">{asset.group}</span>
                   </span>
                   <Bookmark size={12} fill={active ? 'currentColor' : 'none'}

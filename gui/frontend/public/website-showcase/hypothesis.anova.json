@@ -2,7 +2,7 @@
   "app": "Perdura",
   "subtitle": "Reliability Engineering and Statistics Suite",
   "website": "https://perdurareliability.com",
-  "schemaVersion": 6,
+  "schemaVersion": 11,
   "createdWith": {
     "version": "0.7.0",
     "commit": "dev",
@@ -118,7 +118,7 @@
       "result": {
         "test": "One-way ANOVA",
         "statistic": 61.75000000000001,
-        "p_value": 0.000005547787788101147,
+        "p_value": 5.547787788101147e-06,
         "df": {
           "between": 2,
           "within": 9
@@ -168,9 +168,9 @@
             "group_j": 2,
             "mean_diff": -9,
             "q_statistic": 15.588457268119896,
-            "p_value_tukey": 0.000004240674642774778,
-            "p_value_raw": 0.000004240674642774778,
-            "p_value_bonferroni": 0.000004240674642774778,
+            "p_value_tukey": 4.240674642774778e-06,
+            "p_value_raw": 4.240674642774778e-06,
+            "p_value_bonferroni": 4.240674642774778e-06,
             "ci_lower": -11.279663036559327,
             "ci_upper": -6.720336963440672,
             "significant": true
@@ -206,9 +206,9 @@
             "group_j": 2,
             "mean_diff": -9,
             "q_statistic": 15.588457268119896,
-            "p_value_tukey": 0.000004240674642774778,
-            "p_value_raw": 0.000004240674642774778,
-            "p_value_bonferroni": 0.000004240674642774778,
+            "p_value_tukey": 4.240674642774778e-06,
+            "p_value_raw": 4.240674642774778e-06,
+            "p_value_bonferroni": 4.240674642774778e-06,
             "ci_lower": -11.279663036559327,
             "ci_upper": -6.720336963440672,
             "significant": true
@@ -226,7 +226,7 @@
             "significant": true
           }
         ],
-        "interpretation": "Reject H₀: significant result (one-way ANOVA)."
+        "interpretation": "Reject H\u2080: significant result (one-way ANOVA)."
       },
       "error": null
     }

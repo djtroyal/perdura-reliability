@@ -1,3 +1,4 @@
+import { distributionLabel } from '../shared/distributionLabels'
 import { useState, useRef, useMemo, useEffect } from 'react'
 import Plot from '../shared/ExportablePlot'
 import { Play, Download, Trash2, Wand2 } from 'lucide-react'
@@ -629,7 +630,7 @@ function ALTContent({ navSub }: { navSub?: SubNav | null }) {
        'Design Condition', 'Use Stress Position', 'Use Leverage Ratio',
        'Common Shape p-value']
       .filter(key => key in result.results[0])
-      .map(key => ({ key, label: key }))
+      .map(key => ({ key, label: key, ...(key === 'Model' ? { format: distributionLabel } : {}) }))
     : [])
 
   const ocPlotData = (() => {
@@ -901,7 +902,7 @@ function ALTContent({ navSub }: { navSub?: SubNav | null }) {
               <label key={m} className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
                 <input type="checkbox" checked={selectedModels.includes(m)}
                   onChange={() => toggleModel(m)} className="rounded text-blue-600" />
-                {m}
+                {distributionLabel(m)}
               </label>
             ))}
           </div>
@@ -947,7 +948,7 @@ function ALTContent({ navSub }: { navSub?: SubNav | null }) {
               <div className="bg-white border-b border-gray-200 px-4 py-2 flex items-center justify-between">
                 <p className="text-sm text-gray-600">
                   Best model: <span className="font-semibold text-green-700">
-                    {result.best_model ?? 'No eligible model'}
+                    {result.best_model ? distributionLabel(result.best_model) : 'No eligible model'}
                   </span>
                 </p>
                 <button onClick={downloadCSV}
@@ -1004,8 +1005,9 @@ function ALTContent({ navSub }: { navSub?: SubNav | null }) {
                     {lifePlotData.length > 0 ? (
                       <Plot
                         data={lifePlotData}
+                        reportLabel={`${activeModel} — Life vs Stress`}
                         layout={{
-                          title: `${activeModel} — Life vs Stress`,
+                          title: `${distributionLabel(activeModel)} — Life vs Stress`,
                           xaxis: { title: { text: 'Stress' }, gridcolor: '#e5e7eb' },
                           yaxis: { title: { text: `Characteristic Life (${units})` }, gridcolor: '#e5e7eb' },
                           margin: { t: 40, r: 20, b: 50, l: 70 },
@@ -1023,7 +1025,7 @@ function ALTContent({ navSub }: { navSub?: SubNav | null }) {
                   </InfluenceTarget>
                   {activeDetails && (
                     <InfluenceTarget influences={['alt.useLevel', 'alt.uncertainty']} className="shrink-0">
-                      <p className="text-xs font-semibold text-gray-600 mb-1">{activeModel} — model parameters &amp; life at use stress</p>
+                      <p className="text-xs font-semibold text-gray-600 mb-1">{distributionLabel(activeModel)} — model parameters &amp; life at use stress</p>
                       <table className="w-full text-xs border border-gray-200 rounded">
                         <tbody>
                           {([

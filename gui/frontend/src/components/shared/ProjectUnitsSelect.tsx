@@ -28,15 +28,9 @@ export default function ProjectUnitsSelect() {
     setUnits(next)
   }
 
-  return (
-    <select
-      value={units}
-      onChange={event => void handleChange(event.target.value)}
-      aria-label="Project units"
-      title="Default units for project calculations. Compatible changes offer to convert existing inputs; datasets retain their declared units."
-      className="shrink-0 text-xs border border-gray-200 rounded px-1.5 py-1.5 text-gray-700 focus:outline-hidden focus:ring-1 focus:ring-blue-400"
-    >
-      {UNIT_OPTIONS.map(unit => <option key={unit} value={unit}>{unit}</option>)}
-    </select>
-  )
+  return <select value={units} aria-label="Project units" title="Project calculation units"
+    onChange={event => void handleChange(event.target.value)}
+    className="min-h-8 shrink-0 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1">
+    {UNIT_OPTIONS.map(unit => <option key={unit} value={unit}>{unit}</option>)}
+  </select>
 }

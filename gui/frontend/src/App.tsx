@@ -1,5 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useRef, lazy, Suspense } from 'react'
-import { useDisplayDensity, type DisplayDensity } from './components/shared/useDisplayDensity'
+import { useDisplayDensity } from './components/shared/useDisplayDensity'
+import { useDismissiblePopover } from './components/shared/useDismissiblePopover'
 // Nav uses static lucide-react icons for instant first paint. Tabs with an exact
 // animated equivalent additionally swap to a lucide-animated icon once that chunk
 // loads (lazy AnimatedNavIcon below) — keeping lucide-animated + motion (~100 KB
@@ -44,6 +45,7 @@ import {
   consumeStartupNotice, undo, redo, useNavTarget, clearNavTarget, NAV_MAP,
   applyWebsiteShowcaseFixture, buildExport, openDemoProject,
   hydrateProjectStorage, useProjectStorageStatus, downloadRecoveryExport,
+  recoverProjectStorage, readJSONFile,
 } from './store/project'
 import { saveProjectFlow } from './components/shared/projectActions'
 import { formatProjectTimestamp, unsavedChangesTitle } from './components/shared/projectMetadata'
@@ -186,19 +188,8 @@ function MoreMenu({ overflow, onPick }: { overflow: TabDef[]; onPick: (id: Tab) 
     const items = Array.from(wrapRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? [])
     items[Math.max(0, Math.min(items.length - 1, index))]?.focus()
   })
-  useEffect(() => {
-    if (!open) return
-    const close = (e: MouseEvent) => {
-      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false)
-    }
-    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
-    document.addEventListener('mousedown', close)
-    document.addEventListener('keydown', esc)
-    return () => {
-      document.removeEventListener('mousedown', close)
-      document.removeEventListener('keydown', esc)
-    }
-  }, [open])
+  useDismissiblePopover({ open, onDismiss: () => setOpen(false),
+    elements: () => [wrapRef.current], trigger: () => triggerRef.current })
   return (
     <div ref={wrapRef} className="relative shrink-0">
       <button
@@ -251,6 +242,24 @@ export default function App() {
   const [ready, setReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [attempt, setAttempt] = useState(0)
+  const [busy, setBusy] = useState(false)
+  const recoveryPending = useRef(false)
+  const recoveryFile = useRef<HTMLInputElement>(null)
+  const recover = async (file?: File) => {
+    if (recoveryPending.current) return
+    recoveryPending.current = true
+    setBusy(true)
+    try {
+      const payload = file ? await readJSONFile(file) : undefined
+      await recoverProjectStorage(payload)
+      setReady(true)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not open the project.')
+    } finally {
+      recoveryPending.current = false
+      setBusy(false)
+    }
+  }
   useEffect(() => {
     let cancelled = false
     setError(null)
@@ -260,13 +269,28 @@ export default function App() {
     return () => { cancelled = true }
   }, [attempt])
   if (!ready) return <main className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
-    <div className="max-w-lg rounded-lg border bg-white p-6 shadow-sm">
+    <div className="max-w-lg rounded-lg border bg-white p-6 shadow-sm" aria-busy={busy}>
       {error ? <>
+        <h1 className="mb-2 text-lg font-semibold text-slate-900">Open a project to continue</h1>
         <p role="alert" className="text-sm text-red-700">{error}</p>
-        <div className="mt-4 flex gap-3">
-          <button className="rounded border px-3 py-2 text-sm" onClick={() => setAttempt(value => value + 1)}>Retry storage</button>
-          <button className="rounded border px-3 py-2 text-sm" onClick={downloadRecoveryExport}>Export recoverable project</button>
+        <p className="mt-3 text-sm text-slate-600">Start blank or open a saved project file. Your previous session will be kept as a recovery copy, and saved projects will be retained.</p>
+        <input ref={recoveryFile} type="file" accept=".json,.zip,application/json,application/zip" className="hidden" aria-label="Open project file" disabled={busy}
+          onChange={event => {
+            const file = event.target.files?.[0]
+            event.target.value = ''
+            if (file) void recover(file)
+          }} />
+        <div className="mt-4 flex flex-wrap gap-3">
+          <button className="rounded bg-blue-700 px-3 py-2 text-sm font-medium text-white hover:bg-blue-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 disabled:opacity-50" disabled={busy} onClick={() => void recover()}>Start blank project</button>
+          <button className="rounded border border-slate-300 px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 disabled:opacity-50" disabled={busy} onClick={() => recoveryFile.current?.click()}>Open project file</button>
         </div>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <button className="rounded border px-3 py-2 text-sm disabled:opacity-50" disabled={busy} onClick={() => setAttempt(value => value + 1)}>Retry storage</button>
+          <button className="rounded border px-3 py-2 text-sm disabled:opacity-50" disabled={busy} onClick={() => {
+            void downloadRecoveryExport().catch(cause => setError(cause instanceof Error ? cause.message : 'Could not export the project.'))
+          }}>Export recoverable project</button>
+        </div>
+        {busy && <p role="status" className="mt-3 text-sm text-slate-600">Opening your project…</p>}
       </> : <p role="status" className="text-sm text-slate-600">Opening your saved project…</p>}
     </div>
   </main>
@@ -287,6 +311,8 @@ function ProjectApp() {
   const [aboutOpen, setAboutOpen] = useState(false)
   const [predictionRecordNavigation, setPredictionRecordNavigation] =
     useState<PredictionRecordNavigation | null>(null)
+  const [systemFunctionNavigation, setSystemFunctionNavigation] = useState<{ instanceId: string; functionId: string; nonce: number }>()
+  const [systemInterfaceNavigation, setSystemInterfaceNavigation] = useState<{ interfaceId: string; nonce: number }>()
   // Sub-tab target handed to a container after an undo/redo, so it can jump to
   // the submodule whose change is being (un)done.
   const [navSub, setNavSub] = useState<{ tab: string; sub: string; nonce: number } | null>(null)
@@ -297,6 +323,8 @@ function ProjectApp() {
     clearNavTarget()
     clearBookmarkNavigation()
     setNavSub(null)
+    setSystemFunctionNavigation(undefined)
+    setSystemInterfaceNavigation(undefined)
     setActive(tab)
   }
   const openBookmark = ({ source, label }: BookmarkOpenRequest) => {
@@ -357,7 +385,7 @@ function ProjectApp() {
     overflowTabs = tabs.filter((_, i) => i >= visibleCount - 1 && i !== activeIdx)
   }
   const [projectName, setProjectName] = useProjectName()
-  const [density, setDensity] = useDisplayDensity()
+  useDisplayDensity()
   const dirty = useIsDirty()
   const storageStatus = useProjectStorageStatus()
   const lastSavedAt = useLastSavedAt()
@@ -555,17 +583,32 @@ function ProjectApp() {
               <Loader2 size={18} className="animate-spin" /> Loading…
             </div>
           }>
-            {active === 'dashboard' && <Dashboard onNavigate={(id) => go(id as Tab)} onOpenBookmark={openBookmark} update={update} onOpenAbout={() => setAboutOpen(true)} />}
+            {active === 'dashboard' && <Dashboard onNavigate={(id) => go(id as Tab)}
+              onOpenSystemDefinition={() => {
+                go('system-modeling')
+                setNavSub({ tab: 'system-modeling', sub: 'definition', nonce: Date.now() })
+              }} onOpenBookmark={openBookmark} update={update} onOpenAbout={() => setAboutOpen(true)} />}
             {active === 'life-data' && <LifeData />}
             {active === 'alt' && <ALT navSub={navSub?.tab === 'alt' ? navSub : null} />}
-            {active === 'system-modeling' && <SystemModeling navSub={navSub?.tab === 'system-modeling' ? navSub : null} />}
+            {active === 'system-modeling' && <SystemModeling navSub={navSub?.tab === 'system-modeling' ? navSub : null}
+              functionNavigation={systemFunctionNavigation} interfaceNavigation={systemInterfaceNavigation} />}
             {active === 'prediction' &&
               <Prediction navigationTarget={predictionRecordNavigation} />}
             {active === 'pof' && <PhysicsOfFailure />}
             {active === 'growth' && <Growth />}
             {active === 'software-reliability' && <SoftwareReliability />}
             {active === 'fmea' &&
-              <FMEA onNavigatePrediction={target => {
+              <FMEA onNavigateSystemFunction={target => {
+                go('system-modeling')
+                const nonce = Date.now()
+                setNavSub({ tab: 'system-modeling', sub: 'definition', nonce })
+                setSystemFunctionNavigation({ ...target, nonce })
+              }} onNavigateSystemInterface={interfaceId => {
+                go('system-modeling')
+                const nonce = Date.now()
+                setNavSub({ tab: 'system-modeling', sub: 'definition', nonce })
+                setSystemInterfaceNavigation({ interfaceId, nonce })
+              }} onNavigatePrediction={target => {
                 clearNavTarget()
                 clearBookmarkNavigation()
                 setNavSub(null)
@@ -615,12 +658,6 @@ function ProjectApp() {
       <footer className="bg-white border-t border-gray-100 px-3 sm:px-6 py-1.5 text-xs text-gray-600 shrink-0 flex flex-wrap items-center gap-2">
         <Logo size={12} />
         <span>Perdura — Reliability Engineering and Statistics Suite</span>
-        <label className="ml-auto flex items-center gap-1.5">Density
-          <select className="rounded border px-1.5 py-1" value={density}
-            onChange={event => setDensity(event.target.value as DisplayDensity)}>
-            <option value="compact">Compact</option><option value="comfortable">Comfortable</option>
-          </select>
-        </label>
         <span className="ml-auto hidden items-center gap-3 lg:flex">
           <span><kbd className="font-mono">Ctrl/⌘ K</kbd> commands</span>
           <span><kbd className="font-mono">?</kbd> shortcuts</span>

@@ -1,3 +1,4 @@
+import DropdownDetails from '../shared/DropdownDetails'
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import {
   ReactFlow,
@@ -23,14 +24,15 @@ import {
 import '@xyflow/react/dist/style.css'
 import {
   Plus, Play, Trash2, LayoutGrid, Copy, Clipboard, Scissors, MessageSquarePlus, Repeat2,
-  Minus, AlertTriangle, ArrowRightLeft, Pencil, Shapes, Magnet,
+  Minus, AlertTriangle, ArrowRightLeft, Pencil, Shapes, Magnet, Boxes, Component,
 } from 'lucide-react'
 import {
   computeRBD, validateRBD, convertRBDToFTA, RBDResponse, RBDValidationResponse,
   SystemConversionReport, FTNode, FTEdge,
 } from '../../api/client'
 import { CanvasErrorBoundary, sanitizeNodeChanges, sanitizeNodes } from '../shared/CanvasErrorBoundary'
-import { createFolioState, useFolioState, useRevision, writeFolioState, getProjectState, beginFolioRequest, readFolioState } from '../../store/project'
+import { createFolioState, useFolioState, useRevision, useUnits, writeFolioState, getProjectState, beginFolioRequest, readFolioState } from '../../store/project'
+import { useUiPreference } from '../../store/uiPreferences'
 import FolioBar from '../shared/FolioBar'
 import LibraryPanel, { LibraryItem } from '../shared/LibraryPanel'
 import { computeCDF, DIST_OPTIONS, DIST_PARAMS } from '../FaultTree'
@@ -41,6 +43,7 @@ import ExportDiagramButton from '../shared/ExportDiagramButton'
 import CanvasAssetControls from '../shared/CanvasAssetControls'
 import DiagramLayoutMenu from '../shared/DiagramLayoutMenu'
 import { useMeasuredDiagramLayout } from '../shared/useMeasuredDiagramLayout'
+import { DiagramFullscreenButton, useDiagramFullscreen } from '../shared/useDiagramFullscreen'
 import { normalizeLayoutOptions, layoutDensity, type DiagramLayoutOptions } from '../shared/adaptiveDiagramLayout.mjs'
 import { fitReactFlowForExport } from '../shared/exportDiagram'
 import ExportResultsButton from '../shared/ExportResultsButton'
@@ -54,6 +57,8 @@ import { toast } from '../shared/toast'
 import { adaptiveConnectorOffset, layoutHorizontalGraph } from '../shared/adaptiveDiagramLayout.mjs'
 import AdaptiveOrthogonalEdge from '../shared/AdaptiveOrthogonalEdge'
 import { nextRbdEdgeId, normalizeRbdEdges } from './rbdEdges'
+import RbdAnalysisLibrary, { type RbdLibraryAnalysis } from './RbdAnalysisLibrary'
+import { handleTabKey } from '../shared/tabKeyboard'
 import type { SystemStarterResult } from '../../api/systemDefinition'
 import {
   annotationFillColor, PencilCanvasOverlay, ShapeAnnotationPalette, VectorAnnotationNode,
@@ -304,6 +309,8 @@ const INITIAL_CANVAS: CanvasState = {
   nodes: DEFAULT_NODES, edges: [], annotations: [], missionTime: '1000',
   density: 'comfortable', connectorStyle: 'smoothstep', snapToGrid: false, showNodeIds: true,
 }
+const LIBRARY_VIEWS = ['blocks', 'analyses'] as const
+const RESULT_VIEWS = ['overview', 'curve', 'paths', 'importance', 'formulas', 'method'] as const
 
 interface RBDClipboard {
   nodes: { id: string; type: string; data: Record<string, unknown>; position: { x: number; y: number } }[]
@@ -415,7 +422,9 @@ function describeRBDRequestError(error: unknown): RBDRequestErrorDetail {
 export default function SystemReliability({ onNavigate }: { onNavigate?: (target: 'fta') => void }) {
   const [persisted, setPersisted, folios] = useFolioState<CanvasState>('system', INITIAL_CANVAS)
   const revision = useRevision()
+  const [units] = useUnits()
   const ldaFolios = useReliabilitySources()
+  const [libraryView, setLibraryView] = useUiPreference<typeof LIBRARY_VIEWS[number]>('rbd.libraryView', 'blocks', LIBRARY_VIEWS)
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>(sanitizeNodes(persisted.nodes ?? []))
   const [annotations, setAnnotations, onAnnotationsChange] = useNodesState<Node>(
     sanitizeNodes(persisted.annotations ?? []),
@@ -434,7 +443,7 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
   const [validation, setValidation] = useState<RBDValidationResponse | null>(null)
   const [showValidationIssues, setShowValidationIssues] = useState(false)
   const [rightPaneMode, setRightPaneMode] = useState<'properties' | 'results'>('results')
-  const [resultTab, setResultTab] = useState<'overview' | 'curve' | 'paths' | 'importance' | 'formulas' | 'method'>('overview')
+  const [resultTab, setResultTab] = useUiPreference<typeof RESULT_VIEWS[number]>('rbd.resultTab', 'overview', RESULT_VIEWS)
   const [clipboard, setClipboard] = useState<RBDClipboard | null>(null)
   const [missionTime, setMissionTime] = useState(persisted.missionTime ?? '1000')
   const [density, setDensity] = useState<RBDDensity>(normalizeDensity(persisted.density))
@@ -469,6 +478,7 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
   const flowWrapperRef = useRef<HTMLDivElement>(null)
   const resultsRef = useRef<HTMLDivElement>(null)
   const flowInstanceRef = useRef<ReactFlowInstance<Node, Edge> | null>(null)
+  const fullscreen = useDiagramFullscreen('Reliability block diagram', () => flowInstanceRef.current)
   const insertionSequenceRef = useRef(0)
   useEffect(() => {
     if (layoutPending.current) return
@@ -531,6 +541,31 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
       }
     })
   }, [folios.folios, folios.activeId])
+  const libraryAnalyses = useMemo<RbdLibraryAnalysis[]>(() => folios.folios.map(folio => {
+    const current = folio.id === folios.activeId
+    const state = current ? { ...persisted, nodes, edges, result } : folio.state as CanvasState | undefined
+    const modelNodes = state?.nodes ?? []
+    return {
+      id: folio.id, name: folio.name, current,
+      circular: current || Boolean(transferTargets.find(target => target.id === folio.id)?.circular),
+      stale: Boolean(folio.dirty || state?.sourceStale), staleReason: state?.sourceStaleReason,
+      reliability: state?.result?.system_reliability,
+      missionTime: state?.result?.mission_time ?? undefined,
+      blockCount: modelNodes.filter(node => node.type === 'component').length,
+      votingCount: modelNodes.filter(node => node.type === 'kofn').length,
+      connectionCount: state?.edges?.length ?? 0,
+      searchText: modelNodes.map(node => `${node.data.label ?? ''} ${node.data.description ?? ''} ${node.data.blockId ?? ''}`).join(' '),
+    }
+  }), [folios.folios, folios.activeId, transferTargets, persisted, nodes, edges, result])
+  const openLibraryAnalysis = (id?: string) => {
+    if (id === folios.activeId) return
+    // Commit edits still waiting for the drag/input debounce to the current
+    // analysis before selecting a different one from the library.
+    if (persistTimer.current) clearTimeout(persistTimer.current)
+    setPersisted(latest.current)
+    if (id) folios.select(id)
+    else folios.add()
+  }
   const materializedNodes = useMemo(() => nodes.map(original => {
     let node = original
     try { node = resolveLinkedNodes(getProjectState(), [original])[0] } catch (error) { node = { ...original, data: { ...original.data, sourceError: (error as Error).message } } }
@@ -1536,7 +1571,7 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
         </div>
         {linkedSystemBlock && <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-[11px] text-blue-800">
           <p className="font-semibold">Linked System Definition block</p>
-          <p className="mt-1 leading-4">Identity is canonical and read-only here. Reliability, dependency, and success-path settings remain local to this RBD.</p>
+          <p className="mt-1 leading-4">Edit identity in System Definition. Reliability and path settings belong to this RBD.</p>
         </div>}
         <label className="block text-xs text-slate-600">Block type
           <select className="field mt-1" value="component" disabled={linkedSystemBlock}
@@ -1547,7 +1582,7 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
         </label>
         {mirrorCount > 1 && <div className="rounded-lg border border-violet-200 bg-violet-50 p-3 text-[11px] text-violet-800">
           <p className="font-semibold">Mirrored logical component · {mirrorCount} occurrences</p>
-          <p className="mt-1 leading-4">All occurrences reuse one survival variable and share edits. This preserves dependence when the same physical item appears on more than one success path.</p>
+          <p className="mt-1 leading-4">Occurrences share one reliability model and all edits; they represent the same physical item.</p>
           <button className="mini-button mt-2" onClick={detachSelectedMirror}>Make this occurrence independent</button>
         </div>}
         <label className="block text-xs text-slate-600">Label
@@ -1590,7 +1625,7 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
               Latest system reliability: <span className="font-mono font-semibold">{linkedTarget.result.system_reliability.toFixed(6)}</span>
               {linkedTarget.result.mission_time != null ? ` at t = ${linkedTarget.result.mission_time}` : ''}
             </p> : <p className="mt-1 text-[11px] text-amber-700">Run the referenced analysis before using this block.</p>}
-            {linkedTarget.dirty && <p className="mt-1 text-[10px] text-amber-700">Referenced inputs changed; this dependency will be recalculated automatically during analysis.</p>}
+            {linkedTarget.dirty && <p className="mt-1 text-[10px] text-amber-700">Referenced inputs changed. Running this analysis will recalculate the dependency.</p>}
             <button className="mini-button mt-2" onClick={() => updateSelectedDataMulti({
               linkedAnalysisId: undefined, linkedAnalysisName: undefined,
               linkedAnalysisMissionTime: undefined, linkedAnalysisDirty: undefined,
@@ -1959,51 +1994,50 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
         <button type="button" onClick={() => setPersisted(current => ({ ...current, pendingSystemStarter: undefined }))} className="rounded border border-blue-200 px-2 py-1">Dismiss</button>
       </div>}
       <div className="flex min-h-0 flex-1 overflow-hidden">
-        <aside className="flex w-60 shrink-0 flex-col border-r border-slate-200 bg-white">
-          <div className="border-b border-slate-100 p-3">
-            <div className="mb-2 flex items-center justify-between">
-              <div><p className="text-xs font-semibold text-slate-700">Block Library</p><p className="text-[10px] text-slate-400">Success-path building blocks</p></div>
+        <aside aria-label="RBD library and setup" className="flex w-72 shrink-0 flex-col border-r border-slate-200 bg-white">
+          <div className="shrink-0 border-b border-slate-200 bg-slate-50/70 p-3">
+            <div className="mb-3 flex items-center gap-2"><Boxes size={18} className="text-cyan-800" aria-hidden="true" />
+              <div><h2 className="text-sm font-semibold text-slate-900">RBD Library</h2><p className="text-xs text-slate-600">Build and reuse system diagrams</p></div>
             </div>
-            <div className="grid grid-cols-2 gap-1.5">
-              <button onClick={addComponent} className="primary-button min-w-0 px-2">
-                <Plus size={14} /> Block
-              </button>
-              <button onClick={addVotingJunction}
-                title="Add a voting junction for two or more parallel block or subsystem branches"
-                className="mini-button min-w-0 justify-center border-violet-200 bg-violet-50 px-2 text-violet-700 hover:bg-violet-100">
-                <Plus size={14} /> K-of-N
-              </button>
+            <div role="tablist" aria-label="RBD library sections" className="flex rounded-lg border border-slate-200 bg-white p-1">
+              {LIBRARY_VIEWS.map(view => <button key={view} type="button" role="tab" id={`rbd-library-tab-${view}`}
+                data-tab-id={view} aria-selected={libraryView === view} aria-controls={`rbd-library-panel-${view}`}
+                tabIndex={libraryView === view ? 0 : -1} onClick={() => setLibraryView(view)}
+                onKeyDown={event => handleTabKey(event, { ids: [...LIBRARY_VIEWS], currentId: view, onSelect: id => setLibraryView(id as typeof libraryView) })}
+                className={`flex min-h-9 flex-1 items-center justify-center gap-1 rounded-md px-2 text-xs font-medium ${libraryView === view ? 'bg-blue-50 text-blue-800' : 'text-slate-600 hover:bg-slate-50'}`}>
+                {view === 'blocks' ? 'Blocks' : <>{'Project analyses'}<span className="rounded bg-slate-100 px-1.5 text-[11px] text-slate-700">{folios.folios.length}</span></>}
+              </button>)}
             </div>
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto p-3">
-            <LibraryPanel mode="reliability" selectedLabel={selectedNode?.type === 'component' ? String(selectedNode.data.label) : null}
-              onApply={(item: LibraryItem, value: number) => {
-                if (!selectedNode || selectedNode.type !== 'component') return
-                updateSelectedDataMulti({ reliability: value, linkedTo: item.name, distributionSource: item.sourceRef, ldaSource: item.sourceId, ldaSourceName: item.sourceRef ? item.name : undefined, distribution: item.resolvedSource?.dist, dist_params: item.resolvedSource?.dist_params })
-              }} />
-            {transferTargets.length > 0 && (
-              <details className="mt-3 rounded-lg border border-cyan-200 bg-cyan-50/60" data-rbd-project-library>
-                <summary className="flex cursor-pointer list-none items-center justify-between px-2 py-2 text-[10px] font-semibold uppercase tracking-wide text-cyan-800 marker:hidden">
-                  <span>Project RBD analyses</span>
-                  <span className="rounded-full bg-white px-1.5 py-0.5 text-[9px] font-medium ring-1 ring-cyan-200">{transferTargets.length}</span>
-                </summary>
-                <div className="space-y-1 border-t border-cyan-200 p-1.5">
-                  <p className="px-1 text-[9px] leading-tight text-cyan-700">Add another analysis as a linked subsystem block. Its latest system reliability is inherited automatically.</p>
-                  {transferTargets.map(target => (
-                    <button key={target.id} onClick={() => addAnalysisBlock(target)} disabled={target.circular}
-                      title={target.circular ? `Cannot link ${target.name}: circular analysis dependency`
-                        : target.result ? `Add linked RBD block for ${target.name}` : `Add ${target.name}; it will calculate recursively when analyzed`}
-                      className="flex min-h-9 w-full items-center gap-2 rounded border border-cyan-200 bg-white px-2 py-1.5 text-left text-[10px] text-cyan-900 hover:border-cyan-400 hover:bg-cyan-50 disabled:cursor-not-allowed disabled:opacity-50">
-                      <span className="flex h-5 w-8 shrink-0 items-center justify-center rounded border border-cyan-500 bg-cyan-50 font-mono text-[8px]">RBD</span>
-                      <span className="min-w-0 flex-1"><span className="block truncate font-medium">{target.name}</span>
-                        <span className="block truncate text-[9px] text-cyan-600">{target.result
-                          ? `Rsys = ${target.result.system_reliability.toFixed(6)}${target.dirty ? ' · recalculates automatically' : ''}${target.circular ? ' · circular' : ''}`
-                          : 'Calculates automatically when used'}</span></span>
-                    </button>
-                  ))}
-                </div>
-              </details>
-            )}
+          <div role="tabpanel" id={`rbd-library-panel-${libraryView}`} aria-labelledby={`rbd-library-tab-${libraryView}`}
+            className="min-h-0 flex-1 overflow-y-auto p-3">
+            {libraryView === 'blocks' ? <div className="space-y-4">
+              <section aria-label="Success-path building blocks" className="space-y-2">
+                <p className="text-xs font-semibold text-slate-700">Add to this diagram</p>
+                <button type="button" onClick={addComponent}
+                  className="flex min-h-16 w-full items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50/60 p-3 text-left hover:border-emerald-400 hover:bg-emerald-50">
+                  <span className="rounded-lg border border-emerald-200 bg-white p-2 text-emerald-800"><Component size={20} aria-hidden="true" /></span>
+                  <span className="min-w-0 flex-1"><span className="block text-sm font-semibold text-emerald-950">Component block</span><span className="mt-0.5 block text-xs leading-4 text-emerald-900">A component or subsystem on a success path</span></span>
+                  <Plus size={15} className="shrink-0 text-emerald-800" aria-hidden="true" />
+                </button>
+                <button type="button" onClick={addVotingJunction}
+                  className="flex min-h-16 w-full items-center gap-3 rounded-xl border border-violet-200 bg-violet-50/60 p-3 text-left hover:border-violet-400 hover:bg-violet-50">
+                  <span className="rounded-lg border border-violet-200 bg-white px-2 py-2.5 text-xs font-semibold text-violet-800">K/N</span>
+                  <span className="min-w-0 flex-1"><span className="block text-sm font-semibold text-violet-950">K-of-N voting</span><span className="mt-0.5 block text-xs leading-4 text-violet-900">Require K successful parallel branches</span></span>
+                  <Plus size={15} className="shrink-0 text-violet-800" aria-hidden="true" />
+                </button>
+              </section>
+              <LibraryPanel mode="reliability" selectedLabel={selectedNode?.type === 'component' ? String(selectedNode.data.label) : null}
+                onApply={(item: LibraryItem, value: number) => {
+                  if (!selectedNode || selectedNode.type !== 'component') return
+                  updateSelectedDataMulti({ reliability: value, linkedTo: item.name, distributionSource: item.sourceRef, ldaSource: item.sourceId, ldaSourceName: item.sourceRef ? item.name : undefined, distribution: item.resolvedSource?.dist, dist_params: item.resolvedSource?.dist_params })
+                }} />
+            </div> : <RbdAnalysisLibrary analyses={libraryAnalyses} units={units}
+              onOpen={openLibraryAnalysis} onCreate={() => openLibraryAnalysis()}
+              onInsert={id => {
+                const target = transferTargets.find(analysis => analysis.id === id)
+                if (target) addAnalysisBlock(target)
+              }} />}
           </div>
           <div className="border-t border-slate-100 p-3">
             <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Analysis setup</p>
@@ -2035,6 +2069,7 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
           </div>
         </aside>
 
+        <div {...fullscreen.containerProps}>
         <CanvasErrorBoundary onReset={autoLayout} resetKey={folios.activeId}>
           <div ref={flowWrapperRef} data-rbd-canvas tabIndex={0}
             onPointerDown={event => {
@@ -2064,7 +2099,7 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
                 <button className="flex h-8 items-center gap-1 rounded border border-amber-300 bg-white px-2 text-[10px] font-medium text-amber-700 hover:bg-amber-50 disabled:opacity-35"
                   onClick={mirrorSelected} disabled={selectedNode?.type !== 'component' || isCanonicalSystemNode(selectedNode) || selectedNodeIds.length !== 1}
                   title="Add another occurrence of the same logical component (Ctrl/Cmd+Shift+M)"><Repeat2 size={12} /> Mirror</button>
-                <details className="group relative">
+                <DropdownDetails className="group relative">
                   <summary className="flex h-8 cursor-pointer list-none items-center gap-1 rounded border border-amber-300 bg-white px-2 text-[10px] font-medium text-amber-800 hover:bg-amber-50 marker:hidden">
                     <MessageSquarePlus size={12} /> Annotate
                   </summary>
@@ -2089,7 +2124,7 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
                       <Pencil size={11} /> Pencil
                     </button>
                   </div>
-                </details>
+                </DropdownDetails>
                 <button onClick={() => setSnapToGrid(value => !value)} aria-pressed={snapToGrid}
                   className={`flex h-8 items-center gap-1 whitespace-nowrap rounded border px-2 text-[10px] font-medium ${
                     snapToGrid
@@ -2119,6 +2154,7 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
                 <ExportDiagramButton getElement={() => flowWrapperRef.current} baseName="rbd"
                   prepareExport={() => fitReactFlowForExport(flowInstanceRef.current)}
                   buttonClassName="flex h-8 items-center gap-1 rounded border border-slate-300 bg-white px-2 text-[10px] font-medium text-slate-700 hover:bg-slate-50" />
+                <DiagramFullscreenButton controls={fullscreen} />
               </div>
             </div>
             {pencilMode && (
@@ -2257,6 +2293,7 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
             </div>
           </aside>
         )}
+        </div>
       </div>
     </div>
   )

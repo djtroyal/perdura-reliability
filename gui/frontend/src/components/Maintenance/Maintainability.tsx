@@ -85,6 +85,6 @@ export default function Maintainability() {
   )
 
   return <ToolLayout
-    intro="Maintainability roll-up: repair times are modelled as lognormal. Returns the mean corrective maintenance time (Mct) and the maximum corrective time (Mmax) at a chosen percentile, from manual parameters or fitted repair-time samples."
+    intro="Estimate mean and percentile corrective maintenance times assuming lognormal repair times."
     controls={controls} err={err} loading={loading} onRun={run} runLabel="Compute" results={results} />
 }

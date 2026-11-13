@@ -138,7 +138,7 @@ export function ExpectedFailureTimes() {
     </div>
   )
 
-  return <ToolLayout intro="Predicts the expected ordered failure times for a test of n units drawn from the specified life distribution, with confidence bounds on each order statistic. Useful for scheduling inspections and planning test duration." controls={controls} err={err} loading={loading} onRun={run} runLabel="Compute" results={results} />
+  return <ToolLayout intro="Predict ordered failure times and their confidence bounds for the selected life distribution." controls={controls} err={err} loading={loading} onRun={run} runLabel="Compute" results={results} />
 }
 
 // ─── 2. Difference Detection Matrix ──────────────────────────────────────────
@@ -290,7 +290,7 @@ export function DifferenceDetection() {
     </div>
   )
 
-  return <ToolLayout intro="Builds a matrix showing, for every pairing of Design 1 and Design 2 metric values, the shortest test duration that lets you statistically distinguish the two designs. Helps decide whether a comparison test is feasible." controls={controls} err={err} loading={loading} onRun={run} runLabel="Build matrix" results={results} />
+  return <ToolLayout intro="Compare the test durations needed to distinguish two designs across candidate metric values." controls={controls} err={err} loading={loading} onRun={run} runLabel="Build matrix" results={results} />
 }
 
 // ─── 3. Test Simulation ──────────────────────────────────────────────────────
@@ -414,7 +414,7 @@ export function Simulation() {
     </div>
   )
 
-  return <ToolLayout intro="Monte-Carlo simulation of a reliability test. Repeatedly draws a synthetic sample from the chosen life distribution (optionally right-censored at the test duration), estimates the metric each time, and summarises the resulting sampling distribution." controls={controls} err={err} loading={loading} onRun={run} runLabel="Simulate" results={results} />
+  return <ToolLayout intro="Simulate repeated tests to estimate sampling uncertainty, with optional right censoring at the test duration." controls={controls} err={err} loading={loading} onRun={run} runLabel="Simulate" results={results} />
 }
 
 // ─── Container ───────────────────────────────────────────────────────────────

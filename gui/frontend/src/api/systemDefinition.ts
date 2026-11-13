@@ -36,16 +36,54 @@ export interface SystemPort {
   id: string; name: string; interface_type: SystemInterfaceType
   direction: 'input'|'output'|'bidirectional'; description: string
   properties?: Record<string, SystemParameterValue>
+  /** External output terminals own their resource; installed ports are optional routing metadata. */
+  resource_id?: string
 }
 
+export interface InterfaceFunctionOrigin {
+  interface_id: string; endpoint: 'source'|'target'; instance_id: string
+  generated_description: string; generated_mode_ids: string[]
+}
+
+/** Named resources are shared across functions and interfaces; text is authored once. */
+export interface SystemResource {
+  id: string; name: string; category: SystemInterfaceType|'state'
+  quantity?: string; unit?: string
+}
+
+export interface StructuredFunctionDefinition {
+  role: 'transform'|'source'|'maintain_state'
+  /** Authored action, or the condition to maintain. */
+  action: string
+  state_verb?: 'maintain'|'secure'|'support'|'contain'|'isolate'|'protect'
+  io: { id: string; resource_id: string; direction: 'input'|'output'; port_id?: string }[]
+}
+
+export type ResourceTransferEndpoint =
+  | { kind: 'function'; instance_id: string; function_id: string; io_id: string }
+  | { kind: 'external'; external_id: string; port_id: string }
+
+export type RelationEndpoint =
+  | { kind: 'block'; instance_id: string; function_id?: string }
+  | { kind: 'external'; external_id: string; port_id?: string }
+
+export type ResourceTransfer =
+  | { id: string; kind: 'flow'; resource_id: string; source: ResourceTransferEndpoint; target: ResourceTransferEndpoint; mode_ids: string[] }
+  | { id: string; kind: 'relation'; source: RelationEndpoint; target: RelationEndpoint; mode_ids: string[] }
+
 export interface SystemFunction {
+  /** Omitted means reusable/enabled; installed-only authoring opts in explicitly. */
+  default_enabled?: boolean
   id: string; description: string; canonical_verb_id?: string
   function_type: 'primary'|'supporting'|'interface'|'monitoring'|'system_response'
   mode_ids: string[]
   port_ids?: string[]
+  interface_origin?: InterfaceFunctionOrigin
+  definition?: StructuredFunctionDefinition
 }
 
 export interface SystemFailureMode {
+  default_enabled?: boolean
   id: string; function_id: string; description: string
   deviation_id: string; mode_ids: string[]
 }
@@ -68,11 +106,16 @@ export interface SystemBlockInstance {
   reference_designators: string[]; mode_ids: string[]
   source_metadata?: Record<string, unknown>
   function_overrides: {
-    function_id: string; enabled: boolean; description?: string; mode_ids?: string[]
+    function_id: string; enabled?: boolean|null; description?: string; mode_ids?: string[]
+    function_type?: SystemFunction['function_type']; canonical_verb_id?: string
+    definition?: StructuredFunctionDefinition
+    /** Occurrence-only resource identities, preserving inherited actions and definitions. */
+    resource_bindings?: Record<string, string>
   }[]
   failure_mode_overrides: {
-    failure_mode_id: string; enabled: boolean; description?: string
+    failure_mode_id: string; enabled?: boolean|null; description?: string
     deviation_id?: string; mode_ids?: string[]
+    function_id?: string
   }[]
   legacy_refs: string[]
   origin?: 'ad_hoc'|'definition_slot'; definition_revision?: string
@@ -100,6 +143,9 @@ export interface SystemInterface {
   flow_description: string; operating_condition: string
   source_function_ids: string[]; target_function_ids: string[]; mode_ids: string[]
   properties?: Record<string, SystemParameterValue>
+  transfers?: ResourceTransfer[]
+  /** Created from an input binding; removable when its final transfer is removed. */
+  generated?: boolean
 }
 
 export interface SystemPropagationAssertion {
@@ -111,7 +157,8 @@ export interface SystemPropagationAssertion {
 
 export interface SystemDefinitionModel {
   root_instance_id?: string
-  version: 1|2; id: string; name: string; revision: string
+  version: 4; id: string; name: string; revision: string
+  resources: SystemResource[]
   modes: SystemMode[]; definitions: SystemBlockDefinition[]
   instances: SystemBlockInstance[]
   externals: { id: string; name: string; kind: 'adjacent_system'|'person'|'environment'|'other'; description: string; ports?: SystemPort[] }[]
@@ -119,7 +166,7 @@ export interface SystemDefinitionModel {
   function_links: {
     id: string; source: SystemFunctionRef; target: SystemFunctionRef
     relationship: 'decomposes_to'|'depends_on'|'provides_input'|'enables'|'monitors'|'responds_to'
-    rationale: string; mode_ids: string[]
+    rationale: string; mode_ids: string[]; generated?: boolean
   }[]
   propagation_rules: {
     id: string; action: 'pass_through'|'transform'|'stop'|'terminate'
@@ -130,7 +177,9 @@ export interface SystemDefinitionModel {
   propagation_assertions?: SystemPropagationAssertion[]
   diagrams: {
     id: string; name: string; scope_instance_id?: string
+    hidden_instance_ids?: string[]
     density?: 'compact'|'standard'|'detailed'
+    connectorStyle?: 'orthogonal'|'curved'|'straight'
     layoutOptions?: import('../components/shared/adaptiveDiagramLayout.mjs').DiagramLayoutOptions
     boundary?: { label: string; x: number; y: number; width: number; height: number }
     viewport?: { x: number; y: number; zoom: number }
@@ -202,10 +251,6 @@ export interface SystemStarterResult {
 export const validateSystemDefinition = (model: SystemDefinitionModel) =>
   api.post<{ valid: boolean; issues: SystemDefinitionIssue[]; summary: Record<string, number> }>(
     '/system-definition/validate', { model }).then(response => response.data)
-
-export const upgradeSystemDefinition = (model: SystemDefinitionModel) =>
-  api.post<SystemDefinitionModel>('/system-definition/upgrade', { model })
-    .then(response => response.data)
 
 export const getSystemProfileAdapters = () =>
   api.get<{ version: number; adapters: {

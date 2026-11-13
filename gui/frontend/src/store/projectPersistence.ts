@@ -1,3 +1,5 @@
+import { PROJECT_SCHEMA_VERSION } from '../version'
+
 /** Incremental browser persistence. No project-sized JSON serialization on edits. */
 export interface StoredProject {
   projectName: string
@@ -18,9 +20,13 @@ interface DocumentRecord {
 }
 interface DataRecord { documentId: string; key: string; value: unknown }
 interface Baseline { sequence: number; records: Map<string, unknown> }
+interface StartupReplacement {
+  legacySession: StoredProject | null
+  legacyProjects: StoredProject[]
+}
 export interface StoredProjectSummary { id: string; name: string; savedAt: string }
 
-const DB_NAME = 'perdura:project-schema:9'
+const DB_NAME = `perdura:project-schema:${PROJECT_SCHEMA_VERSION}`
 const DB_VERSION = 1
 const splitCache = new WeakMap<object, { input: unknown; result: unknown }>()
 interface BlobReference { path: (string | number)[]; key: string }
@@ -193,7 +199,15 @@ export class ProjectPersistence {
     return work
   }
 
-  private async write(id: string, snapshot: StoredProject): Promise<void> {
+  /** Preserve the rejected session and legacy projects in the same transaction
+   * as its replacement. Raw copies must not normalize incompatible documents. */
+  replaceStartupSession(snapshot: StoredProject, legacy: StartupReplacement): Promise<void> {
+    const work = this.queue.then(() => this.write('session', snapshot, legacy))
+    this.queue = work.catch(() => {})
+    return work
+  }
+
+  private async write(id: string, snapshot: StoredProject, startup?: StartupReplacement): Promise<void> {
     const db = await this.database()
     const baseline = this.baselines.get(id)
     const records = new Map<string, unknown>()
@@ -246,7 +260,7 @@ export class ProjectPersistence {
       }
     }
     const { modules: _, ...metadata } = snapshot
-    const tx = db.transaction(['documents', 'records'], 'readwrite')
+    const tx = db.transaction(startup ? ['documents', 'records', 'settings'] : ['documents', 'records'], 'readwrite')
     const done = complete(tx)
     let failure: Error | undefined
     const metaStore = tx.objectStore('documents')
@@ -259,6 +273,53 @@ export class ProjectPersistence {
         failure = new Error('This project changed in another browser tab. Reopen it or save a copy under another name.')
         tx.abort()
         return
+      }
+      if (startup) {
+        const savedAt = new Date().toISOString()
+        const original = current?.snapshot ?? startup.legacySession
+        const recoveryName = `${original?.projectName || 'Project'} (startup recovery ${savedAt} ${crypto.randomUUID()})`
+        const recoveryId = `named:${recoveryName}`
+        const copyRawProject = (documentId: string, project: StoredProject) => {
+          const { modules, ...snapshot } = project
+          metaStore.put({ id: documentId, sequence: 1, snapshot,
+            moduleKeys: Object.keys(modules) } satisfies DocumentRecord)
+          for (const [key, value] of Object.entries(modules)) {
+            dataStore.put({ documentId, key: `module:${key}`, value } satisfies DataRecord)
+          }
+        }
+        if (current) {
+          metaStore.put({ ...current, id: recoveryId, sequence: 1,
+            snapshot: { ...current.snapshot, projectName: recoveryName, lastSavedAt: savedAt } })
+          // Read persisted rows, including packed report images, without the
+          // in-memory preparation cache or validation changing their contents.
+          const sourceRows = dataStore.getAll(IDBKeyRange.bound([id, ''], [id, '\uffff']))
+          sourceRows.onsuccess = () => {
+            try {
+              for (const row of sourceRows.result as DataRecord[]) {
+                dataStore.put({ ...row, documentId: recoveryId })
+              }
+            } catch (error) {
+              failure = error instanceof Error ? error : new Error(String(error))
+              tx.abort()
+            }
+          }
+        } else if (startup.legacySession) {
+          copyRawProject(recoveryId, { ...startup.legacySession,
+            projectName: recoveryName, lastSavedAt: savedAt })
+        }
+        for (const project of startup.legacyProjects) {
+          const legacyId = `named:${project.projectName}`
+          const existing = metaStore.get(legacyId)
+          existing.onsuccess = () => {
+            if (existing.result) return
+            try { copyRawProject(legacyId, project) }
+            catch (error) {
+              failure = error instanceof Error ? error : new Error(String(error))
+              tx.abort()
+            }
+          }
+        }
+        tx.objectStore('settings').put(true, 'legacy-migrated')
       }
       for (const key of baseline?.records.keys() ?? []) {
         if (!records.has(key)) dataStore.delete([id, key])

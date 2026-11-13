@@ -29,15 +29,17 @@ import {
   LayoutGrid,
   Magnet,
   Maximize2,
-  Minus,
   Minimize2,
+  Minus,
+  PanelRightClose,
+  PanelRightOpen,
   Plus,
   Scan,
   Trash2,
   User,
   Wind,
 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import type {
   AIAGVDAFMEAAnalysis,
@@ -46,12 +48,24 @@ import type {
 } from '../../api/reliabilityProgram'
 import CanvasAssetControls from '../shared/CanvasAssetControls'
 import DiagramLayoutMenu from '../shared/DiagramLayoutMenu'
-import { normalizeLayoutOptions, layoutDensity, orderLayoutNodes, layoutLargeNestedBlocks, clearCurveOffset, LAYOUT_PROFILES, type DiagramLayoutOptions } from '../shared/adaptiveDiagramLayout.mjs'
+import { normalizeLayoutOptions, layoutDensity, orderLayoutNodes, layoutLargeNestedBlocks, LAYOUT_PROFILES, type DiagramLayoutOptions } from '../shared/adaptiveDiagramLayout.mjs'
 import ExportDiagramButton from '../shared/ExportDiagramButton'
 import { fitReactFlowForExport } from '../shared/exportDiagram'
 import { useShortcuts } from '../shared/KeyboardShortcuts'
+import { DiagramFullscreenButton, useDiagramFullscreen } from '../shared/useDiagramFullscreen'
+import { useUiPreference } from '../../store/uiPreferences'
+import { interfaceAggregationKey } from '../shared/hierarchicalDiagram'
+import { commitBlockDrag, encloseExpandedContainers, resolveExpansionCollisions } from './blockDiagramGeometry'
+import { connectorAnchor, routeInterfaceConnector, type ConnectorRoute, type ConnectorStyle, type RoutingRect } from './interfaceRouting'
+import InterfaceDiagramSidebar from '../shared/InterfaceDiagramSidebar'
+import { ALL_RESOURCES, INTERFACE_TYPE_OPTIONS, connectedDiagramNodeIds, defaultInterfaceDiagramFilters, parseInterfaceDiagramFilters,
+  diagramSelectionScope, interfaceMatchesConnections, interfaceMatchesFilters, projectInterfaceDiagramFilters,
+  type DiagramResourceFlow, type DiagramResourceOption, type InterfaceDiagramFilters } from '../shared/interfaceDiagramFilters'
 
 const BOUNDARY_ID = 'fmea-analysis-boundary'
+const STRUCTURE_SELECTION_PREFIX = 'inspected-structure:'
+const NO_RESOURCES: readonly DiagramResourceOption[] = []
+const NO_RETAINED_STRUCTURES: readonly string[] = []
 const fieldClass =
   'w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-700'
 
@@ -119,6 +133,7 @@ type DiagramNodeData = {
   breadcrumb?: string
   expanded?: boolean
   boundaryConflict?: boolean
+  fixed?: boolean
   onToggleExpand?: () => void
   onResize?: (width: number, height: number) => void
 }
@@ -126,7 +141,8 @@ type DiagramNodeData = {
 type DiagramFlowNode = Node<DiagramNodeData, 'fmeaBlock'|'fmeaBoundary'>
 type DiagramEdgeData = {
   color: string
-  offset: number
+  route: ConnectorRoute
+  routing: { source: RoutingRect; target: RoutingRect; obstacles: RoutingRect[]; style: ConnectorStyle; lane: number }
   dashed: boolean
   code: string
   name: string
@@ -162,7 +178,7 @@ function DiagramBlockNode({
           : 'border-dashed border-slate-400 bg-slate-50'
   }`}>
     <NodeResizer minWidth={120} minHeight={52}
-      isVisible={selected && !expanded}
+      isVisible={selected && !expanded && !data.fixed}
       onResizeEnd={(_, params) => data.onResize?.(params.width, params.height)} />
     <div className="flex items-start justify-between gap-2">
       <div className="min-w-0">
@@ -207,7 +223,9 @@ function DiagramBlockNode({
       </div>}
     {[Position.Top, Position.Right, Position.Bottom, Position.Left].map(position =>
       <Handle key={position} id={String(position)} type="source"
-        position={position} className={handleClass} />)}
+        position={position} className={handleClass}
+        style={expanded && position !== Position.Top ? position === Position.Bottom
+          ? { top:32,bottom:'auto',transform:'translate(-50%, -50%)' } : { top:16 } : undefined} />)}
   </div>
 }
 
@@ -267,18 +285,19 @@ function InterfaceEdge({
   label,
 }: EdgeProps<DiagramFlowEdge>) {
   const [hovered, setHovered] = useState(false)
-  const dx = targetX - sourceX
-  const dy = targetY - sourceY
-  const length = Math.max(1, Math.hypot(dx, dy))
-  const nx = -dy / length
-  const ny = dx / length
-  const offset = data?.offset ?? 0
-  const c1x = sourceX + dx / 3 + nx * offset
-  const c1y = sourceY + dy / 3 + ny * offset
-  const c2x = sourceX + 2 * dx / 3 + nx * offset
-  const c2y = sourceY + 2 * dy / 3 + ny * offset
-  const path =
-    `M ${sourceX},${sourceY} C ${c1x},${c1y} ${c2x},${c2y} ${targetX},${targetY}`
+  const route = useMemo(() => {
+    if (!data) return undefined
+    const source = connectorAnchor(data.routing.source, data.route.sourceSide)
+    const target = connectorAnchor(data.routing.target, data.route.targetSide)
+    if (Math.hypot(source.x-sourceX, source.y-sourceY) < 1
+        && Math.hypot(target.x-targetX, target.y-targetY) < 1) return data.route
+    return routeInterfaceConnector({ ...data.routing,
+      source: { ...data.routing.source, x: data.routing.source.x+sourceX-source.x, y:data.routing.source.y+sourceY-source.y },
+      target: { ...data.routing.target, x: data.routing.target.x+targetX-target.x, y:data.routing.target.y+targetY-target.y },
+      sourceSide:data.route.sourceSide, targetSide:data.route.targetSide })
+  }, [data, sourceX, sourceY, targetX, targetY])
+  const path = route?.path ?? ''
+  const labelPoint = route?.label ?? { x:sourceX,y:sourceY }
   const strength = data?.strength === 'unspecified'
     ? undefined : data?.strength
   const nature = data?.nature === 'unspecified'
@@ -299,9 +318,9 @@ function InterfaceEdge({
         strokeDasharray: data?.dashed ? '7 5' : undefined,
       }} />
     {label && <foreignObject
-      x={(sourceX + targetX) / 2 + nx * offset
+      x={labelPoint.x
         - (expandedLabel ? 70 : 28)}
-      y={(sourceY + targetY) / 2 + ny * offset
+      y={labelPoint.y
         - (expandedLabel && hasRelationshipIndicator ? 19 : 9)}
       width={expandedLabel ? 140 : 56}
       height={expandedLabel && hasRelationshipIndicator ? 40 : 18}
@@ -399,30 +418,103 @@ export default function FmeaBlockDiagramCanvas({
   analysis,
   update,
   findingNavigation,
+  fillHeight = false,
+  allowCanonicalEditing = false,
+  focusView = false,
+  hideCreationTools = false,
+  hideAnalysisBoundary = false,
+  implicitRootStructureId,
+  interfaceEndpoints,
+  interfaceDescriptions,
+  interfaceResourceIds,
+  interfaceResourceFlows,
+  initialSelectedStructureId,
+  onCollapseAllSystems,
+  hasExpandedSystems,
+  interfaceInspector,
+  libraryContent,
+  hiddenStructureIds,
+  onStructureSelect,
+  structureSelection,
+  onStructureFocus,
+  canFocusStructure,
+  structureInspector,
+  assetTargetView,
+  displayPreferenceKey,
+  resourceOptions = NO_RESOURCES,
+  retainedStructureIds = NO_RETAINED_STRUCTURES,
 }: {
   analysis: AIAGVDAFMEAAnalysis
   update: (patch: Partial<AIAGVDAFMEAAnalysis>) => void
+  fillHeight?: boolean
+  allowCanonicalEditing?: boolean
+  focusView?: boolean
+  hideCreationTools?: boolean
+  hideAnalysisBoundary?: boolean
+  implicitRootStructureId?: string
+  /** Rendering endpoints only. Inspector edits always target original records. */
+  interfaceEndpoints?: Record<string, { source: string; target: string }>
+  interfaceDescriptions?: Record<string, string>
+  interfaceResourceIds?: Record<string, string[]>
+  interfaceResourceFlows?: Record<string, DiagramResourceFlow[]>
+  initialSelectedStructureId?: string
+  onCollapseAllSystems?: () => void
+  hasExpandedSystems?: boolean
+  interfaceInspector?: (interfaceId: string) => ReactNode
+  libraryContent?: ReactNode
+  hiddenStructureIds?: ReadonlySet<string>
+  onStructureSelect?: (structureId: string) => void
+  structureSelection?: { structureId: string; requestId: number }
+  onStructureFocus?: (structureId: string) => void
+  canFocusStructure?: (structureId: string) => boolean
+  structureInspector?: (structureId: string) => ReactNode
+  assetTargetView?: string
+  displayPreferenceKey?: string
+  resourceOptions?: readonly DiagramResourceOption[]
+  /** Keep the active FMEA focus in view even when no interfaces match. */
+  retainedStructureIds?: readonly string[]
   findingNavigation?: {
     requestId: number
     record_id?: string
   }|null
 }) {
   const diagram = analysis.block_diagram
+  const layoutInterfaces = useMemo(() => interfaceEndpoints
+    ? analysis.interfaces.flatMap(item => interfaceEndpoints[item.id]
+      ? [{ ...item, source_block_id: interfaceEndpoints[item.id].source,
+          target_block_id: interfaceEndpoints[item.id].target }] : [])
+    : analysis.interfaces, [analysis.interfaces, interfaceEndpoints])
   const density = DENSITY_LEVELS.includes(diagram.density)
     ? diagram.density : 'comfortable'
   const densityPreset = DENSITY_PRESETS[density]
   const layoutOptions = normalizeLayoutOptions(diagram.layoutOptions, density)
   const [selectedNodeId, setSelectedNodeId] = useState('')
+  // Keep the connection anchor while inspecting an edge or clicking canvas space.
+  const [connectionSelection, setConnectionSelection] = useState<{nodeId?:string;structureId?:string}>({ structureId: initialSelectedStructureId })
+  useEffect(() => {
+    if (initialSelectedStructureId) setConnectionSelection({ structureId: initialSelectedStructureId })
+  }, [initialSelectedStructureId])
   const [selectedInterfaceId, setSelectedInterfaceId] = useState('')
   const [selectedInterfaceGroupId, setSelectedInterfaceGroupId] = useState('')
   const [connectingFromId, setConnectingFromId] = useState('')
-  const [fullscreen, setFullscreen] = useState(false)
   const [flowNodes, setFlowNodes] = useState<DiagramFlowNode[]>([])
+  const liveFlowNodes = useRef<DiagramFlowNode[]>([])
+  const dragMoved = useRef(false)
+  const [inspectorOpen, setInspectorOpen] = useUiPreference<boolean>('interfaceDiagram.propertiesOpen', true)
+  const [filterJson, setFilterJson] = useUiPreference<string>(`interfaceDiagram.filters:${displayPreferenceKey ?? analysis.id}`, '')
+  const filters = useMemo(() => parseInterfaceDiagramFilters(filterJson, resourceOptions), [filterJson, resourceOptions])
+  const changeFilters = (value: InterfaceDiagramFilters) => setFilterJson(JSON.stringify(value))
+  const inspectorId = useId()
+  const inspectorToggle = useRef<HTMLButtonElement>(null)
   const wrapperRef = useRef<HTMLDivElement>(null)
   const flowRef = useRef<ReactFlowInstance<DiagramFlowNode, DiagramFlowEdge>|null>(null)
+  const fullscreen = useDiagramFullscreen('System interface diagram', () => flowRef.current)
   const diagramRef = useRef(diagram)
   const updateRef = useRef(update)
   const selectedNodeIdRef = useRef(selectedNodeId)
+  const lastStructureSelection = useRef(structureSelection?.requestId)
+  const lastFindingNavigation = useRef('')
+  const pendingInterfaceFit = useRef('')
   diagramRef.current = diagram
   updateRef.current = update
   selectedNodeIdRef.current = selectedNodeId
@@ -435,11 +527,43 @@ export default function FmeaBlockDiagramCanvas({
     () => new Map(diagram.nodes.map(node => [node.id, node])),
     [diagram.nodes],
   )
+  const connectionNode = connectionSelection.nodeId ? diagramById.get(connectionSelection.nodeId) : undefined
+  const connectionStructure = structureById.get(connectionSelection.structureId ?? connectionNode?.structure_node_id ?? '')
+  const selectedBlockLabel = connectionStructure?.name ?? connectionNode?.label
+  const selectedScope = useMemo(() => selectedBlockLabel
+    ? diagramSelectionScope(diagram.nodes, analysis.structure_nodes, connectionSelection) : undefined,
+  [diagram.nodes, analysis.structure_nodes, connectionSelection, selectedBlockLabel])
+  const directionalFilterActive = Boolean(interfaceResourceFlows && selectedScope && filters.connections !== 'all')
+  const filterProjection = useMemo(() => projectInterfaceDiagramFilters(analysis.interfaces, diagram.nodes,
+    filters, interfaceResourceIds, interfaceEndpoints, interfaceResourceFlows, interfaceResourceFlows ? selectedScope : undefined),
+  [analysis.interfaces, diagram.nodes, filters, interfaceResourceIds, interfaceEndpoints, interfaceResourceFlows, selectedScope])
+  const matchingInterfaceIds = useMemo(() => new Set(filterProjection.matching.map(value => value.item.id)), [filterProjection])
+  const renderNodeIds = useMemo(() => filters.onlyConnected || directionalFilterActive
+    ? connectedDiagramNodeIds(diagram.nodes, filterProjection.matching,
+      [...retainedStructureIds, ...(directionalFilterActive && connectionStructure ? [connectionStructure.id] : [])],
+      directionalFilterActive && connectionNode ? [connectionNode.id] : [])
+    : new Set(diagram.nodes.map(node => node.id)),
+  [diagram.nodes, filterProjection, filters.onlyConnected, retainedStructureIds, directionalFilterActive, connectionNode, connectionStructure])
+  const renderNodes = useMemo(() => diagram.nodes.filter(node => renderNodeIds.has(node.id)), [diagram.nodes, renderNodeIds])
+  const revealInterface = (item: FMEAInterface) => {
+    const excludedDirection = directionalFilterActive && !interfaceMatchesConnections(interfaceResourceFlows?.[item.id] ?? [], filters, selectedScope)
+    if (excludedDirection || !interfaceMatchesFilters(item, interfaceResourceIds?.[item.id] ?? [], filters)) changeFilters({ ...filters,
+      types: filters.types.includes(item.interface_type) ? filters.types : [...filters.types, item.interface_type],
+      resource: ALL_RESOURCES,
+      connections: excludedDirection ? 'all' : filters.connections,
+    })
+  }
   useEffect(() => {
     const recordId = findingNavigation?.record_id
     if (!recordId) return
+    const requestKey = JSON.stringify([findingNavigation?.requestId, recordId])
+    if (lastFindingNavigation.current === requestKey) return
+    setInspectorOpen(true)
     if (diagramById.has(recordId)) {
+      lastFindingNavigation.current = requestKey
+      if (!renderNodeIds.has(recordId)) changeFilters({ ...filters, onlyConnected: false })
       setSelectedNodeId(recordId)
+      if (recordId !== BOUNDARY_ID) setConnectionSelection({ nodeId: recordId })
       setSelectedInterfaceId('')
       setSelectedInterfaceGroupId('')
       window.requestAnimationFrame(() => {
@@ -453,6 +577,9 @@ export default function FmeaBlockDiagramCanvas({
       return
     }
     if (analysis.interfaces.some(item => item.id === recordId)) {
+      lastFindingNavigation.current = requestKey
+      pendingInterfaceFit.current = recordId
+      revealInterface(analysis.interfaces.find(item => item.id === recordId)!)
       setSelectedNodeId('')
       setSelectedInterfaceId(recordId)
       setSelectedInterfaceGroupId('')
@@ -469,9 +596,32 @@ export default function FmeaBlockDiagramCanvas({
         ? [[node.structure_node_id, node] as const] : [])),
     [diagram.nodes],
   )
+  useEffect(() => {
+    if (!structureSelection || !structureById.has(structureSelection.structureId)) return
+    const block = structureBlockByStructureId.get(structureSelection.structureId)
+    const id = block?.id ?? `${STRUCTURE_SELECTION_PREFIX}${structureSelection.structureId}`
+    setSelectedNodeId(id)
+    setConnectionSelection({ structureId: structureSelection.structureId })
+    setSelectedInterfaceId('')
+    setSelectedInterfaceGroupId('')
+    // Restoring this view may replay its retained selection. Only a new user
+    // selection opens the inspector; tab changes retain the saved toggle.
+    if (lastStructureSelection.current !== structureSelection.requestId) {
+      setInspectorOpen(true)
+      if (block && !renderNodeIds.has(block.id) && !directionalFilterActive) changeFilters({ ...filters, onlyConnected: false })
+    }
+    lastStructureSelection.current = structureSelection.requestId
+    const nodes = liveFlowNodes.current.map(node => ({ ...node,selected:node.id === id }))
+    liveFlowNodes.current = nodes
+    setFlowNodes(nodes)
+    // This is an explicit hierarchy-selection event. Geometry and canonical
+    // model changes must not replay it or displace an interface selection.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [structureSelection?.requestId,structureSelection?.structureId])
+
   const containedChildrenByBlockId = useMemo(() => {
     const result = new Map<string, FMEABlockDiagramNode[]>()
-    for (const node of diagram.nodes) {
+    for (const node of renderNodes) {
       if (!node.container_parent_block_id
           || !diagramById.has(node.container_parent_block_id)) continue
       result.set(node.container_parent_block_id, [
@@ -480,7 +630,7 @@ export default function FmeaBlockDiagramCanvas({
       ])
     }
     return result
-  }, [diagram.nodes, diagramById])
+  }, [renderNodes, diagramById])
   const projectedSizeById = useMemo(() => {
     const result = new Map<string, { width: number; height: number }>()
     const measure = (id: string, trail = new Set<string>()) => {
@@ -524,18 +674,18 @@ export default function FmeaBlockDiagramCanvas({
       result.set(id, size)
       return size
     }
-    diagram.nodes.forEach(node => measure(node.id))
+    renderNodes.forEach(node => measure(node.id))
     return result
   }, [
     containedChildrenByBlockId,
     densityPreset.sizeScale,
     densityPreset.spacingScale,
-    diagram.nodes,
+    renderNodes,
     diagramById,
   ])
   const visibleBlockIds = useMemo(() => {
     const visible = new Set<string>()
-    for (const node of diagram.nodes) {
+    for (const node of renderNodes) {
       const visited = new Set<string>()
       let current = node
       let hidden = false
@@ -556,7 +706,7 @@ export default function FmeaBlockDiagramCanvas({
       if (!hidden) visible.add(node.id)
     }
     return visible
-  }, [diagram.nodes, diagramById])
+  }, [renderNodes, diagramById])
 
   const structureBreadcrumb = (structureId?: string) => {
     if (!structureId) return ''
@@ -571,6 +721,15 @@ export default function FmeaBlockDiagramCanvas({
       parentId = parent.parent_id
     }
     return names.join(' › ')
+  }
+
+  const structureIndenture = (structureId?: string) => {
+    let depth = 1, parent = structureById.get(structureId ?? '')?.parent_id
+    const visited = new Set<string>()
+    while (parent && !visited.has(parent)) {
+      visited.add(parent); depth++; parent = structureById.get(parent)?.parent_id
+    }
+    return depth
   }
 
   const commitNodeSize = (id: string, width: number, height: number) => {
@@ -616,6 +775,7 @@ export default function FmeaBlockDiagramCanvas({
       if (existingIndex >= 0) return {
         index: existingIndex,
         node: nextNodes[existingIndex],
+        created: false,
       }
       const created: FMEABlockDiagramNode = {
         id: newId('BDN'),
@@ -631,12 +791,20 @@ export default function FmeaBlockDiagramCanvas({
         inside_boundary: parent.inside_boundary,
       }
       nextNodes.push(created)
-      return { index: nextNodes.length - 1, node: created }
+      return { index: nextNodes.length - 1, node: created, created: true }
     })
-    const columns = Math.max(1, Math.ceil(Math.sqrt(childBlocks.length)))
+    // Reopening an assembly must retain its manual layout. Place only blocks
+    // introduced by this expansion, below any already-positioned children.
+    const added = childBlocks.filter(child => child.created)
+    const columns = Math.max(1, Math.ceil(Math.sqrt(added.length)))
     let rowY = parent.y + 46
-    for (let start = 0; start < childBlocks.length; start += columns) {
-      const row = childBlocks.slice(start, start + columns)
+    for (const child of childBlocks.filter(child => !child.created)) {
+      nextNodes[child.index] = { ...child.node, container_parent_block_id: parent.id,
+        inside_boundary: parent.inside_boundary }
+      rowY = Math.max(rowY, child.node.y + (projectedSizeById.get(child.node.id)?.height ?? child.node.height) + 20)
+    }
+    for (let start = 0; start < added.length; start += columns) {
+      const row = added.slice(start, start + columns)
       let columnX = parent.x + 20
       let rowHeight = 0
       for (const child of row) {
@@ -656,7 +824,9 @@ export default function FmeaBlockDiagramCanvas({
     }
     const parentIndex = nextNodes.findIndex(node => node.id === blockId)
     nextNodes[parentIndex] = { ...nextNodes[parentIndex], expanded: true }
-    update({ block_diagram: { ...diagram, nodes: nextNodes } })
+    update({ block_diagram: resolveExpansionCollisions(encloseExpandedContainers(
+      { ...diagram, nodes: nextNodes }, 20 * densityPreset.spacingScale,
+    ), blockId, 20 * densityPreset.spacingScale, densityPreset.sizeScale) })
   }
 
   // Keep persisted diagram geometry and React Flow's transient node state on
@@ -667,19 +837,19 @@ export default function FmeaBlockDiagramCanvas({
   const flowProjectionKey = JSON.stringify({
     boundary: diagram.boundary,
     density,
-    nodes: diagram.nodes,
+    nodes: renderNodes,
     structures: analysis.structure_nodes.map(node => ({
       id: node.id,
       name: node.name,
       level: node.level,
       parentId: node.parent_id,
     })),
-    connectingFromId,
+    connectingFromId, hideAnalysisBoundary, implicitRootStructureId,
   })
 
   useEffect(() => {
     const source = diagramById.get(connectingFromId)
-    const projected: DiagramFlowNode[] = [{
+    const projected: DiagramFlowNode[] = hideAnalysisBoundary ? [] : [{
       id: BOUNDARY_ID,
       type: 'fmeaBoundary',
       position: { x: diagram.boundary.x, y: diagram.boundary.y },
@@ -718,9 +888,11 @@ export default function FmeaBlockDiagramCanvas({
       const structure = node.structure_node_id
         ? structureById.get(node.structure_node_id)
         : undefined
-      const children = structure
+      const implicitRoot = structure?.id === implicitRootStructureId
+      const children = structure && !implicitRoot
         ? analysis.structure_nodes.filter(item =>
-          item.parent_id === structure.id)
+          item.parent_id === structure.id && !hiddenStructureIds?.has(item.id)
+          && (!(filters.onlyConnected || directionalFilterActive) || renderNodeIds.has(structureBlockByStructureId.get(item.id)?.id ?? '')))
         : []
       const eligible = !!source && node.id !== source.id
         && (source.kind === 'structure' || node.kind === 'structure')
@@ -738,12 +910,17 @@ export default function FmeaBlockDiagramCanvas({
       return {
         id: node.id,
         type: 'fmeaBlock' as const,
+        draggable: !implicitRoot,
         position: parent?.expanded
           ? { x: node.x - parent.x, y: node.y - parent.y }
           : { x: node.x, y: node.y },
         parentId: parent?.expanded ? parent.id : undefined,
-        extent: parent?.expanded ? 'parent' as const : undefined,
-        expandParent: false,
+        // React Flow grows the container while dragging instead of clamping
+        // its children to a tightly packed collapsed/expanded layout.
+        extent: undefined,
+        expandParent: Boolean(parent?.expanded),
+        width: size.width,
+        height: size.height,
         style: {
           width: size.width,
           height: size.height,
@@ -751,8 +928,9 @@ export default function FmeaBlockDiagramCanvas({
         },
         data: {
           label: structure?.name ?? node.label,
-          subtitle: node.kind === 'structure'
-            ? structure?.level.replace(/_/g, ' ') ?? 'Missing structure record'
+          fixed: implicitRoot,
+          subtitle: implicitRoot ? 'L1 · System boundary endpoint' : node.kind === 'structure'
+            ? `L${structureIndenture(node.structure_node_id)} · ${structure?.level.replace(/_/g, ' ') ?? 'Missing structure record'}`
             : node.external_kind?.replace(/_/g, ' ') ?? 'External',
           kind: node.kind,
           insideBoundary: node.inside_boundary,
@@ -762,7 +940,7 @@ export default function FmeaBlockDiagramCanvas({
             child.name || child.id).join(', '),
           breadcrumb: structureBreadcrumb(node.structure_node_id),
           expanded: Boolean(node.expanded),
-          boundaryConflict: !node.inside_boundary && physicallyInsideBoundary,
+          boundaryConflict: !hideAnalysisBoundary && !node.inside_boundary && physicallyInsideBoundary,
           onToggleExpand: () => toggleStructureBlock(node.id),
           connectionActive: !!connectingFromId,
           connectionEligible: eligible,
@@ -775,21 +953,21 @@ export default function FmeaBlockDiagramCanvas({
         },
       }
     }))
-    setFlowNodes(current => {
-      const currentById = new Map(current.map(node => [node.id, node]))
-      return projected.map(node => {
-        const existing = currentById.get(node.id)
-        return {
-          // Preserve React Flow-owned measurements and interaction state while
-          // replacing model-owned geometry and display data.
-          ...existing,
-          ...node,
-          selected: selectedNodeIdRef.current
-            ? selectedNodeIdRef.current === node.id
-            : Boolean(existing?.selected),
-        }
-      })
+    const currentById = new Map(liveFlowNodes.current.map(node => [node.id, node]))
+    const next = projected.map(node => {
+      const existing = currentById.get(node.id)
+      return {
+        // Preserve React Flow-owned measurements and interaction state while
+        // replacing model-owned geometry and display data.
+        ...existing,
+        ...node,
+        selected: selectedNodeIdRef.current
+          ? selectedNodeIdRef.current === node.id
+          : Boolean(existing?.selected),
+      }
     })
+    liveFlowNodes.current = next
+    setFlowNodes(next)
   // flowProjectionKey covers the persisted geometry, structure labels, and
   // connection state used by this projection. Selection is deliberately not
   // a dependency; React Flow owns it between model revisions.
@@ -819,20 +997,16 @@ export default function FmeaBlockDiagramCanvas({
       target: FMEABlockDiagramNode
       items: FMEAInterface[]
     }>()
-    for (const item of analysis.interfaces) {
-      if (!item.source_block_id || !item.target_block_id) continue
-      const source = visibleRepresentative(item.source_block_id)
-      const target = visibleRepresentative(item.target_block_id)
+    for (const { item } of filterProjection.matching) {
+      const endpoints = interfaceEndpoints?.[item.id]
+      if (interfaceEndpoints && !endpoints) continue
+      const sourceId = endpoints?.source ?? item.source_block_id
+      const targetId = endpoints?.target ?? item.target_block_id
+      if (!sourceId || !targetId) continue
+      const source = visibleRepresentative(sourceId)
+      const target = visibleRepresentative(targetId)
       if (!source || !target || source.id === target.id) continue
-      const key = [
-        source.id,
-        target.id,
-        item.interface_type,
-        item.linkage,
-        item.directionality,
-        item.relationship_strength,
-        item.relationship_nature,
-      ].join('\u0000')
+      const key = interfaceAggregationKey(source.id, target.id, item, interfaceResourceIds?.[item.id])
       const existing = groups.get(key)
       if (existing) existing.items.push(item)
       else groups.set(key, {
@@ -852,7 +1026,7 @@ export default function FmeaBlockDiagramCanvas({
     return result
   // visibleRepresentative is a pure projection over these dependencies.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [analysis.interfaces, diagram.nodes, visibleBlockIds])
+  }, [filterProjection, diagram.nodes, visibleBlockIds, interfaceEndpoints, interfaceResourceIds])
   const projectedGroupsByEndpoint = useMemo(() => {
     const result = new Map<string, typeof projectedInterfaceGroups>()
     for (const group of projectedInterfaceGroups) {
@@ -866,7 +1040,13 @@ export default function FmeaBlockDiagramCanvas({
     return result
   }, [projectedInterfaceGroups])
 
-  const flowEdges = useMemo<DiagramFlowEdge[]>(() =>
+  const routingObstacles = useMemo(() => diagram.nodes.filter(node => visibleBlockIds.has(node.id))
+    .map(node => ({ id:node.id,x:node.x,y:node.y,
+      width:projectedSizeById.get(node.id)?.width ?? node.width,
+      height:node.expanded ? 32 : projectedSizeById.get(node.id)?.height ?? node.height })),
+  [diagram.nodes,visibleBlockIds,projectedSizeById])
+
+  const routedEdges = useMemo<DiagramFlowEdge[]>(() =>
     projectedInterfaceGroups.map(group => {
       const item = group.items[0]
       const style = interfaceStyles[item.interface_type]
@@ -874,7 +1054,7 @@ export default function FmeaBlockDiagramCanvas({
         .sort().join('\u0000')
       const siblings = projectedGroupsByEndpoint.get(endpointKey) ?? [group]
       const index = siblings.findIndex(value => value.id === group.id)
-      let offset = (index - (siblings.length - 1) / 2) * LAYOUT_PROFILES[layoutOptions.mode].corridor * 0.45
+      const offset = (index - (siblings.length - 1) / 2) * LAYOUT_PROFILES[layoutOptions.mode].corridor * 0.45
       const marker = {
         type: MarkerType.ArrowClosed,
         color: style.color,
@@ -900,28 +1080,16 @@ export default function FmeaBlockDiagramCanvas({
         ?? { width: group.source.width, height: group.source.height }
       const targetSize = projectedSizeById.get(group.target.id)
         ?? { width: group.target.width, height: group.target.height }
-      const dx = (group.target.x + targetSize.width / 2)
-        - (group.source.x + sourceSize.width / 2)
-      const dy = (group.target.y + targetSize.height / 2)
-        - (group.source.y + sourceSize.height / 2)
-      const horizontal = Math.abs(dx) >= Math.abs(dy)
-      const projectedSourceHandle = horizontal
-        ? String(dx >= 0 ? Position.Right : Position.Left)
-        : String(dy >= 0 ? Position.Bottom : Position.Top)
-      const projectedTargetHandle = horizontal
-        ? String(dx >= 0 ? Position.Left : Position.Right)
-        : String(dy >= 0 ? Position.Top : Position.Bottom)
-      if (projectedInterfaceGroups.length <= 2000) {
-        const anchor = (node: FMEABlockDiagramNode, size: {width:number;height:number}, side:string) => ({
-          x: node.x + (side === Position.Left ? 0 : side === Position.Right ? size.width : size.width / 2),
-          y: node.y + (side === Position.Top ? 0 : side === Position.Bottom ? size.height : size.height / 2),
-        })
-        offset = clearCurveOffset(anchor(group.source, sourceSize, projectedSourceHandle),
-          anchor(group.target, targetSize, projectedTargetHandle),
-          diagram.nodes.filter(node => visibleBlockIds.has(node.id)).map(node => ({ x: node.x, y: node.y,
-            ...(projectedSizeById.get(node.id) ?? {width:node.width,height:node.height}) })),
-          offset, LAYOUT_PROFILES[layoutOptions.mode].corridor)
+      const routing = {
+        source: { id:group.source.id,x:group.source.x,y:group.source.y,width:sourceSize.width,
+          height:group.source.expanded ? 32 : sourceSize.height },
+        target: { id:group.target.id,x:group.target.x,y:group.target.y,width:targetSize.width,
+          height:group.target.expanded ? 32 : targetSize.height },
+        obstacles: routingObstacles,
+        style: diagram.connectorStyle ?? 'curved' as ConnectorStyle,
+        lane: offset,
       }
+      const route = routeInterfaceConnector(routing)
       return {
         id: group.id,
         type: 'fmeaInterface',
@@ -930,10 +1098,8 @@ export default function FmeaBlockDiagramCanvas({
         // Attachment sides follow the current geometry. Persisted handle IDs
         // describe where a connector was drawn, but become misleading after
         // Auto Layout or hierarchy expansion moves either endpoint.
-        sourceHandle: projectedSourceHandle,
-        targetHandle: projectedTargetHandle,
-        selected: interfaceIds.includes(selectedInterfaceId)
-          || selectedInterfaceGroupId === group.id,
+        sourceHandle: route.sourceSide,
+        targetHandle: route.targetSide,
         label: style.code,
         markerEnd: item.directionality === 'undirected' ? undefined : marker,
         markerStart: item.directionality === 'bidirectional'
@@ -943,7 +1109,7 @@ export default function FmeaBlockDiagramCanvas({
           code: style.code,
           name,
           interfaceIds,
-          offset,
+          route, routing,
           dashed: item.linkage === 'indirect'
             || item.interface_type === 'clearance',
           strength: item.relationship_strength,
@@ -954,10 +1120,44 @@ export default function FmeaBlockDiagramCanvas({
     }), [
       projectedGroupsByEndpoint,
       projectedInterfaceGroups, layoutOptions.mode,
-      projectedSizeById,
-      selectedInterfaceGroupId,
-      selectedInterfaceId,
+      projectedSizeById, routingObstacles, diagram.connectorStyle,
     ])
+  // Selection changes only paint. Reusing routes avoids a graph-wide obstacle
+  // search on every inspector click or keyboard selection.
+  const flowEdges = useMemo<DiagramFlowEdge[]>(() => routedEdges.map(edge => ({ ...edge,
+    selected: Boolean(edge.data?.interfaceIds.includes(selectedInterfaceId)) || selectedInterfaceGroupId === edge.id,
+  })), [routedEdges,selectedInterfaceId,selectedInterfaceGroupId])
+  const previousFilterJson = useRef(filterJson)
+  const previousSelectedInterface = useRef<{ id: string; signature: string; filters: string } | null>(null)
+  useEffect(() => {
+    if (previousFilterJson.current === filterJson) return
+    previousFilterJson.current = filterJson
+    if (selectedInterfaceId && !matchingInterfaceIds.has(selectedInterfaceId)) setSelectedInterfaceId('')
+    if (selectedInterfaceGroupId && !projectedInterfaceGroups.some(group => group.id === selectedInterfaceGroupId)) setSelectedInterfaceGroupId('')
+    if (selectedNodeId && diagramById.has(selectedNodeId) && !renderNodeIds.has(selectedNodeId)) setSelectedNodeId('')
+  }, [filterJson, matchingInterfaceIds, projectedInterfaceGroups, renderNodeIds, diagramById,
+    selectedInterfaceId, selectedInterfaceGroupId, selectedNodeId])
+  useEffect(() => {
+    const selected = analysis.interfaces.find(item => item.id === selectedInterfaceId)
+    const signature = selected ? JSON.stringify([selected.interface_type, interfaceResourceIds?.[selected.id] ?? [], interfaceResourceFlows?.[selected.id] ?? []]) : ''
+    const previous = previousSelectedInterface.current
+    previousSelectedInterface.current = { id: selectedInterfaceId, signature, filters: filterJson }
+    // Editing an open canonical transfer inspector must not make that record
+    // disappear. Explicit filter changes still clear hidden selections above.
+    if (selected && previous?.id === selected.id && previous.signature !== signature && previous.filters === filterJson)
+      revealInterface(selected)
+    // revealInterface reads this render's filter state; the signature prevents
+    // reapplying a preference in response to unrelated canonical changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [analysis.interfaces, interfaceResourceIds, interfaceResourceFlows, selectedInterfaceId, filterJson])
+  useEffect(() => {
+    const group = projectedInterfaceGroups.find(item => item.items.some(value => value.id === pendingInterfaceFit.current))
+    if (!group) return
+    pendingInterfaceFit.current = ''
+    window.requestAnimationFrame(() => {
+      void flowRef.current?.fitView({ nodes: [{ id: group.source.id }, { id: group.target.id }], padding: 0.3, maxZoom: 1.25, duration: 300 })
+    })
+  }, [projectedInterfaceGroups, findingNavigation?.requestId])
 
   const updateDiagramNode = (
     id: string,
@@ -1002,32 +1202,55 @@ export default function FmeaBlockDiagramCanvas({
   }
 
   const addStructureBlock = (structureId: string) => {
-    if (diagram.nodes.some(node =>
-      node.kind === 'structure' && node.structure_node_id === structureId)) return
-    const index = diagram.nodes.filter(node => node.inside_boundary).length
-    const structure = structureById.get(structureId)
-    const created: FMEABlockDiagramNode = {
-      id: newId('BDN'),
-      kind: 'structure',
-      structure_node_id: structureId,
-      label: structure?.name ?? structureId,
-      x: diagram.boundary.x + 70 + (index % 4) * 205,
-      y: diagram.boundary.y + 80 + Math.floor(index / 4) * 115,
-      width: 180,
-      height: 72,
-      inside_boundary: structure?.level !== 'next_higher'
-        && structure?.level !== 'interface',
+    if (filters.onlyConnected) changeFilters({ ...filters, onlyConnected: false })
+    const nextNodes = [...diagram.nodes]
+    const byStructure = new Map(nextNodes.flatMap(node => node.structure_node_id ? [[node.structure_node_id, node] as const] : []))
+    const requested = structureById.get(structureId)
+    if (!requested) return
+    const register = (id: string, ancestors = new Set<string>()): FMEABlockDiagramNode | undefined => {
+      if (byStructure.has(id)) return byStructure.get(id)
+      if (ancestors.has(id)) return undefined
+      const structure = structureById.get(id)
+      if (!structure) return undefined
+      const parent = structure.parent_id ? register(structure.parent_id, new Set(ancestors).add(id)) : undefined
+      if (structure.parent_id && !parent) return undefined
+      const siblings = nextNodes.filter(node => node.container_parent_block_id === parent?.id)
+      const created: FMEABlockDiagramNode = {
+        id: newId('BDN'), kind: 'structure', structure_node_id: id,
+        container_parent_block_id: parent?.id, expanded: false,
+        label: structure.name || id,
+        x: (parent?.x ?? diagram.boundary.x + 46) + 24 + siblings.length % 2 * 216,
+        y: (parent?.y ?? diagram.boundary.y + 24) + 56 + Math.floor(siblings.length / 2) * 108,
+        width: 180, height: 72, inside_boundary: parent?.inside_boundary
+          ?? (structure.level !== 'next_higher' && structure.level !== 'interface'),
+      }
+      byStructure.set(id, created); nextNodes.push(created)
+      return created
     }
-    update({ block_diagram: {
-      ...diagram,
-      nodes: [...diagram.nodes, created],
-    } })
+    const created = register(structureId)
+    if (!created) return
+    // An assembly includes its entire hierarchy, even while its child blocks are closed.
+    const pending = [structureId], visited = new Set<string>()
+    for (let at = 0; at < pending.length; at++) {
+      const id = pending[at]
+      if (visited.has(id)) continue
+      visited.add(id); register(id)
+      pending.push(...analysis.structure_nodes.filter(item => item.parent_id === id).map(item => item.id))
+    }
+    let parent = requested.parent_id
+    const ancestorIds = new Set<string>()
+    while (parent && !ancestorIds.has(parent)) {
+      ancestorIds.add(parent); parent = structureById.get(parent)?.parent_id
+    }
+    update({ block_diagram: { ...diagram, nodes: nextNodes.map(node => node.structure_node_id && ancestorIds.has(node.structure_node_id)
+      ? { ...node, expanded: true } : node) } })
     setSelectedNodeId(created.id)
   }
 
   const addExternalBlock = (
     externalKind: NonNullable<FMEABlockDiagramNode['external_kind']>,
   ) => {
+    if (filters.onlyConnected) changeFilters({ ...filters, onlyConnected: false })
     const count = diagram.nodes.filter(node => node.kind === 'external').length
     const label = externalKinds.find(item => item.value === externalKind)?.label
       ?? 'External element'
@@ -1085,19 +1308,22 @@ export default function FmeaBlockDiagramCanvas({
       requirement_ids: [],
     }
     update({ interfaces: [...analysis.interfaces, created] })
+    revealInterface(created)
     setSelectedInterfaceId(created.id)
     setSelectedInterfaceGroupId('')
     setSelectedNodeId('')
+    setInspectorOpen(true)
   }
 
   const changeInterface = (patch: Partial<FMEAInterface>) => {
-    if (selectedInterface?.system_definition_ref) return
+    if (selectedInterface?.system_definition_ref && !allowCanonicalEditing) return
+    if (selectedInterface) revealInterface({ ...selectedInterface, ...patch })
     update({ interfaces: analysis.interfaces.map(item =>
       item.id === selectedInterfaceId ? { ...item, ...patch } : item) })
   }
 
   const removeInterface = (item: FMEAInterface) => {
-    if (item.system_definition_ref) return
+    if (item.system_definition_ref && !allowCanonicalEditing) return
     if ((item.function_ids.length || item.requirement_ids.length)
         && !window.confirm(
           `Delete interface "${item.name || item.id}"?\n\n`
@@ -1127,31 +1353,20 @@ export default function FmeaBlockDiagramCanvas({
   }])
 
   const removeDiagramNode = (node: FMEABlockDiagramNode) => {
-    const connected = analysis.interfaces.filter(item =>
-      item.source_block_id === node.id || item.target_block_id === node.id)
-    const containedCount = containedChildrenByBlockId.get(node.id)?.length ?? 0
-    if ((connected.length || containedCount) && !window.confirm(
-      `Remove "${node.label}" from the diagram?\n\n`
-      + (connected.length
-        ? `${connected.length} connected interface record${
-          connected.length === 1 ? '' : 's'} will also be deleted. `
-        : '')
-      + 'The Structure Hierarchy record will be retained. '
-      + (containedCount > 0
-        ? 'Contained children will remain as standalone diagram blocks.'
-        : ''),
+    const removed = new Set<string>(), pending = [node.id]
+    for (let at = 0; at < pending.length; at++) {
+      const id = pending[at]
+      if (removed.has(id)) continue
+      removed.add(id)
+      pending.push(...diagram.nodes.filter(item => item.container_parent_block_id === id).map(item => item.id))
+    }
+    const connected = analysis.interfaces.filter(item => removed.has(item.source_block_id ?? '') || removed.has(item.target_block_id ?? ''))
+    if ((connected.length || removed.size > 1) && !window.confirm(
+      `Remove "${node.label}" and its ${removed.size - 1} contained blocks from the diagram?\n\n`
+      + `${connected.length} connected interface records will be removed. Structure records remain available.`,
     )) return
-    update({
-      block_diagram: {
-        ...diagram,
-        nodes: diagram.nodes
-          .filter(item => item.id !== node.id)
-          .map(item => item.container_parent_block_id === node.id
-            ? { ...item, container_parent_block_id: undefined }
-            : item),
-      },
-      interfaces: analysis.interfaces.filter(item =>
-        item.source_block_id !== node.id && item.target_block_id !== node.id),
+    update({ block_diagram: { ...diagram, nodes: diagram.nodes.filter(item => !removed.has(item.id)) },
+      interfaces: analysis.interfaces.filter(item => !connected.some(edge => edge.id === item.id)),
     })
     setSelectedNodeId('')
   }
@@ -1272,7 +1487,7 @@ export default function FmeaBlockDiagramCanvas({
       const allowed = new Set(ids)
       const keys = new Set<string>()
       const result: Array<[string, string]> = []
-      for (const item of analysis.interfaces) {
+      for (const item of layoutInterfaces) {
         if (item.directionality !== 'directed') continue
         const source = project(item.source_block_id)
         const target = project(item.target_block_id)
@@ -1620,6 +1835,8 @@ export default function FmeaBlockDiagramCanvas({
 
 
   const selectedDiagramNode = diagramById.get(selectedNodeId)
+  const selectedStructureOnly = selectedNodeId.startsWith(STRUCTURE_SELECTION_PREFIX)
+    ? selectedNodeId.slice(STRUCTURE_SELECTION_PREFIX.length) : undefined
   const selectedInterface = analysis.interfaces.find(
     item => item.id === selectedInterfaceId)
   const selectedInterfaceGroup = projectedInterfaceGroups.find(
@@ -1652,14 +1869,17 @@ export default function FmeaBlockDiagramCanvas({
       <= diagram.boundary.y + diagram.boundary.height,
   )
   const unusedStructures = analysis.structure_nodes.filter(structure =>
-    !diagram.nodes.some(node => node.kind === 'structure'
+    !hiddenStructureIds?.has(structure.id) && !diagram.nodes.some(node => node.kind === 'structure'
       && node.structure_node_id === structure.id))
 
   const canvas = <div className={`flex min-h-0 flex-1 ${
-    fullscreen ? 'h-full' : 'h-[680px]'
+    fullscreen.expanded || fillHeight ? 'h-full' : 'h-[680px]'
   }`}>
-    <aside className="w-44 shrink-0 overflow-y-auto border-r border-slate-200 bg-white p-2"
-      data-export-ignore>
+    <InterfaceDiagramSidebar filters={filters} onChange={changeFilters} resources={resourceOptions}
+      supportsConnections={Boolean(interfaceResourceFlows)} selectedBlockLabel={selectedBlockLabel}
+      matchingCount={filterProjection.matching.length} totalCount={filterProjection.eligible.length}>
+      {libraryContent}
+      {!focusView && !hideCreationTools && <>
       <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
         Structure blocks
       </div>
@@ -1670,10 +1890,10 @@ export default function FmeaBlockDiagramCanvas({
             className="flex w-full items-center gap-1.5 rounded border border-slate-200 px-2 py-1.5 text-left text-[10px] text-slate-700 hover:border-blue-300 hover:bg-blue-50">
             <Plus size={10} className="shrink-0 text-blue-600" />
             <span className="min-w-0 flex-1">
-              <span className="block truncate">
+              <span className="block whitespace-normal [overflow-wrap:anywhere]">
                 {structure.name || 'Unnamed block'}
               </span>
-              <span className="block truncate text-[8px] text-slate-400"
+              <span className="block whitespace-normal text-[9px] text-slate-500"
                 title={structureBreadcrumb(structure.id)}>
                 {structureBreadcrumb(structure.id)
                   || structure.level.replace(/_/g, ' ')}
@@ -1694,23 +1914,27 @@ export default function FmeaBlockDiagramCanvas({
             <Icon size={11} /> {label}
           </button>)}
       </div>
-      <button type="button" onClick={() => {
+      {!hideAnalysisBoundary && <button type="button" onClick={() => {
+        setInspectorOpen(true)
         setSelectedNodeId(BOUNDARY_ID)
         setSelectedInterfaceId('')
         setSelectedInterfaceGroupId('')
-        setFlowNodes(current => current.map(node => ({
+        const next = liveFlowNodes.current.map(node => ({
           ...node,
           selected: node.id === BOUNDARY_ID,
-        })))
+        }))
+        liveFlowNodes.current = next
+        setFlowNodes(next)
       }} className="mt-3 flex w-full items-center gap-1.5 rounded border border-blue-200 px-2 py-1.5 text-left text-[10px] text-blue-700 hover:bg-blue-50">
         <Maximize2 size={11} /> Edit analysis boundary
-      </button>
+      </button>}
+      </>}
       <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-2">
         <div className="text-[10px] font-semibold text-slate-600">Interface key</div>
-        <div className="mt-1.5 grid grid-cols-2 gap-1">
+        <div className="mt-1.5 space-y-1">
           {Object.values(interfaceStyles).map(style =>
             <div key={style.code} className="flex items-center gap-1 text-[9px] text-slate-500">
-              <span className="flex h-4 w-4 items-center justify-center rounded border bg-white font-bold"
+              <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded border bg-white font-bold"
                 style={{ color: style.color }}>{style.code}</span>
               {style.label}
             </div>)}
@@ -1720,7 +1944,7 @@ export default function FmeaBlockDiagramCanvas({
           Strength and nature appear as labeled connector badges.
         </div>
       </div>
-    </aside>
+    </InterfaceDiagramSidebar>
     <div ref={wrapperRef} tabIndex={0} aria-label="FMEA Block Diagram canvas"
       className="relative min-w-0 flex-1 bg-slate-50 outline-hidden">
       <div className="absolute left-2 right-2 top-2 z-20 flex items-center justify-between gap-2"
@@ -1733,10 +1957,25 @@ export default function FmeaBlockDiagramCanvas({
             label={`${analysis.name} Block / Boundary Diagram`}
             group={analysis.name}
             analysisName={analysis.name}
-            targetView={`fmea:${encodeURIComponent(analysis.id)}:structure:block_diagram`} />
+            targetView={assetTargetView ?? `fmea:${encodeURIComponent(analysis.id)}:structure:block_diagram`} />
           <DiagramLayoutMenu value={layoutOptions} onApply={autoLayout}
             onChange={options => update({ block_diagram: { ...diagram, layoutOptions: options } })}
             gateLabel="Preserve assembly order" eventLabel="Preserve block order" />
+          <button type="button" aria-label="Collapse all systems" title="Collapse all expanded systems"
+            disabled={!(hasExpandedSystems ?? diagram.nodes.some(node => node.kind === 'structure' && node.expanded))}
+            onClick={onCollapseAllSystems ?? (() => update({ block_diagram: { ...diagram, nodes: diagram.nodes.map(node =>
+              node.kind === 'structure' && node.expanded ? { ...node, expanded: false } : node) } }))}
+            className="flex h-8 w-8 items-center justify-center rounded border border-slate-200 bg-white text-slate-600 hover:bg-blue-50 disabled:opacity-40">
+            <Minimize2 size={14} />
+          </button>
+          <label className="flex h-8 items-center gap-1 px-1 text-[10px] text-slate-600">
+            Connectors
+            <select aria-label="Connector style" value={diagram.connectorStyle ?? 'curved'}
+              onChange={event => update({ block_diagram:{ ...diagram,connectorStyle:event.target.value as ConnectorStyle } })}
+              className="rounded border border-slate-200 bg-white px-1 py-1 text-[10px] text-slate-700">
+              <option value="orthogonal">Orthogonal</option><option value="curved">Curved</option><option value="straight">Straight</option>
+            </select>
+          </label>
           <button type="button" onClick={() => update({ block_diagram: {
             ...diagram,
             snap_to_grid: !diagram.snap_to_grid,
@@ -1749,6 +1988,14 @@ export default function FmeaBlockDiagramCanvas({
           </button>
         </div>
         <div className="pointer-events-auto flex items-center gap-1 rounded-lg bg-white/95 p-1 shadow-xs">
+          <button ref={inspectorToggle} type="button"
+            aria-label="Toggle inspector"
+            aria-expanded={inspectorOpen} aria-controls={inspectorOpen ? inspectorId : undefined}
+            title={inspectorOpen ? 'Hide diagram properties' : 'Show diagram properties'}
+            onClick={() => setInspectorOpen(value => !value)}
+            className="flex h-8 w-8 items-center justify-center rounded border border-slate-200 bg-white text-slate-600 hover:bg-blue-50">
+            {inspectorOpen ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />}
+          </button>
           <button type="button" onClick={() =>
             void flowRef.current?.fitView({ padding: 0.14, duration: 300 })}
             title="Fit the complete diagram in view"
@@ -1761,20 +2008,26 @@ export default function FmeaBlockDiagramCanvas({
               flowRef.current as unknown as ReactFlowInstance,
             )}
             buttonClassName="flex h-8 items-center gap-1 rounded border border-slate-200 bg-white px-2 text-[10px] text-slate-600 hover:bg-slate-50" />
-          <button type="button" onClick={() => setFullscreen(value => !value)}
-            title={fullscreen ? 'Restore diagram' : 'Expand diagram to full screen'}
-            aria-label={fullscreen ? 'Restore diagram' : 'Expand diagram to full screen'}
-            className="flex h-8 w-8 items-center justify-center rounded border border-slate-200 bg-white text-slate-600 hover:bg-blue-50 hover:text-blue-700">
-            {fullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
-          </button>
+          <DiagramFullscreenButton controls={fullscreen} />
         </div>
       </div>
       <ReactFlow nodes={flowNodes} edges={flowEdges}
         nodeTypes={nodeTypes} edgeTypes={edgeTypes}
+        minZoom={0.1}
         onInit={instance => { flowRef.current = instance }}
-        onNodesChange={changes =>
-          setFlowNodes(current => applyNodeChanges(changes, current))}
-        onNodeDragStop={(_, flowNode) => {
+        onNodesChange={changes => {
+          const next = applyNodeChanges(changes, liveFlowNodes.current)
+          liveFlowNodes.current = next
+          setFlowNodes(next)
+        }}
+        nodeDragThreshold={0}
+        onNodeDragStart={() => { dragMoved.current = false }}
+        onNodeDrag={() => { dragMoved.current = true }}
+        onNodeDragStop={(_, flowNode, draggedNodes) => {
+          // Starting at pointer-down preserves the grab offset even for fast
+          // drags. A plain selection click must not write diagram geometry.
+          if (!dragMoved.current) return
+          dragMoved.current = false
           if (flowNode.id === BOUNDARY_ID) {
             update({ block_diagram: {
               ...diagram,
@@ -1786,55 +2039,20 @@ export default function FmeaBlockDiagramCanvas({
             } })
             return
           }
-          const node = diagramById.get(flowNode.id)
-          if (!node) return
-          const container = node.container_parent_block_id
-            ? diagramById.get(node.container_parent_block_id) : undefined
-          const nextX = container?.expanded
-            ? container.x + flowNode.position.x : flowNode.position.x
-          const nextY = container?.expanded
-            ? container.y + flowNode.position.y : flowNode.position.y
-          const size = projectedSizeById.get(node.id)
-            ?? { width: node.width, height: node.height }
-          const centerX = nextX + size.width / 2
-          const centerY = nextY + size.height / 2
-          const geometricallyInside = centerX >= diagram.boundary.x
-            && centerX <= diagram.boundary.x + diagram.boundary.width
-            && centerY >= diagram.boundary.y
-            && centerY <= diagram.boundary.y + diagram.boundary.height
-          const inside = container
-            ? container.inside_boundary : geometricallyInside
-          const dx = nextX - node.x
-          const dy = nextY - node.y
-          const descendants = new Set<string>()
-          const visit = (parentId: string) => {
-            for (const child of diagram.nodes.filter(item =>
-              item.container_parent_block_id === parentId)) {
-              if (descendants.has(child.id)) continue
-              descendants.add(child.id)
-              visit(child.id)
-            }
-          }
-          visit(node.id)
-          update({ block_diagram: {
-            ...diagram,
-            nodes: diagram.nodes.map(item => {
-              if (item.id === node.id) return {
-                ...item,
-                x: nextX,
-                y: nextY,
-                inside_boundary: inside,
-              }
-              return descendants.has(item.id)
-                ? {
-                    ...item,
-                    x: item.x + dx,
-                    y: item.y + dy,
-                    inside_boundary: inside,
-                  }
-                : item
-            }),
-          } })
+          // The stop event carries the final drag position even when React
+          // has not rendered the last controlled onNodesChange yet.
+          const released = new Map(draggedNodes.map(node => [node.id, node]))
+          released.set(flowNode.id, flowNode)
+          const finalNodes = liveFlowNodes.current.map(node => {
+            const final = released.get(node.id)
+            return final ? { ...node, position: node.expandParent && node.parentId
+              ? { x: Math.max(0, final.position.x), y: Math.max(0, final.position.y) }
+              : final.position } : node
+          })
+          update({ block_diagram: commitBlockDrag(
+            diagramRef.current, finalNodes, flowNode.id,
+            20 * densityPreset.spacingScale,
+          ) })
         }}
         onConnect={connect} isValidConnection={candidate =>
           isValidConnection(candidate as Connection)}
@@ -1844,8 +2062,15 @@ export default function FmeaBlockDiagramCanvas({
         onNodeClick={(_, node) => {
           wrapperRef.current?.focus({ preventScroll: true })
           setSelectedNodeId(node.id)
+          if (node.id !== BOUNDARY_ID) setConnectionSelection({ nodeId: node.id })
           setSelectedInterfaceId('')
           setSelectedInterfaceGroupId('')
+          const structureId = diagramById.get(node.id)?.structure_node_id
+          if (structureId) onStructureSelect?.(structureId)
+        }}
+        onNodeDoubleClick={(_, node) => {
+          const structureId = diagramById.get(node.id)?.structure_node_id
+          if (structureId && (!canFocusStructure || canFocusStructure(structureId))) onStructureFocus?.(structureId)
         }}
         onEdgeClick={(_, edge) => {
           wrapperRef.current?.focus({ preventScroll: true })
@@ -1887,20 +2112,32 @@ export default function FmeaBlockDiagramCanvas({
           node.id === BOUNDARY_ID ? '#dbeafe'
             : node.data.kind === 'external' ? '#8b5cf6' : '#475569'} />
       </ReactFlow>
+      {(filters.types.length !== INTERFACE_TYPE_OPTIONS.length || filters.resource !== ALL_RESOURCES || filters.onlyConnected || filters.connections !== 'all') && <div
+        data-export-ignore className="pointer-events-auto absolute bottom-3 left-14 z-10 flex max-w-[70%] flex-wrap items-center gap-2 rounded border border-blue-200 bg-white/95 px-2 py-1 text-xs text-slate-700 shadow-xs">
+        <span>{filterProjection.matching.length} of {filterProjection.eligible.length} interfaces match</span>
+        <button type="button" onClick={() => changeFilters(defaultInterfaceDiagramFilters())}
+          className="rounded px-1 py-1 text-blue-700 hover:bg-blue-50">Clear diagram filters</button>
+      </div>}
     </div>
-    <aside
+    {inspectorOpen && <aside id={inspectorId} aria-label="Diagram properties"
       data-fmea-record-id={
         selectedDiagramNode?.id ?? selectedInterface?.id ?? undefined}
       className="w-64 shrink-0 overflow-y-auto border-l border-slate-200 bg-white p-3"
       data-export-ignore>
+      {selectedStructureOnly && structureInspector && <div className="space-y-3">
+        <h3 className="text-xs font-semibold text-slate-700">Block properties</h3>
+        {structureInspector(selectedStructureOnly)}
+        {selectedStructureOnly === implicitRootStructureId && <p className="text-xs text-slate-500">
+          The canvas represents this system’s boundary.</p>}
+      </div>}
       {selectedDiagramNode && <>
         <div className="flex items-center justify-between">
           <div className="text-xs font-semibold text-slate-700">Block properties</div>
-          <button type="button" onClick={() => removeDiagramNode(selectedDiagramNode)}
+          {!focusView && !(allowCanonicalEditing && selectedDiagramNode.kind === 'structure') && <button type="button" onClick={() => removeDiagramNode(selectedDiagramNode)}
             title="Remove from diagram"
             className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600">
             <Trash2 size={13} />
-          </button>
+          </button>}
         </div>
         <div className="mt-3 space-y-3">
           {selectedDiagramNode.kind === 'external'
@@ -1924,15 +2161,26 @@ export default function FmeaBlockDiagramCanvas({
                   </select>
                 </label>
               </>
-            : <div className="rounded bg-slate-50 px-2 py-2">
+            : structureInspector && selectedDiagramNode.structure_node_id
+              ? structureInspector(selectedDiagramNode.structure_node_id)
+              : <div className="rounded bg-slate-50 px-2 py-2">
                 <div className="text-xs font-medium text-slate-700">
                   {structureById.get(selectedDiagramNode.structure_node_id ?? '')?.name
                     || 'Missing structure record'}
                 </div>
                 <div className="mt-0.5 text-[9px] text-slate-400">
-                  Managed by the Structure Hierarchy
+                  {allowCanonicalEditing ? 'Shared project system item' : 'Managed by the Structure Hierarchy'}
                 </div>
               </div>}
+          {selectedDiagramNode.structure_node_id && onStructureFocus && <button type="button"
+            disabled={canFocusStructure && !canFocusStructure(selectedDiagramNode.structure_node_id)}
+            title={canFocusStructure && !canFocusStructure(selectedDiagramNode.structure_node_id)
+              ? 'Outside this study scope. Change the study scope to focus here.' : 'Show interfaces crossing this item’s boundary'}
+            onClick={() => onStructureFocus(selectedDiagramNode.structure_node_id!)}
+            className="w-full rounded border border-blue-200 bg-blue-50 px-2 py-1.5 text-xs font-medium text-blue-700 disabled:opacity-40">
+            Focus here
+          </button>}
+          {!focusView && <>
           <label className={`flex items-center justify-between gap-2 rounded border px-2 py-1.5 text-[10px] ${
             selectedBoundaryConflict
               ? 'border-amber-300 bg-amber-50 font-medium text-amber-900'
@@ -1973,6 +2221,7 @@ export default function FmeaBlockDiagramCanvas({
               </span>
               <span>{selectedChildCount}</span>
             </button>}
+          </>}
         </div>
       </>}
       {selectedNodeId === BOUNDARY_ID && <>
@@ -2016,7 +2265,7 @@ export default function FmeaBlockDiagramCanvas({
                   {item.name || item.id}
                 </span>
                 <span className="block truncate text-[8px] text-slate-400">
-                  {item.flow_description || 'Flow not described'}
+                  {interfaceDescriptions?.[item.id] || item.flow_description || 'Flow not described'}
                 </span>
               </span>
             </button>
@@ -2028,16 +2277,21 @@ export default function FmeaBlockDiagramCanvas({
           <div className="text-xs font-semibold text-slate-700">
             Interface properties
           </div>
-          <button type="button" disabled={Boolean(selectedInterface.system_definition_ref)} onClick={() => removeInterface(selectedInterface)}
-            title={selectedInterface.system_definition_ref ? 'Edit or remove this interface in System Definition' : 'Delete interface'}
+          <button type="button" disabled={Boolean(selectedInterface.system_definition_ref) && !allowCanonicalEditing} onClick={() => removeInterface(selectedInterface)}
+            title={selectedInterface.system_definition_ref && !allowCanonicalEditing ? 'Edit or remove this interface in System Definition' : 'Delete interface'}
             className="flex items-center gap-1 rounded border border-red-200 px-2 py-1 text-[10px] font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40">
             <Trash2 size={11} /> Delete connector
           </button>
         </div>
         {selectedInterface.system_definition_ref && <div className="mt-3 rounded border border-violet-200 bg-violet-50 p-2 text-[10px] text-violet-800">
-          Canonical interface semantics and function mappings are managed in System Definition.
+          {allowCanonicalEditing ? 'Shared project interface. Changes apply in System Modeling and linked analyses.'
+            : 'Canonical interface semantics and function mappings are managed in System Definition.'}
         </div>}
-        <fieldset disabled={Boolean(selectedInterface.system_definition_ref)} className="mt-3 space-y-2.5 disabled:opacity-70">
+        {interfaceDescriptions?.[selectedInterface.id] && <p className="mt-2 rounded bg-slate-50 p-2 text-xs text-slate-600">
+          {interfaceDescriptions[selectedInterface.id]}
+        </p>}
+        {interfaceInspector ? <div className="mt-3">{interfaceInspector(selectedInterface.id)}</div>
+        : <fieldset disabled={Boolean(selectedInterface.system_definition_ref) && !allowCanonicalEditing} className="mt-3 space-y-2.5 disabled:opacity-70">
           <label className="block text-[10px] text-slate-500">Interface name
             <input value={selectedInterface.name}
               onChange={event => changeInterface({ name: event.target.value })}
@@ -2134,7 +2388,9 @@ export default function FmeaBlockDiagramCanvas({
               Linked functions ({selectedInterface.function_ids.length})
             </summary>
             <div className="max-h-36 space-y-1 overflow-y-auto border-t p-2">
-              {analysis.functions.map(item =>
+              {analysis.functions.filter(item => !selectedInterface.system_definition_ref
+                || item.structure_node_id === selectedInterface.source_structure_node_id
+                || item.structure_node_id === selectedInterface.target_structure_node_id).map(item =>
                 <label key={item.id}
                   className="flex items-start gap-1.5 text-[10px] text-slate-600">
                   <input type="checkbox"
@@ -2167,34 +2423,20 @@ export default function FmeaBlockDiagramCanvas({
                 </label>)}
             </div>
           </details>
-        </fieldset>
+        </fieldset>}
       </>}
-      {!selectedDiagramNode && selectedNodeId !== BOUNDARY_ID
+      {!selectedDiagramNode && !selectedStructureOnly && selectedNodeId !== BOUNDARY_ID
         && !selectedInterface && !selectedInterfaceGroup && <div
           className="flex h-full min-h-48 items-center justify-center text-center text-[11px] leading-relaxed text-slate-400">
           Select a block, boundary, or interface connector to edit it.
           Drag between block connection points to define an interface.
         </div>}
-    </aside>
+    </aside>}
   </div>
 
-  return <div className={fullscreen
-    ? 'fixed inset-0 z-[120] flex flex-col bg-white'
-    : 'overflow-hidden rounded-xl border border-slate-200 bg-white'}>
-    {fullscreen && <div className="flex items-center justify-between border-b border-slate-200 px-4 py-2">
-      <div>
-        <div className="text-sm font-semibold text-slate-800">
-          {analysis.name} · Block/Boundary Diagram
-        </div>
-        <div className="text-[10px] text-slate-400">
-          Draw connectors to create auditable FMEA Interface records.
-        </div>
-      </div>
-      <button type="button" onClick={() => setFullscreen(false)}
-        className="flex items-center gap-1 rounded border border-slate-200 px-3 py-1.5 text-xs text-slate-600">
-        <Minimize2 size={13} /> Restore
-      </button>
-    </div>}
+  return <div {...fullscreen.containerProps}
+    className={`${fullscreen.containerProps.className} flex-col ${fullscreen.expanded
+      ? '' : `${fillHeight ? 'h-full ' : ''}overflow-hidden rounded-xl border border-slate-200 bg-white`}`}>
     {canvas}
   </div>
 }

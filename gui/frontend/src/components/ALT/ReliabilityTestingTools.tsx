@@ -1,3 +1,4 @@
+import { distributionLabel } from '../shared/distributionLabels'
 import { useState } from 'react'
 import Plot from '../shared/ExportablePlot'
 import { Play, Plus, Trash2 } from 'lucide-react'
@@ -187,7 +188,7 @@ function Planner() {
 
   return (
     <ToolLayout
-      intro="Plans an exponential (constant failure rate) reliability demonstration test. Provide two of MTBF / test duration / number of failures and solve for the third."
+      intro="Assuming a constant failure rate, enter two of MTBF, test duration, and failures to solve for the third."
       controls={<>
         <div>
           <InfoLabel tip="The quantity to compute from the other two.">Solve for</InfoLabel>
@@ -310,7 +311,7 @@ function Duration() {
   }
   return (
     <ToolLayout
-      intro="Computes the fixed-length exponential test duration and allowable failures that satisfy both the consumer's and producer's risk."
+      intro="Plan a fixed-length exponential test for the specified producer and consumer risks."
       controls={<>
         <Field label="MTBF required (threshold)" tip="The minimum acceptable MTBF (consumer's interest)." value={req} onChange={setReq} />
         <Field label="MTBF design (target)" tip="The true/target MTBF of the design (producer's interest). Must exceed the required MTBF." value={des} onChange={setDes} />
@@ -348,7 +349,7 @@ function NoFailures() {
   }
   return (
     <ToolLayout
-      intro="Sample size for a zero-failure reliability demonstration test (success-run theorem), optionally testing each unit for multiple mission lifetimes on a Weibull life."
+      intro="Plan a zero-failure demonstration, optionally using multiple Weibull mission lifetimes per unit."
       controls={<>
         <Field label="Reliability to demonstrate" tip="Target reliability R (0–1)." value={R} onChange={setR} />
         <div>
@@ -467,7 +468,7 @@ function Sequential() {
   }
   return (
     <ToolLayout
-      intro="Wald sequential probability ratio test (SPRT). Plots the accept/reject boundaries vs cumulative sample size for a binomial test."
+      intro="Wald SPRT boundaries for sequential pass-fail testing."
       controls={<>
         <Field label="Acceptable fraction defective (p₁)" tip="Good quality level — producer's risk applies here." value={p1} onChange={setP1} />
         <Field label="Unacceptable fraction defective (p₂)" tip="Poor quality level — consumer's risk applies here. Must exceed p₁." value={p2} onChange={setP2} />
@@ -533,7 +534,7 @@ function GoF() {
         <div>
           <InfoLabel tip="Distribution to fit and test against.">Distribution</InfoLabel>
           <select value={dist} onChange={e => setDist(e.target.value)} className={inputCls}>
-            {GOF_DISTS.map(d => <option key={d} value={d}>{d.replace(/_/g, ' ')}</option>)}
+            {GOF_DISTS.map(d => <option key={d} value={d}>{distributionLabel(d)}</option>)}
           </select>
         </div>
         <div>
@@ -558,7 +559,7 @@ function GoF() {
           <p className={`text-2xl font-bold mb-1 ${res.hypothesis === 'accept' ? 'text-green-600' : 'text-red-600'}`}>
             {res.hypothesis === 'accept' ? 'Fit adequate' : 'Fit rejected'}
           </p>
-          <p className="text-xs text-gray-500 mb-3">{res.test} test · {res.distribution.replace(/_/g, ' ')}</p>
+          <p className="text-xs text-gray-500 mb-3">{res.test} test · {distributionLabel(res.distribution)}</p>
           <p className="text-xs text-gray-600 mb-3">{res.null_hypothesis}</p>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <Card label="Statistic" value={res.statistic.toFixed(4)} />
@@ -813,15 +814,15 @@ function NonDestructiveDeg() {
         <label className={labelCls}>Life distribution</label>
         <select value={dist} onChange={e => setDist(e.target.value)} className={inputCls}>
           <option value="Best_Fit">Best fit (auto-select)</option>
-          <option value="Weibull_2P">Weibull (2P)</option>
-          <option value="Weibull_3P">Weibull (3P)</option>
-          <option value="Normal_2P">Normal</option>
-          <option value="Lognormal_2P">Lognormal (2P)</option>
-          <option value="Lognormal_3P">Lognormal (3P)</option>
-          <option value="Exponential_1P">Exponential</option>
-          <option value="Gumbel_2P">Gumbel</option>
-          <option value="Gamma_2P">Gamma</option>
-          <option value="Loglogistic_2P">Loglogistic</option>
+          <option value="Weibull_2P">{distributionLabel('Weibull_2P')}</option>
+          <option value="Weibull_3P">{distributionLabel('Weibull_3P')}</option>
+          <option value="Normal_2P">{distributionLabel('Normal_2P')}</option>
+          <option value="Lognormal_2P">{distributionLabel('Lognormal_2P')}</option>
+          <option value="Lognormal_3P">{distributionLabel('Lognormal_3P')}</option>
+          <option value="Exponential_1P">{distributionLabel('Exponential_1P')}</option>
+          <option value="Gumbel_2P">{distributionLabel('Gumbel_2P')}</option>
+          <option value="Gamma_2P">{distributionLabel('Gamma_2P')}</option>
+          <option value="Loglogistic_2P">{distributionLabel('Loglogistic_2P')}</option>
         </select>
       </div>}
       <Field label="Reliability time (optional)" tip={analysisMethod === 'hierarchical_nlme'
@@ -924,7 +925,7 @@ function NonDestructiveDeg() {
       {res.distribution_fit && (
         <div>
           <p className="text-xs font-semibold text-gray-600 mb-1">
-            Fitted life distribution: <span className="text-blue-700 font-mono">{res.distribution_fit.distribution}</span>
+            Fitted life distribution: <span className="text-blue-700">{distributionLabel(res.distribution_fit.distribution)}</span>
             {dist === 'Best_Fit' && <span className="text-gray-400 font-normal"> (auto-selected by AICc)</span>}
             {res.distribution_fit.fit_method && (
               <span className="text-gray-400 font-normal"> · {res.distribution_fit.fit_method.replace(/_/g, ' ')}</span>
@@ -945,7 +946,7 @@ function NonDestructiveDeg() {
             </tr></thead>
             <tbody>
               <tr className="border-t border-gray-100">
-                <td className="px-3 py-1 text-gray-700 font-mono">{res.distribution_fit.distribution}</td>
+                <td className="px-3 py-1 text-gray-700">{distributionLabel(res.distribution_fit.distribution)}</td>
                 {Object.values(res.distribution_fit.params).map((v, i) => (
                   <td key={i} className="px-3 py-1 text-right font-mono">{fmtNum(v)}</td>
                 ))}
@@ -995,7 +996,7 @@ function NonDestructiveDeg() {
               {res.distribution_fit.comparison.map((c, i) => (
                 <tr key={c.distribution} className={`border-t border-gray-100 ${i === 0 ? 'bg-blue-50' : ''}`}>
                   <td className="px-3 py-1 text-gray-500">{i + 1}</td>
-                  <td className="px-3 py-1 text-gray-700 font-mono">{c.distribution}</td>
+                  <td className="px-3 py-1 text-gray-700">{distributionLabel(c.distribution)}</td>
                   <td className="px-3 py-1 text-right font-mono">{c.AICc != null ? fmtNum(c.AICc) : '—'}</td>
                   <td className="px-3 py-1 text-right font-mono">{c.BIC != null ? fmtNum(c.BIC) : '—'}</td>
                   <td className="px-3 py-1 text-right font-mono">{c.AD != null ? fmtNum(c.AD) : '—'}</td>
@@ -1089,8 +1090,8 @@ function NonDestructiveDeg() {
   )
 
   return <ToolLayout intro={analysisMethod === 'hierarchical_nlme'
-    ? 'Non-destructive degradation: pool repeated unit paths in a hierarchical population model, then derive reliability from the induced threshold first-passage distribution.'
-    : 'Non-destructive degradation screening: fit and extrapolate each unit separately, then summarize projected crossing times with explicitly display-only first-order uncertainty.'}
+    ? 'Fit repeated measurements with a hierarchical population model to estimate time to threshold.'
+    : 'Screen individual degradation paths by extrapolating time to threshold. First-order uncertainty is display-only.'}
     controls={controls} err={err} loading={loading} onRun={run} runLabel="Analyze" results={results} />
 }
 
@@ -1218,7 +1219,7 @@ function DestructiveDeg() {
       </div>
       {res.measurement_distribution_selection && (
         <p className="text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded px-3 py-2">
-          Selected <span className="font-semibold">{res.measurement_distribution}</span> from the joint measurement-distribution fits using {res.measurement_distribution_selection}.
+          Selected <span className="font-semibold">{distributionLabel(res.measurement_distribution)}</span> from the joint measurement-distribution fits using {res.measurement_distribution_selection}.
         </p>
       )}
       {res.distribution_comparison && res.distribution_comparison.length > 1 && (
@@ -1241,7 +1242,7 @@ function DestructiveDeg() {
                     className={`border-t border-gray-100 ${
                       c.distribution === res.measurement_distribution ? 'bg-green-50' : !c.fit_eligible ? 'bg-red-50/70' : ''
                     }`}>
-                    <td className="px-3 py-1 font-mono text-gray-700">{c.distribution}</td>
+                    <td className="px-3 py-1 text-gray-700">{distributionLabel(c.distribution)}</td>
                     <td className="px-3 py-1 text-right font-mono">{c.AICc != null ? fmtNum(c.AICc) : '—'}</td>
                     <td className="px-3 py-1 text-right font-mono">{c.AIC != null ? fmtNum(c.AIC) : '—'}</td>
                     <td className="px-3 py-1 text-right font-mono">{c.BIC != null ? fmtNum(c.BIC) : '—'}</td>
@@ -1274,13 +1275,13 @@ function DestructiveDeg() {
       </div>
       <div className="text-xs text-gray-600 border border-gray-200 rounded p-3">
         <p className="font-semibold text-gray-700 mb-1">Fitted model</p>
-        <p>{res.measurement_distribution} measurement distribution · {res.degradation_model} location model</p>
+        <p>{distributionLabel(res.measurement_distribution)} measurement distribution · {res.degradation_model} location model</p>
         <p className="font-mono mt-1">{Object.entries(res.model_params).map(([k, v]) => `${k}=${v.toPrecision(5)}`).join('   ')}{res.shape != null ? `   ${res.shape_label}=${res.shape.toPrecision(5)}` : ''}</p>
       </div>
     </div>
   )
 
-  return <ToolLayout intro="Destructive degradation: each sample yields a single measurement (the unit is consumed). The measurement distribution's location parameter is modelled as a function of time by MLE, and reliability is the probability of remaining on the safe side of the critical level." controls={controls} err={err} loading={loading} onRun={run} runLabel="Analyze" results={results} />
+  return <ToolLayout intro="Estimate threshold reliability from one destructive measurement per unit, using a time-dependent distribution fitted by MLE." controls={controls} err={err} loading={loading} onRun={run} runLabel="Analyze" results={results} />
 }
 
 // ─── ESS (Environmental Stress Screening) ────────────────────────────────────
@@ -1378,7 +1379,7 @@ function ESS() {
     </div>
   )
 
-  return <ToolLayout intro="Develop an Environmental Stress Screening (ESS) profile that precipitates latent manufacturing defects. Uses standard thermal-cycling and random-vibration screening-strength models." controls={controls} err={err} loading={loading} onRun={run} runLabel="Compute profile" results={results} />
+  return <ToolLayout intro="Plan an ESS profile using thermal-cycling and random-vibration screening models." controls={controls} err={err} loading={loading} onRun={run} runLabel="Compute profile" results={results} />
 }
 
 // ─── HASS (Highly Accelerated Stress Screening) ──────────────────────────────
@@ -1492,7 +1493,7 @@ function HASS() {
     </div>
   )
 
-  return <ToolLayout intro="Design a Highly Accelerated Stress Screen (HASS) using product operating and destruct limits from HALT. Generates a precipitation screen (defect generation) and a detection screen (fault detection)." controls={controls} err={err} loading={loading} onRun={run} runLabel="Design screen" results={results} />
+  return <ToolLayout intro="Use HALT operating and destruct limits to design HASS precipitation and detection screens." controls={controls} err={err} loading={loading} onRun={run} runLabel="Design screen" results={results} />
 }
 
 // ─── Burn-In design ──────────────────────────────────────────────────────────
@@ -1575,7 +1576,7 @@ function BurnIn() {
     </div>
   )
 
-  return <ToolLayout intro="Design a burn-in test to remove infant-mortality failures (Weibull β < 1). Shows expected fallout, survival probability, and the reduced hazard rate of the surviving population." controls={controls} err={err} loading={loading} onRun={run} runLabel="Compute" results={results} />
+  return <ToolLayout intro="Estimate burn-in fallout and survivor reliability for infant mortality (Weibull β < 1)." controls={controls} err={err} loading={loading} onRun={run} runLabel="Compute" results={results} />
 }
 
 // Tool components are exported individually and composed into the module's

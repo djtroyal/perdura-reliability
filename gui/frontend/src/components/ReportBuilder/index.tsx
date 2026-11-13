@@ -1,3 +1,5 @@
+import { distributionTitle } from '../shared/distributionLabels'
+import { useDismissiblePopover } from '../shared/useDismissiblePopover'
 import { captureProjectExportOrigin, assertProjectExportOrigin } from '../../store/exportSnapshot'
 import { artifactSources } from '../../store/project'
 import { useState, useRef, useCallback, useMemo, lazy, Suspense } from 'react'
@@ -722,6 +724,10 @@ export default function ReportBuilder() {
   const reportRef = useRef<HTMLDivElement>(null)
   const [dragIdx, setDragIdx] = useState<number | null>(null)
   const [tplOpen, setTplOpen] = useState(false)
+  const templateMenu = useRef<HTMLDivElement>(null)
+  const templateTrigger = useRef<HTMLButtonElement>(null)
+  useDismissiblePopover({ open: tplOpen, onDismiss: () => setTplOpen(false),
+    elements: () => [templateMenu.current], trigger: () => templateTrigger.current })
   const [exporting, setExporting] = useState(false)
   const [tplVer, setTplVer] = useState(0)
   const [hfOpen, setHfOpen] = useState(false)
@@ -870,23 +876,23 @@ export default function ReportBuilder() {
         id: newId(), type: 'plot',
         plotData: data.plotData, plotLayout: inherited.layout,
         plotMarkup: inherited.markup,
-        label: a.label, ...origin,
+        label: distributionTitle(a.label), ...origin,
       })
     } else if (a.type === 'table' && data.tableHeaders) {
       addBlock({
         id: newId(), type: 'table',
         headers: data.tableHeaders, rows: data.tableRows ?? [],
-        label: a.label, ...origin,
+        label: distributionTitle(a.label), ...origin,
       })
     } else if (a.type === 'metrics' && data.metrics) {
       addBlock({
         id: newId(), type: 'metrics',
         items: data.metrics,
-        label: a.label, ...origin,
+        label: distributionTitle(a.label), ...origin,
       })
     } else if (a.type === 'diagram' && data.diagramState) {
       addBlock({ id: newId(), type: 'diagram', diagramState: data.diagramState,
-        showResults: data.diagramShowResults, label: a.label, ...origin })
+        showResults: data.diagramShowResults, label: distributionTitle(a.label), ...origin })
     }
   }, [addBlock])
 
@@ -1222,14 +1228,13 @@ export default function ReportBuilder() {
         )}
 
         {/* Templates dropdown */}
-        <div className="relative">
-          <button onClick={() => setTplOpen(o => !o)}
+        <div ref={templateMenu} className="relative">
+          <button ref={templateTrigger} aria-haspopup="menu" aria-expanded={tplOpen} onClick={() => setTplOpen(o => !o)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-300 rounded hover:bg-gray-50">
             <Save size={13} /> Templates <ChevronDown size={11} />
           </button>
           {tplOpen && (
             <>
-              <div className="fixed inset-0 z-40" onClick={() => setTplOpen(false)} />
               <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 w-60 py-1">
                 <button onClick={handleSaveTpl}
                   className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 flex items-center gap-2">
@@ -1394,8 +1399,7 @@ export default function ReportBuilder() {
             {!collapsed.__plotSnapshots && (
               plotSnapshots.length === 0 ? (
                 <p className="rounded border border-dashed border-violet-200 bg-violet-50/40 px-2.5 py-2 text-[10px] leading-relaxed text-gray-500">
-                  Use the camera button on any plot or interactive canvas to
-                  preserve its current visual state here.
+                  Use a plot or diagram’s camera button to save a snapshot here.
                 </p>
               ) : (
                 <div className="max-h-72 space-y-1 overflow-y-auto rounded border border-violet-100 bg-violet-50/25 p-1.5">
@@ -1479,8 +1483,7 @@ export default function ReportBuilder() {
 
             {assets.length === 0 ? (
               <p className="text-[10px] text-gray-400 leading-relaxed">
-                No analysis results yet. Run analyses in other modules and their
-                outputs will appear here automatically.
+                Run an analysis to make its results available here.
               </p>
             ) : (
               <div className="flex-1 overflow-y-auto -mr-1 pr-1 space-y-1">
@@ -1510,7 +1513,7 @@ export default function ReportBuilder() {
                               <div key={fKey}>
                                 <button
                                   onClick={() => toggleGroup(fKey)}
-                                  className="flex items-center gap-1 w-full text-left px-1 py-0.5 text-[10px] font-medium text-gray-500 hover:text-gray-700 rounded hover:bg-gray-50 transition-colors"
+                                  className="flex min-h-6 items-center gap-1 w-full text-left px-1 py-0.5 text-[10px] font-medium text-gray-500 hover:text-gray-700 rounded hover:bg-gray-50 transition-colors"
                                 >
                                   <ChevronRight
                                     size={10}
@@ -1528,7 +1531,7 @@ export default function ReportBuilder() {
                                         className="group flex items-center rounded border border-transparent hover:border-blue-200 hover:bg-blue-50">
                                       <button
                                         onClick={() => insertAsset(a)}
-                                        title={`Add "${a.label}" to report`}
+                                        title={`Add "${distributionTitle(a.label)}" to report`}
                                         className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1 text-left text-[11px] transition-colors"
                                       >
                                         {a.type === 'plot'
@@ -1536,10 +1539,10 @@ export default function ReportBuilder() {
                                           : a.type === 'table'
                                           ? <TableIcon size={11} className="text-emerald-500 shrink-0" />
                                           : <BarChart3 size={11} className="text-amber-500 shrink-0" />}
-                                        <span className="truncate text-gray-600 group-hover:text-gray-800">{a.label}</span>
+                                        <span className="truncate text-gray-600 group-hover:text-gray-800">{distributionTitle(a.label)}</span>
                                         <Plus size={10} className="ml-auto text-gray-300 group-hover:text-blue-400 shrink-0" />
                                       </button>
-                                      <BookmarkAssetButton asset={a} className="mr-1 shrink-0" />
+                                      <BookmarkAssetButton asset={a} className="mr-1 min-h-6 min-w-6 justify-center shrink-0" />
                                       </div>
                                     ))}
                                   </div>
@@ -1556,21 +1559,6 @@ export default function ReportBuilder() {
             )}
           </div>
 
-          <div className="text-[10px] text-gray-400 leading-relaxed border-t border-gray-100 pt-3 shrink-0">
-            <p className="font-medium text-gray-500 mb-1">Quick Guide</p>
-            <ul className="list-disc pl-3.5 space-y-1">
-              <li>Plot snapshots preserve a reviewed interactive view</li>
-              <li>Assets auto-populate from project analyses</li>
-              <li>Click any asset to add it to the report</li>
-              <li>Text paragraphs support GFM and $…$/$$…$$ LaTeX</li>
-              <li>Imported images are embedded locally with captions and alt text</li>
-              <li>Drag blocks to reorder</li>
-              <li>Click block labels to rename them</li>
-              <li>Use tabs to manage multiple reports</li>
-              <li>Page breaks control PDF pagination</li>
-              <li>HTML export keeps plots interactive</li>
-            </ul>
-          </div>
         </div>
 
         {/* Report canvas */}
@@ -1607,8 +1595,7 @@ export default function ReportBuilder() {
                 <FileText size={48} className="mx-auto mb-4 opacity-40" />
                 <p className="text-sm font-medium">Your report is empty</p>
                 <p className="text-xs mt-2 max-w-sm mx-auto leading-relaxed">
-                  Add headings and text blocks from the panel, or click any
-                  project asset to include it in your report.
+                  Add a block or select a project asset from the panel.
                 </p>
               </div>
             )}

@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
 import { createServer as createHttpServer } from 'node:http'
 import { readFile } from 'node:fs/promises'
-import { createServer } from 'vite'
+import { createSsrTestServer } from './viteTestLifecycle.mjs'
 
 const hmrServer = createHttpServer()
-const vite = await createServer({
+const vite = await createSsrTestServer({
   root: new URL('..', import.meta.url).pathname,
   appType: 'custom',
   server: { middlewareMode: true, ws: { server: hmrServer } },
@@ -126,7 +126,7 @@ try {
     'RBD bookmark and snapshot icons must be the leftmost canvas actions')
   assert.match(source, /copySelected[\s\S]*?ids\.has\(edge\.source\) && ids\.has\(edge\.target\)/,
     'multi-block copy must preserve internal connections')
-  assert.match(source, /data-rbd-project-library[\s\S]*?addAnalysisBlock/,
+  assert.match(source, /<RbdAnalysisLibrary[\s\S]*?onInsert=[\s\S]*?addAnalysisBlock/,
     'other project RBD analyses must be addable as linked subsystem blocks')
   assert.match(source, /calculateDependency[\s\S]*?await calculateDependency[\s\S]*?writeFolioState\('system'/,
     'linked RBD analyses must be calculated recursively and persisted before their parent')

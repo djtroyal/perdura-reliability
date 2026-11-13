@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from copy import deepcopy
 from pathlib import Path
 
 
@@ -18,7 +19,7 @@ from reliability.SystemDefinition import (  # noqa: E402
     project_system_definition,
     propagate_system_definition,
     resolve_analysis_profile,
-    upgrade_system_definition,
+    normalize_system_definition,
     validate_system_definition,
 )
 from system_definition_schemas import SystemDefinitionModel  # noqa: E402
@@ -26,7 +27,8 @@ from system_definition_schemas import SystemDefinitionModel  # noqa: E402
 
 def model() -> dict:
     return {
-        "version": 1,
+        "version": 4,
+        "resources": [{"id": "pressure", "name": "Pressure data", "category": "information"}, {"id": "command", "name": "Pressure command", "category": "information"}],
         "id": "SYS-1",
         "name": "Control system",
         "revision": "A",
@@ -41,6 +43,7 @@ def model() -> dict:
                 }],
                 "functions": [{
                     "id": "measure", "description": "Measure pressure",
+                    "definition": {"role": "source", "action": "Supply", "io": [{"id": "signal", "resource_id": "pressure", "direction": "output"}]},
                     "function_type": "primary", "mode_ids": ["run"],
                 }],
                 "failure_modes": [{
@@ -59,6 +62,7 @@ def model() -> dict:
                 }],
                 "functions": [{
                     "id": "control", "description": "Control pressure",
+                    "definition": {"role": "transform", "action": "Control pressure", "io": [{"id": "input", "resource_id": "pressure", "direction": "input"}, {"id": "output", "resource_id": "command", "direction": "output"}]},
                     "function_type": "primary", "mode_ids": ["run"],
                 }],
                 "failure_modes": [], "child_slots": [],
@@ -85,6 +89,7 @@ def model() -> dict:
             "interface_detail": "", "flow_description": "Pressure reading",
             "operating_condition": "", "source_function_ids": ["measure"],
             "target_function_ids": ["control"], "mode_ids": ["run"],
+            "transfers": [{"id": "pressure-transfer", "resource_id": "pressure", "kind": "flow", "source": {"kind": "function", "instance_id": "sensor-1", "function_id": "measure", "io_id": "signal"}, "target": {"kind": "function", "instance_id": "controller-1", "function_id": "control", "io_id": "input"}, "mode_ids": ["run"]}],
         }],
         "function_links": [], "propagation_rules": [],
         "diagrams": [{"id": "D1", "name": "System", "nodes": []}],
@@ -155,13 +160,97 @@ def test_nested_mode_and_instance_override_references_fail_closed():
     assert any(issue["code"] == "missing_override_function" for issue in result["issues"])
 
 
+def test_fmea_occurrence_overrides_resolve_without_changing_reused_definitions():
+    payload = model()
+    sensor = payload["definitions"][0]
+    sensor["functions"].append({"id": "monitor", "description": "Monitor pressure",
+                                "function_type": "monitoring", "mode_ids": ["run"]})
+    twin = deepcopy(payload["instances"][0])
+    twin.update(id="sensor-2", name="Sensor 2", reference_designators=["PS2"])
+    payload["resources"].append({"id": "pressure-2", "name": "Pressure data", "category": "information"})
+    twin["function_overrides"] = [{"function_id": "measure", "resource_bindings": {"signal": "pressure-2"}}]
+    payload["instances"].append(twin)
+    payload["instances"][0]["function_overrides"] = [{
+        "function_id": "measure", "description": "Measure local pressure",
+        "function_type": "supporting", "canonical_verb_id": "measure-local",
+    }]
+    payload["instances"][0]["failure_mode_overrides"] = [{
+        "failure_mode_id": "no-signal", "function_id": "monitor",
+        "description": "No monitored pressure",
+    }]
+    parsed = SystemDefinitionModel.model_validate(payload).model_dump(exclude_none=True)
+    assert validate_system_definition(parsed)["valid"]
+    before = deepcopy(parsed)
+    result = project_system_definition(parsed, "fmea", mode_id="run")
+    assert result["valid"]
+    projected = result["projection"]
+    functions = {row["id"]: row for row in projected["functions"]}
+    assert functions["sys-sensor-1-measure"]["function_type"] == "supporting"
+    assert functions["sys-sensor-1-measure"]["canonical_verb_id"] == "measure-local"
+    assert functions["sys-sensor-2-measure"]["function_type"] == "primary"
+    failures = {row["id"]: row for row in projected["failure_modes"]}
+    assert failures["sys-sensor-1-no-signal"]["function_id"] == "sys-sensor-1-monitor"
+    assert failures["sys-sensor-1-no-signal"]["description"] == "No monitored pressure"
+    assert failures["sys-sensor-2-no-signal"]["function_id"] == "sys-sensor-2-measure"
+    assert parsed == before, "Projection must preserve the canonical definition and all occurrences"
+
+
+def test_failure_override_rejects_missing_function_in_its_definition():
+    payload = model()
+    payload["instances"][0]["failure_mode_overrides"] = [{
+        "failure_mode_id": "no-signal", "function_id": "control",
+    }]
+    result = validate_system_definition(payload)
+    assert not result["valid"]
+    assert any(issue["code"] == "missing_override_failure_function" for issue in result["issues"])
+
+
+def test_fmea_and_propagation_distinguish_cleared_overrides_from_inheritance():
+    for override_fields in ({}, {"description": None, "deviation_id": None},
+                            {"description": "", "deviation_id": ""}):
+        payload = model()
+        payload["instances"][0]["function_overrides"] = [{
+            "function_id": "measure",
+            **({"description": override_fields["description"]}
+               if "description" in override_fields else {}),
+        }]
+        payload["instances"][0]["failure_mode_overrides"] = [{
+            "failure_mode_id": "no-signal", **override_fields,
+        }]
+        # Keep schema-emitted None values to exercise API behavior as well as
+        # an explicitly empty string authored while editing an override.
+        parsed = SystemDefinitionModel.model_validate(payload).model_dump()
+        before = deepcopy(parsed)
+        cleared = override_fields.get("description") == ""
+        function_description = "" if cleared else "Measure pressure"
+        failure_description = "" if cleared else "No pressure signal"
+        deviation = "" if cleared else "absent"
+        projection = project_system_definition(parsed, "fmea", mode_id="run")
+        assert projection["valid"]
+        function = next(row for row in projection["projection"]["functions"]
+                        if row["id"] == "sys-sensor-1-measure")
+        failure = next(row for row in projection["projection"]["failure_modes"]
+                       if row["id"] == "sys-sensor-1-no-signal")
+        assert function["description"] == function_description
+        assert failure["description"] == failure_description
+        assert failure["deviation_id"] == deviation
+        propagated = propagate_system_definition(parsed, mode_id="run")
+        assert propagated["valid"]
+        source = next(row for row in propagated["nodes"] if row["authored"])
+        assert source["function"]["description"] == function_description
+        assert source["description"] == failure_description
+        assert source["deviation_id"] == deviation
+        assert parsed == before, "Resolving overrides never changes the inherited definition"
+
+
 def test_external_boundaries_do_not_require_impossible_function_mappings():
     payload = model()
     payload["externals"] = [{
         "id": "operator", "name": "Operator", "kind": "person",
-        "description": "",
+        "description": "", "ports": [{"id": "display", "name": "Display", "interface_type": "information", "direction": "input"}],
     }]
-    payload["interfaces"][0]["target"] = {"external_id": "operator"}
+    payload["interfaces"][0]["target"] = {"external_id": "operator", "port_id": "display"}
+    payload["interfaces"][0]["transfers"][0]["target"] = {"kind": "external", "external_id": "operator", "port_id": "display"}
     payload["interfaces"][0]["target_function_ids"] = []
     validation = validate_system_definition(payload)
     assert validation["valid"]
@@ -176,6 +265,12 @@ def test_external_boundaries_do_not_require_impossible_function_mappings():
 def test_bidirectional_cycles_are_collapsed_not_expanded_forever():
     payload = model()
     payload["interfaces"][0]["directionality"] = "bidirectional"
+    # A second explicit output/input pairing provides the reverse flow.
+    payload["definitions"][0]["functions"][0]["definition"]["role"] = "transform"
+    payload["definitions"][0]["functions"][0]["definition"]["io"].append({"id": "return-in", "resource_id": "command", "direction": "input"})
+    payload["definitions"][0]["ports"][0]["direction"] = "bidirectional"
+    payload["definitions"][1]["ports"][0]["direction"] = "bidirectional"
+    payload["interfaces"][0]["transfers"].append({"id": "return-transfer", "resource_id": "command", "kind": "flow", "source": {"kind": "function", "instance_id": "controller-1", "function_id": "control", "io_id": "output"}, "target": {"kind": "function", "instance_id": "sensor-1", "function_id": "measure", "io_id": "return-in"}, "mode_ids": ["run"]})
     propagated = propagate_system_definition(payload, mode_id="run")
     assert any(path["termination"] == "cycle_collapsed" for path in propagated["paths"])
     assert len(propagated["paths"]) < 10
@@ -211,22 +306,23 @@ def test_bundled_demo_contains_an_executable_canonical_system():
     validation = validate_system_definition(parsed.model_dump())
     assert validation["valid"]
     propagated = propagate_system_definition(parsed.model_dump(), mode_id="run")
-    assert len(propagated["paths"]) == 2
+    assert propagated["valid"]
+    assert {"pump-a::no-flow", "pump-b::no-flow"} <= {path["source_failure_mode_id"] for path in propagated["paths"]}
 
 
-def test_v1_upgrade_preserves_ids_and_adds_portable_v2_semantics():
-    upgraded = upgrade_system_definition(model())
-    assert upgraded["version"] == 2
-    assert [item["id"] for item in upgraded["instances"]] == [
-        "sensor-1", "controller-1",
-    ]
-    assert upgraded["definitions"][0]["kind"] == "component"
-    assert upgraded["propagation_assertions"] == []
-    assert upgraded["diagrams"][0]["boundary"]["label"] == "System Boundary"
+def test_current_normalization_preserves_ids_and_rejects_older_architectures():
+    import pytest
+    current = model()
+    normalized = normalize_system_definition(current)
+    assert normalized["version"] == 4
+    assert normalized["instances"] == current["instances"]
+    assert normalized["propagation_assertions"] == []
+    with pytest.raises(ValueError, match="version 4"):
+        normalize_system_definition({**current, "version": 2})
 
 
 def test_typed_profile_resolution_has_explicit_precedence_and_provenance():
-    payload = upgrade_system_definition(model())
+    payload = normalize_system_definition(model())
     payload["definitions"][0]["analysis_profiles"] = [{
         "id": "prediction", "name": "MIL profile", "domain": "prediction",
         "adapter_id": "prediction.mil-hdbk-217f", "adapter_version": 1,
@@ -254,7 +350,7 @@ def test_typed_profile_resolution_has_explicit_precedence_and_provenance():
 
 
 def test_reusable_composition_is_review_gated_and_does_not_mutate_model():
-    payload = upgrade_system_definition(model())
+    payload = normalize_system_definition(model())
     payload["definitions"][0]["child_slots"] = [{
         "id": "controller-slot", "definition_id": "controller-def",
         "name": "Controller", "quantity": 2,
@@ -269,7 +365,7 @@ def test_reusable_composition_is_review_gated_and_does_not_mutate_model():
 
 
 def test_prediction_projection_requires_profiles_and_emits_linked_piece_parts():
-    payload = upgrade_system_definition(model())
+    payload = normalize_system_definition(model())
     payload["definitions"][0]["kind"] = "piece_part"
     blocked = project_system_definition(payload, "prediction")
     assert not blocked["valid"]
@@ -295,7 +391,7 @@ def test_prediction_projection_requires_profiles_and_emits_linked_piece_parts():
 
 
 def test_rbd_projection_resolves_profiles_and_preserves_local_model_overrides():
-    payload = upgrade_system_definition(model())
+    payload = normalize_system_definition(model())
     for index, definition in enumerate(payload["definitions"]):
         definition["analysis_profiles"] = [{
             "id": "reliability", "name": "Constant hazard",
@@ -333,7 +429,7 @@ def test_rbd_projection_resolves_profiles_and_preserves_local_model_overrides():
 
 
 def test_reviewed_distribution_profile_requires_explicit_parameters():
-    payload = upgrade_system_definition(model())
+    payload = normalize_system_definition(model())
     payload["definitions"][0]["analysis_profiles"] = [{
         "id": "life", "name": "Weibull life", "domain": "reliability",
         "adapter_id": "reliability.distribution", "adapter_version": 1,
@@ -349,7 +445,7 @@ def test_reviewed_distribution_profile_requires_explicit_parameters():
 
 
 def test_accepted_propagation_assertion_is_reused_until_inputs_change():
-    payload = upgrade_system_definition(model())
+    payload = normalize_system_definition(model())
     first = propagate_system_definition(payload, mode_id="run")
     proposal = first["proposals"][0]
     payload["propagation_assertions"] = [{
@@ -369,7 +465,7 @@ def test_accepted_propagation_assertion_is_reused_until_inputs_change():
 
 
 def test_binding_impact_reports_changed_canonical_entities():
-    payload = upgrade_system_definition(model())
+    payload = normalize_system_definition(model())
     projection = project_system_definition(payload, "fmea")
     binding = projection["binding"]
     binding["analysis_id"] = "FMEA-1"
@@ -379,3 +475,15 @@ def test_binding_impact_reports_changed_canonical_entities():
     assert impact["stale"] == 1
     assert any(item["entity_type"] == "function"
                for item in impact["bindings"][0]["changes"])
+
+
+def test_generated_interface_function_provenance_survives_system_roundtrip():
+    payload = model()
+    origin = {"interface_id": payload["interfaces"][0]["id"], "endpoint": "source",
+              "instance_id": "sensor-1", "generated_description": "Transmit pressure to Controller",
+              "generated_mode_ids": ["run"]}
+    payload["definitions"][0]["functions"][0]["interface_origin"] = origin
+    parsed = SystemDefinitionModel.model_validate(payload)
+    restored = SystemDefinitionModel.model_validate_json(parsed.model_dump_json())
+    assert restored.definitions[0].functions[0].interface_origin.model_dump() == origin
+    assert validate_system_definition(restored.model_dump())["valid"]

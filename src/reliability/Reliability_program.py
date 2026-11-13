@@ -417,7 +417,12 @@ def analyze_reliability_program(*, fmea=(), hazards=(), fracas=(), requirements=
                                 testability_faults=(), rcm=(), total_exposure=None,
                                 CI=0.95, isolation_threshold=1,
                                 medium_rpn=100, high_rpn=200,
-                                fmea_analyses=(), rating_profiles=()) -> dict:
+                                fmea_analyses=(), rating_profiles=(),
+                                canonical_system=None) -> dict:
+    fmea_analyses = list(fmea_analyses)
+    if fmea_analyses:
+        from reliability.FMEA_readiness import require_fmea_readiness
+        fmea_analyses = [require_fmea_readiness({"schema_version": 4, "id": item["id"], "method_profile_id": "aiag_vda_2019_public", "model": item}, canonical_system, rating_profiles=rating_profiles, program_requirements=requirements)["model"] for item in fmea_analyses]
     fmea, hazards, fracas = list(fmea), list(hazards), list(fracas)
     requirements, testability_faults, rcm = (
         list(requirements), list(testability_faults), list(rcm))

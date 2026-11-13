@@ -18,7 +18,11 @@ const subTabs: { id: SubTab; label: string; icon: typeof Network; color: string 
   { id: 'markov', label: 'Markov Analysis', icon: GitBranch, color: 'text-purple-500' },
 ]
 
-export default function SystemModeling({ navSub }: { navSub?: SubNav | null }) {
+export default function SystemModeling({ navSub, functionNavigation, interfaceNavigation }: {
+  navSub?: SubNav | null
+  functionNavigation?: { instanceId: string; functionId: string; nonce: number }
+  interfaceNavigation?: { interfaceId: string; nonce: number }
+}) {
   const [active, setActive] = useRememberedTab(
     'system-modeling', 'definition', subTabs.map(tab => tab.id),
   )
@@ -59,7 +63,7 @@ export default function SystemModeling({ navSub }: { navSub?: SubNav | null }) {
       {/* Active sub-module */}
       <div className="flex-1 overflow-hidden flex flex-col">
         <ErrorBoundary key={active} label={subTabs.find(t => t.id === active)?.label}>
-          {active === 'definition' && <SystemDefinition />}
+          {active === 'definition' && <SystemDefinition functionNavigation={functionNavigation} interfaceNavigation={interfaceNavigation} />}
           {active === 'rbd' && <SystemReliability onNavigate={() => setActive('fta')} />}
           {active === 'fta' && <FaultTreePage onNavigate={() => setActive('rbd')} />}
           {active === 'markov' && <Markov />}

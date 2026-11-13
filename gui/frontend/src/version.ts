@@ -9,7 +9,7 @@ export const OFFICIAL_REPOSITORY = 'djtroyal/perdura-reliability'
 export const PROJECT_FILE_TYPE = 'Perdura'
 export const APP_SUBTITLE = 'Reliability Engineering and Statistics Suite'
 export const APP_WEBSITE = 'https://perdurareliability.com'
-export const PROJECT_SCHEMA_VERSION = 9
+export const PROJECT_SCHEMA_VERSION = 11
 
 /**
  * Increment the affected key whenever an analytical implementation, equation,
@@ -25,15 +25,15 @@ export const CURRENT_ENGINE_REVISIONS: Readonly<Record<string, number>> = Object
   differenceDetection: 1,
   reliabilityTestingTools: 2,
   system: 1,
-  systemDefinition: 2,
+  systemDefinition: 4,
   faultTree: 1,
   markov: 2,
   prediction: 2,
   pof: 1,
   growth: 1,
   softwareReliability: 1,
-  fmea: 2,
-  reliabilityProgram: 1,
+  fmea: 4,
+  reliabilityProgram: 3,
   maintenance: 1,
   ram: 1,
   maintReplacement: 1,

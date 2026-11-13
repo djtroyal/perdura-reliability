@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { createServer as createHttpServer } from 'node:http'
-import { createServer } from 'vite'
+import { createSsrTestServer } from './viteTestLifecycle.mjs'
 
 const values = new Map()
 globalThis.localStorage = {
@@ -21,7 +21,7 @@ const legacy = JSON.stringify({
 values.set('reliability-suite-session', legacy)
 
 const hmrServer = createHttpServer()
-const vite = await createServer({
+const vite = await createSsrTestServer({
   root: new URL('..', import.meta.url).pathname,
   appType: 'custom',
   server: { middlewareMode: true, ws: { server: hmrServer } },
@@ -31,7 +31,7 @@ try {
   const project = await vite.ssrLoadModule('/src/store/project.ts')
   const version = await vite.ssrLoadModule('/src/version.ts')
   assert.equal(project.PROJECT_STORAGE_NAMESPACE, `perdura:project-schema:${version.PROJECT_SCHEMA_VERSION}`)
-  assert.equal(project.getProjectState().projectName, 'Legacy browser tab')
+  assert.notEqual(project.getProjectState().projectName, 'Legacy browser tab', 'Older browser namespaces are not adopted')
   assert.equal(values.get(`${project.PROJECT_STORAGE_NAMESPACE}:session`), undefined,
     'opening legacy storage must not create another full localStorage snapshot')
   await assert.rejects(project.hydrateProjectStorage(), /IndexedDB is unavailable/,

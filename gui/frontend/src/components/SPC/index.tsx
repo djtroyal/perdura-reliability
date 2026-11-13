@@ -248,7 +248,7 @@ export default function SPC() {
                 Out-of-Control Signals ({allViolations.length})
               </h3>
               {allViolations.length === 0 ? (
-                <p className="text-xs text-gray-500">No violations detected — process appears in control.</p>
+                <p className="text-xs text-gray-500">No signals detected by the selected rules.</p>
               ) : (
                 <div className="overflow-x-auto rounded border border-gray-200">
                   <table className="w-full text-sm">
@@ -281,11 +281,11 @@ export default function SPC() {
                 <p className="text-xs font-medium text-blue-800 mb-1">Interpretation</p>
                 <div className="text-xs text-blue-700">
                   {allViolations.length === 0 ? (
-                    <p>The process is in statistical control. All points fall within the control limits and no non-random patterns were detected. The process is behaving predictably.</p>
+                    <p>All points are within the limits; the selected rules detected no non-random patterns.</p>
                   ) : (
                     <>
                       <p className="mb-1">
-                        The process is OUT of statistical control. {allViolations.length} signal{allViolations.length > 1 ? 's were' : ' was'} detected, indicating the process is not behaving predictably.
+                        {allViolations.length} signal{allViolations.length > 1 ? 's' : ''} detected. Investigate the flagged points for special causes.
                       </p>
                       <ul className="list-disc list-inside space-y-0.5">
                         {Array.from(new Set(allViolations.map(v => v.rule))).map(rule => {

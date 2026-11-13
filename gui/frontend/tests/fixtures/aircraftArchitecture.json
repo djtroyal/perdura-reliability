@@ -1,0 +1,338 @@
+{
+  "version": 4,
+  "id": "aircraft-model",
+  "name": "Aircraft",
+  "revision": "A",
+  "root_instance_id": "aircraft",
+  "resources": [
+    {
+      "id": "dc-power",
+      "name": "28 V DC supply",
+      "category": "energy",
+      "quantity": "voltage",
+      "unit": "V"
+    },
+    {
+      "id": "controller-command",
+      "name": "Motor command",
+      "category": "information"
+    }
+  ],
+  "modes": [
+    {
+      "id": "running",
+      "name": "Running",
+      "description": ""
+    },
+    {
+      "id": "standby",
+      "name": "Standby",
+      "description": ""
+    }
+  ],
+  "definitions": [
+    {
+      "id": "aircraft-definition",
+      "name": "Aircraft",
+      "classification": "functional",
+      "description": "",
+      "kind": "system",
+      "part_number": "",
+      "manufacturer": "",
+      "category": "",
+      "ports": [],
+      "functions": [
+        {
+          "id": "aircraft-ready",
+          "description": "Maintain Aircraft operational readiness",
+          "function_type": "primary",
+          "mode_ids": [],
+          "definition": {
+            "role": "maintain_state",
+            "action": "Aircraft operational readiness",
+            "io": []
+          }
+        }
+      ],
+      "failure_modes": [],
+      "child_slots": []
+    },
+    {
+      "id": "propulsion-definition",
+      "name": "Propulsion System",
+      "classification": "functional",
+      "description": "",
+      "kind": "system",
+      "part_number": "",
+      "manufacturer": "",
+      "category": "",
+      "ports": [],
+      "functions": [
+        {
+          "id": "propulsion-ready",
+          "description": "Maintain Propulsion operational readiness",
+          "function_type": "primary",
+          "mode_ids": [],
+          "definition": {
+            "role": "maintain_state",
+            "action": "Propulsion operational readiness",
+            "io": []
+          }
+        }
+      ],
+      "failure_modes": [],
+      "child_slots": []
+    },
+    {
+      "id": "esps-definition",
+      "name": "ESPS",
+      "classification": "functional",
+      "description": "",
+      "kind": "system",
+      "part_number": "",
+      "manufacturer": "",
+      "category": "",
+      "ports": [],
+      "functions": [
+        {
+          "id": "supply-power",
+          "description": "Supply 28 V DC supply",
+          "function_type": "primary",
+          "mode_ids": [],
+          "definition": {
+            "role": "source",
+            "action": "Supply 28 V DC supply",
+            "io": [
+              {
+                "id": "supply-power-io",
+                "resource_id": "dc-power",
+                "direction": "output"
+              }
+            ]
+          }
+        }
+      ],
+      "failure_modes": [],
+      "child_slots": []
+    },
+    {
+      "id": "motor-controller-definition",
+      "name": "Motor Controller",
+      "classification": "functional",
+      "description": "",
+      "kind": "subsystem",
+      "part_number": "",
+      "manufacturer": "",
+      "category": "",
+      "ports": [],
+      "functions": [
+        {
+          "id": "receive-power",
+          "description": "Import 28 V DC supply",
+          "function_type": "primary",
+          "mode_ids": [],
+          "definition": {
+            "role": "transform",
+            "action": "Import 28 V DC supply",
+            "io": [
+              {
+                "id": "receive-power-io",
+                "resource_id": "dc-power",
+                "direction": "input"
+              },
+              {
+                "id": "command-output",
+                "resource_id": "controller-command",
+                "direction": "output"
+              }
+            ]
+          }
+        }
+      ],
+      "failure_modes": [],
+      "child_slots": []
+    }
+  ],
+  "instances": [
+    {
+      "id": "aircraft",
+      "definition_id": "aircraft-definition",
+      "name": "Aircraft",
+      "quantity": 1,
+      "reference_designators": [],
+      "mode_ids": [],
+      "function_overrides": [],
+      "failure_mode_overrides": [],
+      "legacy_refs": []
+    },
+    {
+      "id": "propulsion",
+      "definition_id": "propulsion-definition",
+      "name": "Propulsion System",
+      "quantity": 1,
+      "reference_designators": [],
+      "mode_ids": [],
+      "function_overrides": [],
+      "failure_mode_overrides": [],
+      "legacy_refs": [],
+      "parent_instance_id": "aircraft"
+    },
+    {
+      "id": "esps",
+      "definition_id": "esps-definition",
+      "name": "ESPS",
+      "quantity": 1,
+      "reference_designators": [],
+      "mode_ids": [],
+      "function_overrides": [],
+      "failure_mode_overrides": [],
+      "legacy_refs": [],
+      "parent_instance_id": "aircraft"
+    },
+    {
+      "id": "motor-controller",
+      "definition_id": "motor-controller-definition",
+      "name": "Motor Controller",
+      "quantity": 1,
+      "reference_designators": [],
+      "mode_ids": [],
+      "function_overrides": [],
+      "failure_mode_overrides": [],
+      "legacy_refs": [],
+      "parent_instance_id": "propulsion"
+    }
+  ],
+  "externals": [],
+  "interfaces": [
+    {
+      "id": "power-feed",
+      "name": "Controller power supply",
+      "interface_type": "energy",
+      "source": {
+        "instance_id": "esps"
+      },
+      "target": {
+        "instance_id": "motor-controller"
+      },
+      "directionality": "directed",
+      "linkage": "direct",
+      "interface_detail": "",
+      "flow_description": "28 V DC supply",
+      "operating_condition": "",
+      "source_function_ids": [
+        "supply-power"
+      ],
+      "target_function_ids": [
+        "receive-power"
+      ],
+      "mode_ids": [],
+      "transfers": [
+        {
+          "id": "power-transfer",
+          "resource_id": "dc-power",
+          "kind": "flow",
+          "source": {
+            "kind": "function",
+            "instance_id": "esps",
+            "function_id": "supply-power",
+            "io_id": "supply-power-io"
+          },
+          "target": {
+            "kind": "function",
+            "instance_id": "motor-controller",
+            "function_id": "receive-power",
+            "io_id": "receive-power-io"
+          },
+          "mode_ids": []
+        }
+      ]
+    }
+  ],
+  "function_links": [
+    {
+      "id": "support-propulsion",
+      "source": {
+        "instance_id": "aircraft",
+        "function_id": "aircraft-ready"
+      },
+      "target": {
+        "instance_id": "propulsion",
+        "function_id": "propulsion-ready"
+      },
+      "relationship": "decomposes_to",
+      "rationale": "",
+      "mode_ids": []
+    },
+    {
+      "id": "support-esps",
+      "source": {
+        "instance_id": "aircraft",
+        "function_id": "aircraft-ready"
+      },
+      "target": {
+        "instance_id": "esps",
+        "function_id": "supply-power"
+      },
+      "relationship": "decomposes_to",
+      "rationale": "",
+      "mode_ids": []
+    },
+    {
+      "id": "support-motor-controller",
+      "source": {
+        "instance_id": "propulsion",
+        "function_id": "propulsion-ready"
+      },
+      "target": {
+        "instance_id": "motor-controller",
+        "function_id": "receive-power"
+      },
+      "relationship": "decomposes_to",
+      "rationale": "",
+      "mode_ids": []
+    }
+  ],
+  "propagation_rules": [],
+  "propagation_assertions": [],
+  "diagrams": [
+    {
+      "id": "master",
+      "name": "Aircraft interfaces",
+      "connectorStyle": "curved",
+      "nodes": [
+        {
+          "instance_id": "aircraft",
+          "x": 0,
+          "y": 100,
+          "width": 200,
+          "height": 80,
+          "expanded": false
+        },
+        {
+          "instance_id": "propulsion",
+          "x": 260,
+          "y": 100,
+          "width": 200,
+          "height": 80,
+          "expanded": false
+        },
+        {
+          "instance_id": "esps",
+          "x": 520,
+          "y": 100,
+          "width": 200,
+          "height": 80,
+          "expanded": false
+        },
+        {
+          "instance_id": "motor-controller",
+          "x": 780,
+          "y": 220,
+          "width": 200,
+          "height": 80,
+          "expanded": false
+        }
+      ]
+    }
+  ]
+}

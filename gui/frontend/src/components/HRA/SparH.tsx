@@ -207,7 +207,7 @@ export default function SparH() {
 
   return (
     <ToolLayout
-      intro="SPAR-H (NUREG/CR-6883) — rate the eight performance shaping factors, optionally assess formal dependency on a preceding HFE, and report beta-approximated uncertainty around the final mean HEP."
+      intro="SPAR-H · NUREG/CR-6883"
       controls={controls} err={error} loading={loading} onRun={run} runLabel="Compute HEP" results={results} />
   )
 }

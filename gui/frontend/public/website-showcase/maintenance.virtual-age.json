@@ -2,7 +2,7 @@
   "app": "Perdura",
   "subtitle": "Reliability Engineering and Statistics Suite",
   "website": "https://perdurareliability.com",
-  "schemaVersion": 6,
+  "schemaVersion": 11,
   "createdWith": {
     "version": "0.7.0",
     "commit": "dev",
@@ -82,8 +82,8 @@
         "buildStatus": "development"
       },
       "runId": "run-d7af2f78-5525-4bf9-baa0-b8f7d4a0a773",
-      "moduleLabel": "Maintenance — Virtual Age",
-      "analysisName": "Maintenance — Virtual Age",
+      "moduleLabel": "Maintenance \u2014 Virtual Age",
+      "analysisName": "Maintenance \u2014 Virtual Age",
       "fingerprintSha256": "2b14b4e3399ce80dbdfff294b3e96c9c4158784905e872cc73b144b4d200d051"
     }
   ],

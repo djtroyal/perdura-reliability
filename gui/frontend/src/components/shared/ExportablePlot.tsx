@@ -1,3 +1,4 @@
+import { distributionTitle } from './distributionLabels'
 import { lazy, Suspense, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useFocusTrap } from './useDialog'
 import PlotDataView from './PlotDataView'
@@ -120,6 +121,7 @@ export default function ExportablePlot(props: ExportablePlotProps) {
     ? title
     : (title as { text?: string } | undefined)?.text
   const label = htmlToPlainText(reportLabel || titleText || fallbackPlotLabel(props))
+  const displayLabel = distributionTitle(label)
   const describeAxis = (name: string, config: unknown): string[] => {
     const title = (config as { title?: unknown } | undefined)?.title
     const text = typeof title === 'string' ? title : (title as { text?: string } | undefined)?.text
@@ -132,7 +134,7 @@ export default function ExportablePlot(props: ExportablePlotProps) {
       describeAxis(`${name} ${axis.toUpperCase()} axis`, (config as Record<string, unknown> | undefined)?.[`${axis}axis`]))
     return []
   })
-  const chartDescription = [accessibleDescription || `${label}. ${props.data.length} data series.`, ...axisDescriptions].join(' ')
+  const chartDescription = [accessibleDescription || `${displayLabel}. ${props.data.length} data series.`, ...axisDescriptions].join(' ')
   const assetGroup = reportGroup || (scope ? getActivePlotGroup(scope.module) : null) || 'Generated Plots'
   const bookmarkEligible = !!scope && scope.module !== 'dashboard' && scope.module !== 'reportBuilder'
   const sourceModule = scope?.module ?? 'unscoped'
@@ -187,7 +189,7 @@ export default function ExportablePlot(props: ExportablePlotProps) {
   const captureSnapshot = useCallback(async (figure: CapturedPlotFigure) => {
     try {
       const snapshot = await createPlotSnapshot({
-        name: label,
+        name: displayLabel,
         plotData: figure.plotData,
         plotLayout: figure.plotLayout,
         source: {
@@ -205,7 +207,7 @@ export default function ExportablePlot(props: ExportablePlotProps) {
       const message = error instanceof Error ? error.message : 'The plot could not be serialized.'
       toast.error(`Plot snapshot failed: ${message}`)
     }
-  }, [assetGroup, identity, label, sourceAnalysisId, sourceAssetKey, sourceModule, sourceModuleLabel])
+  }, [assetGroup, identity, displayLabel, sourceAnalysisId, sourceAssetKey, sourceModule, sourceModuleLabel])
 
   useEffect(() => {
     if (!fullscreen) {
@@ -229,7 +231,7 @@ export default function ExportablePlot(props: ExportablePlotProps) {
 
   return (
     <>
-    <div className="group relative" role="group" aria-label={label} aria-describedby={descriptionId} data-report-asset-key={bookmarkAsset.id || undefined} style={{
+    <div className="group relative" role="group" aria-label={displayLabel} aria-describedby={descriptionId} data-report-asset-key={bookmarkAsset.id || undefined} style={{
       width: props.style?.width ?? '100%',
       height: props.style?.height,
       minHeight: props.style?.minHeight,
@@ -264,7 +266,7 @@ export default function ExportablePlot(props: ExportablePlotProps) {
           <BookmarkAssetButton asset={bookmarkAsset} />
         )}
         <button type="button" onClick={() => setSnapshotRequest(value => value + 1)}
-          title="Save snapshot to Report Builder" aria-label={`Save snapshot of ${label} to Report Builder`}
+          title="Save snapshot to Report Builder" aria-label={`Save snapshot of ${displayLabel} to Report Builder`}
           className="inline-flex items-center rounded p-1 text-gray-400 transition-colors hover:bg-violet-50 hover:text-violet-700">
           <Camera size={13} />
         </button>
@@ -279,12 +281,12 @@ export default function ExportablePlot(props: ExportablePlotProps) {
       )}
     </Suspense>
     </div>
-    <PlotDataView data={props.data} layout={props.layout} label={label} description={chartDescription} />
+    <PlotDataView data={props.data} layout={props.layout} label={displayLabel} description={chartDescription} />
     {fullscreen && (
       <div ref={fullscreenRef} className="fixed inset-0 z-[100] flex flex-col bg-white" role="dialog" aria-modal="true"
-        aria-label={`${label || 'Plot'} full-screen viewer`}>
+        aria-label={`${displayLabel || 'Plot'} full-screen viewer`}>
         <div className="flex items-center gap-3 border-b border-gray-200 px-4 py-2">
-          <p className="min-w-0 flex-1 truncate text-sm font-semibold text-gray-800">{label || 'Interactive plot'}</p>
+          <p className="min-w-0 flex-1 truncate text-sm font-semibold text-gray-800">{displayLabel || 'Interactive plot'}</p>
           <p className="hidden text-[10px] text-gray-400 sm:block">Wheel to zoom · drag legend · Annotate to add markup</p>
           <button type="button" onClick={() => setFullscreenSnapshotRequest(value => value + 1)}
             className="inline-flex items-center gap-1.5 rounded border border-violet-200 px-3 py-1 text-xs text-violet-700 hover:bg-violet-50"
@@ -314,7 +316,7 @@ export default function ExportablePlot(props: ExportablePlotProps) {
             />
           </Suspense>
         </div>
-        <div className="max-h-[35vh] overflow-auto px-2 pb-2"><PlotDataView data={props.data} layout={props.layout} label={label} description={chartDescription} /></div>
+        <div className="max-h-[35vh] overflow-auto px-2 pb-2"><PlotDataView data={props.data} layout={props.layout} label={displayLabel} description={chartDescription} /></div>
       </div>
     )}
     </>

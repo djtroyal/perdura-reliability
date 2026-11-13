@@ -1,3 +1,4 @@
+import { distributionLabel } from '../shared/distributionLabels'
 import DatasetQuantityFields from '../shared/DatasetQuantityFields'
 import { DISTRIBUTION_PARAMETERS, resolveAdoptedDistribution, type LifeDataModelFolio, type SourceOptions } from '../shared/adoptedDistribution'
 import type { DatasetQuantity } from '../shared/datasetUnits'
@@ -23,11 +24,11 @@ export default function StressStrengthInputs({ label, value, onChange, folios, o
         value={value.source?.analysisId ?? ''} onChange={event=>onChange({...value,source:event.target.value ? {module:'lifeData',analysisId:event.target.value} : undefined})}>
         <option value="">Choose dataset…</option>{folios.map(f=>{
           const source=resolveAdoptedDistribution(f,options)
-          return <option key={f.id} value={f.id}>{f.name ?? f.id} — {source.status === 'current' ? source.model.distribution : source.status}</option>
+          return <option key={f.id} value={f.id}>{f.name ?? f.id} — {source.status === 'current' ? distributionLabel(source.model.distribution) : source.status}</option>
         })}
       </select></label>
       {resolved.status === 'current' ? <div className="rounded bg-blue-50 p-2 text-xs text-blue-900" role="status">
-        <p className="font-semibold">Live adopted {resolved.model.distribution}</p>
+        <p className="font-semibold">Live adopted {distributionLabel(resolved.model.distribution)}</p>
         <p className="break-words font-mono">{Object.entries(resolved.model.parameters).map(([k,v])=>`${k}=${v}`).join(', ')}</p>
         <p>{resolved.model.quantity.kind} · {resolved.model.quantity.unit}</p>
         <button type="button" className="mt-2 min-h-9 rounded border border-blue-700 px-2 text-blue-800" onClick={()=>onChange({mode:'manual',
@@ -36,7 +37,7 @@ export default function StressStrengthInputs({ label, value, onChange, folios, o
     </> : <>
       <label className="block text-xs text-slate-700">{label} distribution<select className="field mt-1 min-h-9" aria-label={`${label} distribution`}
         value={distribution} onChange={event=>onChange({...value,distribution:event.target.value,parameters:{}})}>
-        {Object.keys(DISTRIBUTION_PARAMETERS).map(d=><option key={d} value={d}>{d}</option>)}
+        {Object.keys(DISTRIBUTION_PARAMETERS).map(d=><option key={d} value={d}>{distributionLabel(d)}</option>)}
       </select></label>
       {value.mode === 'group' ? <>
         <label className="block text-xs text-slate-700">{label} ID group<select className="field mt-1 min-h-9" aria-label={`${label} ID group`}

@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { createServer as createHttpServer } from 'node:http'
-import { createServer } from 'vite'
+import { createSsrTestServer } from './viteTestLifecycle.mjs'
 
 const hmrServer = createHttpServer()
-const vite = await createServer({
+const vite = await createSsrTestServer({
   root: new URL('..', import.meta.url).pathname,
   appType: 'custom',
   server: { middlewareMode: true, ws: { server: hmrServer } },
@@ -91,8 +91,11 @@ try {
   assert.match(blockDiagramSource, /const layoutRanks =/)
   assert.match(blockDiagramSource, /const layoutContainer =/)
   assert.match(blockDiagramSource, /const externalRole =/)
-  assert.match(blockDiagramSource, /sourceHandle: projectedSourceHandle/)
-  assert.match(blockDiagramSource, /targetHandle: projectedTargetHandle/)
+  assert.match(blockDiagramSource, /routeInterfaceConnector\(routing\)/)
+  assert.match(blockDiagramSource, /source: group.source.id/)
+  assert.match(blockDiagramSource, /target: group.target.id/)
+  assert.match(blockDiagramSource, /sourceHandle: route.sourceSide/)
+  assert.match(blockDiagramSource, /targetHandle: route.targetSide/)
   assert.match(blockDiagramSource, /barycentric sweeps reduce crossings/)
   assert.match(blockDiagramSource, /boundaryConflict/)
   assert.match(blockDiagramSource, /> Out of scope/)
@@ -172,7 +175,7 @@ try {
   assert.match(workspaceSource,
     /window\.setTimeout\(\(\) => setMessage\(''\), 6000\)/)
   assert.match(workspaceSource, /Interactive FMEA cause, failure mode, and effect relationships/)
-  assert.match(workspaceSource, /FunctionStatementField/)
+  assert.match(workspaceSource, /StructuredFunctionEditor/)
   assert.match(workspaceSource, /VocabularyManager/)
   assert.match(workspaceSource,
     /view === 'terminology'[\s\S]*?<VocabularyManager/)
@@ -248,8 +251,7 @@ try {
     /<div>Function<\/div>[\s\S]*<div>Effect<\/div>[\s\S]*<div>Failure mode<\/div>[\s\S]*<div>Cause \/ mechanism<\/div>/)
   assert.match(workspaceSource,
     /Analysis identity[\s\S]*Organization and ownership[\s\S]*Scope and decision intent[\s\S]*Execution plan/)
-  assert.match(workspaceSource,
-    /aria-label="Core planning definition complete"/)
+  assert.doesNotMatch(workspaceSource, /Core planning definition complete|Subject \*|Scope \*|Intent \*/)
   assert.match(workspaceSource,
     /<option value="" disabled>Select function…<\/option>/)
   assert.doesNotMatch(workspaceSource, /<option value="">Function<\/option>/)
@@ -280,9 +282,10 @@ try {
   assert.match(vocabularyAidSource, /const \[expanded, setExpanded\] = useState\(true\)/)
   assert.ok((vocabularyAidSource.match(/'function_verb:[^']+':/g) ?? [])
     .length >= 35)
-  assert.match(workspaceSource, /targetSuggestions=/)
+  assert.match(workspaceSource, /<FmeaFunctionSupport/)
   assert.match(workspaceSource,
-    /analysis\.kind !== 'pfmea' && <PredictionStructureImporter/)
+    /analysis\.kind !== 'pfmea' && !analysis\.system_binding && <PredictionStructureImporter/,
+    'canonical studies edit shared structure while legacy studies retain the snapshot importer')
   assert.match(workspaceSource,
     /flex flex-wrap items-center justify-between gap-2[\s\S]*?Structure hierarchy[\s\S]*?Block diagram[\s\S]*?PredictionStructureImporter/,
     'Prediction structure import must share the Structure view toolbar instead of consuming a dedicated row')
@@ -298,14 +301,14 @@ try {
   assert.match(predictionImporterSource, /Split existing grouped parts/)
   assert.match(workspaceSource, /Split into individual parts/)
   assert.match(workspaceSource,
-    /structureView === 'diagram'[\s\S]*?className="-mx-4"[\s\S]*?FmeaBlockDiagramCanvas/,
+    /structureView === 'diagram'[\s\S]*?className="-mx-4 min-h-0 flex-1"[\s\S]*?SharedFmeaDiagram[\s\S]*?FmeaBlockDiagramCanvas/,
     'the Structure block diagram must use the full center-workspace width')
   assert.match(programSource,
     /const structureDiagramActive[\s\S]*?structureDiagramActive \? 'w-48' : 'w-64'/,
     'the module navigation pane must compact while the Structure block diagram is active')
   assert.match(blockDiagramSource,
-    /className="w-44 shrink-0 overflow-y-auto[\s\S]*?className="w-64 shrink-0 overflow-y-auto/,
-    'the block library and Properties panes must reserve more horizontal area for the FMEA canvas')
+    /className="w-64 shrink-0 overflow-y-auto/,
+    'the Properties pane retains its compact width; the resizable library is verified by interfaceVisibilityBrowser')
   assert.match(workspaceSource,
     /fmea-step-track[\s\S]*?data-first=\{index === 0 \|\| undefined\}[\s\S]*?data-active=\{step === index \+ 1 \|\| undefined\}[\s\S]*?fmea-step-arrow/,
     'the seven FMEA steps must render as a connected left-to-right chevron progression')
@@ -762,6 +765,19 @@ try {
     group => group.label === 'No linked hazard').chains.length, 1)
   assert.equal(fmesByHazard.find(
     group => group.label === 'HZ-1').subgroups.length, 2)
+  const unnamedId = 'FN-<img src=x onerror=alert(1)>'
+  const missingId = 'FN-</script><script>unexpected()</script>'
+  const fallbackAnalysis = structuredClone(fmesAnalysis)
+  fallbackAnalysis.functions[0] = { ...fallbackAnalysis.functions[0], id: unnamedId, description: '' }
+  fallbackAnalysis.failure_chains[0].function_id = unnamedId
+  fallbackAnalysis.failure_chains[1].function_id = missingId
+  fallbackAnalysis.failure_chains[2].function_id = ''
+  const fallbackGroups = fmeaModel.buildFmesSummary(fallbackAnalysis, 'function')
+  assert.deepEqual(Object.fromEntries(fallbackGroups.map(group => [group.label, group.chains.map(chain => chain.id)])), {
+    [`Unnamed function [${unnamedId}]`]: ['FC-FMES-1'],
+    [`Unknown function [${missingId}]`]: ['FC-FMES-2'],
+    'No function linked': ['FC-FMES-3'],
+  }, 'Unnamed, missing and unlinked functions keep distinct groups and preserve their literal identifiers')
   const classicProjection = fmeaInterop.classicRowsFromAiag(
     [fmesAnalysis], [{
       id: 'FC-FMES-1', failureRate: '1e-6', modeRatio: '0.25',
@@ -830,90 +846,44 @@ try {
   assert.equal(imported[0].severity, 8)
   assert.equal(imported[0].frequency, undefined)
   const legacy = fmeaModel.createFmeaAnalysis('dfmea', 2)
-  legacy.structure_nodes.push({ id: 'ST-1', name: 'Controller', level: 'focus',
-    description: '', interface: '' })
-  legacy.structure_nodes.push({ id: 'ST-2', name: 'Control board',
-    level: 'subsystem', parent_id: 'ST-1', description: '', interface: '' })
-  legacy.block_diagram.nodes.push({
-    id: 'BDN-CHILD', kind: 'structure', structure_node_id: 'ST-2',
-    container_parent_block_id: 'missing-container', expanded: true,
-    label: 'Control board', x: 360, y: 260, width: 180, height: 72,
-    inside_boundary: true,
-  })
-  legacy.functions.push({
-    id: 'FN-1', structure_node_id: 'ST-1', description: 'Control output',
-    requirement: 'Output within tolerance', characteristic_type: 'Performance',
-    specification: '±2%',
-  })
-  legacy.interfaces.push({
-    id: 'IF-1', name: 'Command', interface_type: 'signal',
-    external_source: 'Operator', external_target: '',
-    target_structure_node_id: 'ST-1',
-    flow_description: 'Command input', operating_condition: 'Mission',
-    function_ids: [], requirement_ids: [],
-  })
-  const normalized = fmeaModel.normalizeFmeaAnalysis(legacy)
-  assert.equal(normalized.functions[0].function_type, 'primary')
-  assert.equal(normalized.functions[0].canonical_verb_id, undefined)
-  assert.equal(normalized.functional_requirements[0].statement,
-    'Output within tolerance')
-  assert.equal(normalized.function_requirement_links[0].strength, 'strong')
-  assert.equal('requirement' in normalized.functions[0], false)
-  assert.equal(normalized.interfaces[0].interface_type, 'information')
-  assert.equal(normalized.block_diagram.version, 2)
-  assert.equal(normalized.block_diagram.nodes.length, 3)
-  assert.ok(normalized.interfaces[0].source_block_id)
-  assert.ok(normalized.interfaces[0].target_block_id)
-  const normalizedParent = normalized.block_diagram.nodes.find(
-    item => item.structure_node_id === 'ST-1')
-  const normalizedChild = normalized.block_diagram.nodes.find(
-    item => item.structure_node_id === 'ST-2')
-  assert.equal(normalizedChild.container_parent_block_id, undefined)
-  const inconsistentScope = structuredClone(normalized)
-  const inconsistentParent = inconsistentScope.block_diagram.nodes.find(
-    item => item.structure_node_id === 'ST-1')
-  const inconsistentChild = inconsistentScope.block_diagram.nodes.find(
-    item => item.structure_node_id === 'ST-2')
-  inconsistentParent.inside_boundary = false
-  inconsistentChild.inside_boundary = true
-  inconsistentChild.container_parent_block_id = inconsistentParent.id
-  assert.equal(fmeaModel.normalizeFmeaAnalysis(inconsistentScope)
-    .block_diagram.nodes.find(
-      item => item.structure_node_id === 'ST-2').inside_boundary, false)
-  normalizedParent.expanded = false
-  normalizedChild.container_parent_block_id = normalizedParent.id
+  legacy.functions.push({ id: 'FN-1', structure_node_id: 'ST-1', description: 'Control output', requirement: 'Output within tolerance' })
+  assert.throws(() => fmeaModel.normalizeFmeaAnalysis(legacy), /Legacy freeform/)
+  const obsolete = fmeaModel.createFmeaAnalysis('dfmea', 2); delete obsolete.resources
+  assert.throws(() => fmeaModel.normalizeFmeaAnalysis(obsolete), /older model format/)
+  const current = fmeaModel.createFmeaAnalysis('pfmea', 2)
+  current.resources = [{ id: 'signal', name: 'Control signal', category: 'information' }]
+  current.structure_nodes = [{ id: 'ST-1', name: 'Controller', level: 'focus', description: '', interface: '' },
+    { id: 'ST-2', name: 'Control board', level: 'subsystem', parent_id: 'ST-1', description: '', interface: '' }]
+  current.functions = [{ id: 'FN-1', structure_node_id: 'ST-1', description: '', function_type: 'primary', operating_modes: [], owner: '', notes: '',
+    definition: { role: 'source', action: 'Supply Control signal', io: [{ id: 'signal-out', resource_id: 'signal', direction: 'output' }] } }]
+  current.block_diagram.nodes = [
+    { id: 'BDN-PARENT', kind: 'structure', structure_node_id: 'ST-1', label: 'Controller', x: 80, y: 80, width: 400, height: 260, expanded: false, inside_boundary: true },
+    { id: 'BDN-CHILD', kind: 'structure', structure_node_id: 'ST-2', container_parent_block_id: 'BDN-PARENT', expanded: true,
+      label: 'Control board', x: 120, y: 160, width: 180, height: 72, inside_boundary: true }]
+  const normalized = fmeaModel.normalizeFmeaAnalysis(current)
+  assert.equal(normalized.functions[0].description, 'Supply Control signal')
   normalized.block_diagram.density = 'spacious'
-  normalized.structure_nodes[0].source_ref =
-    structuredClone(importedPrediction[1].source_ref)
-  const workbookSheets = Object.fromEntries(
-    fmeaModel.functionWorkbookSheets(normalized)
-      .map(sheet => [sheet.name, sheet.rows]))
+  normalized.structure_nodes[0].source_ref = structuredClone(importedPrediction[1].source_ref)
+  const workbookSheets = Object.fromEntries(fmeaModel.functionWorkbookSheets(normalized).map(sheet => [sheet.name, sheet.rows]))
   assert.deepEqual(fmeaModel.recognizedFunctionWorkbookSheets(workbookSheets), [
-    'Structure', 'Functions', 'Requirements', 'Correlations',
-    'Function Links', 'Block Diagram', 'Interfaces', 'P-Diagrams',
-    'Control Plan',
-  ])
-  const roundTrip = fmeaModel.importFunctionWorkbook(
-    fmeaModel.createFmeaAnalysis('dfmea', 3), workbookSheets)
-  assert.equal(roundTrip.functions[0].description, 'Control output')
-  assert.equal(roundTrip.functional_requirements[0].statement,
-    'Output within tolerance')
+    'Perdura Format', 'Resources', 'Structure', 'Functions', 'Requirements', 'Correlations',
+    'Function Links', 'Block Diagram', 'Interfaces', 'P-Diagrams', 'Control Plan'])
+  assert.equal(workbookSheets['Perdura Format'][0].schema_version, 4)
+  const legacySheets = structuredClone(workbookSheets); delete legacySheets['Perdura Format']
+  assert.throws(() => fmeaModel.importFunctionWorkbook(fmeaModel.createFmeaAnalysis('pfmea', 3), legacySheets), /current|version|older|format/i)
+  const roundTrip = fmeaModel.importFunctionWorkbook(fmeaModel.createFmeaAnalysis('pfmea', 3), workbookSheets)
+  assert.equal(roundTrip.functions[0].description, 'Supply Control signal')
+  assert.deepEqual(roundTrip.functions[0].definition, normalized.functions[0].definition)
+  assert.deepEqual(JSON.parse(JSON.stringify(roundTrip.resources)), normalized.resources)
   assert.equal(roundTrip.structure_nodes[0].source_ref.entity_id, 'block:b1')
   assert.equal(roundTrip.block_diagram.version, 2)
   assert.equal(roundTrip.block_diagram.density, 'spacious')
-  assert.equal(roundTrip.block_diagram.nodes.length, 3)
-  assert.equal(roundTrip.block_diagram.nodes.find(
-    item => item.structure_node_id === 'ST-1').expanded, false)
-  assert.equal(roundTrip.block_diagram.nodes.find(
-    item => item.structure_node_id === 'ST-2').container_parent_block_id,
-  normalizedParent.id)
-  assert.equal(roundTrip.interfaces[0].directionality, 'directed')
+  assert.equal(roundTrip.block_diagram.nodes.length, 2)
+  assert.equal(roundTrip.block_diagram.nodes.find(item => item.structure_node_id === 'ST-1').expanded, false)
+  assert.equal(roundTrip.block_diagram.nodes.find(item => item.structure_node_id === 'ST-2').container_parent_block_id, 'BDN-PARENT')
   assert.equal(roundTrip.failure_chains.length, 0)
-  normalized.failure_chains.push({
-    ...emptyFmea.failure_chains[0], id: 'FC-FUNCTION', function_id: 'FN-1',
-  })
-  assert.equal(fmeaModel.worksheetRows(normalized)[0].function,
-    'Control output')
+  normalized.failure_chains.push({ ...emptyFmea.failure_chains[0], id: 'FC-FUNCTION', function_id: 'FN-1' })
+  assert.equal(fmeaModel.worksheetRows(normalized)[0].function, 'Supply Control signal')
   assert.equal(fmeaModel.mergeControlPlanProposal(
     [{ id: 'CP-1', failure_chain_id: 'FC-1', reaction_plan: 'Stop' }],
     { id: 'CP-1', failure_chain_id: 'FC-1', reaction_plan: 'Contain' },

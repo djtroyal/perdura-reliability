@@ -298,6 +298,28 @@ try {
       assert.ok(bytes.includes('Reviewed μ failure rate'))
     } else assert.equal(bytes.subarray(0,4).toString(),'%PDF')
   }
+  const functionIds = ['FN-<img src=x onerror=alert(1)>', 'FN-</script><script>unexpected()</script>']
+  const fmesExport = await page.evaluate(async ids => {
+    const { createFmeaAnalysis, buildFmesSummary } = await import('/src/components/ReliabilityProgram/fmeaModel.ts')
+    const { createFmeaFailureChain } = await import('/src/store/fmeaDefaults.ts')
+    const { renderReportHtml } = await import('/src/components/ReportBuilder/index.tsx')
+    const analysis = createFmeaAnalysis('dfmea', 1)
+    analysis.functions = [{ id: ids[0], description: '', structure_node_id: 'unused' }]
+    analysis.failure_chains = ids.map((id, index) => ({ ...createFmeaFailureChain('dfmea', `chain-${index}`), function_id: id }))
+    const groups = buildFmesSummary(analysis, 'function')
+    const rows = groups.map(group => [group.label, group.functions.join(' | ')])
+    const html = await renderReportHtml({ id: 'fmes-fallbacks', title: 'FMES function references', blocks: [{
+      id: 'functions', type: 'table', headers: ['Function', 'References'], rows,
+    }] })
+    const document = new DOMParser().parseFromString(html, 'text/html')
+    return { labels: groups.map(group => group.label), rows,
+      cells: [...document.querySelectorAll('td')].map(cell => cell.textContent),
+      unsafeElements: document.querySelectorAll('img, script:not([src])').length }
+  }, functionIds)
+  assert.deepEqual([...fmesExport.labels].sort(), [`Unnamed function [${functionIds[0]}]`, `Unknown function [${functionIds[1]}]`].sort())
+  assert.equal(fmesExport.unsafeElements, 0, 'Hostile-looking function identifiers must remain report text, not executable markup')
+  assert.deepEqual(fmesExport.cells, fmesExport.rows.flat(), 'HTML export must preserve the exact displayed identifiers')
+  checks.push('FMES function references preserve literal hostile identifiers as inert exported report text')
   // Prediction deliberately excludes unverified runtime plots from project
   // assets. Register an explicit test figure through the production wrapper
   // to exercise ZIP rendering without inventing calculated prediction results.

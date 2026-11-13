@@ -111,7 +111,6 @@ export default function Heart() {
 
   return (
     <ToolLayout
-      intro="HEART — pick a generic task type (its nominal unreliability), then add the error-producing conditions that apply, each weighted by an assessed proportion of affect (0-1). HEP = nominal × Π[((EPC max−1)·proportion)+1]."
       controls={controls} err={error} loading={loading} onRun={run} runLabel="Compute HEP" results={results} />
   )
 }

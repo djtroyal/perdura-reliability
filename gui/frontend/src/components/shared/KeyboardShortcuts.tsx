@@ -6,6 +6,7 @@ import { Command, CornerDownLeft, Keyboard, Search, X } from 'lucide-react'
 import { useFocusTrap } from './useDialog'
 import { ServerCompatibilityLockContext } from './serverCompatibilityContext'
 import { matchesSearchQuery } from '../../searchMatch'
+import { hasOpenPopovers } from './useDismissiblePopover'
 import {
   formatShortcut, isApplePlatform, isEditableTarget, matchesShortcut, scopePriority,
   type ShortcutBinding, type ShortcutScope,
@@ -182,8 +183,13 @@ export function KeyboardShortcutProvider({ children }: { children: ReactNode }) 
       // A dialog owns the keyboard. This preserves local editor shortcuts such
       // as Help search and plot-note submission without triggering the module.
       const target = event.target as Element | null
-      if (target?.closest('[role="dialog"], [aria-modal="true"]')
-        || document.querySelector('[aria-modal="true"]')) return
+      const activeDialog = target?.closest('[role="dialog"], [aria-modal="true"]')
+      const fullscreenCanvas = activeDialog?.matches('[data-diagram-fullscreen="true"]')
+      if ((activeDialog && !fullscreenCanvas)
+        || document.querySelector('[aria-modal="true"]:not([data-diagram-fullscreen="true"])')) return
+      // Full-screen diagrams retain their editing commands; Escape belongs to
+      // the nested popup/full-screen shell rather than clearing node selection.
+      if (event.key === 'Escape' && (fullscreenCanvas || hasOpenPopovers())) return
       const commands = [...flatten(entries), ...builtIns.map(command => ({ ...command, sequence: -1 }))]
       const matches = commands
         .filter(command => command.bindings?.some(binding => matchesShortcut(event, binding)))

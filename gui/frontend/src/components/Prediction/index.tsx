@@ -17,6 +17,7 @@ import {
   getPredictionOptions,
 } from '../../api/client'
 import { buildExport, importPayload, getProjectState, useRevision, useUnits, type FolioRequest } from '../../store/project'
+import { useUiPreference } from '../../store/uiPreferences'
 import { captureSharedSystemContext, currentProjectSystem, useSharedPredictionState } from '../../store/sharedSystem'
 import { predictSharedSystem } from '../../api/systemDefinition'
 import { emptyPredictionScenario, materializePrediction, systemInputFingerprint, type PredictionScenario } from '../../store/sharedSystemModel'
@@ -849,11 +850,11 @@ function MethodologyNotice({ disclosure, compact = false }: {
         <span className="font-semibold">{disclosure.tier_definition.label}</span>
         <span className="text-[10px] opacity-75">{disclosure.edition}</span>
       </div>
-      <p className="mt-1">{disclosure.tier_definition.meaning}</p>
       <p className="mt-1 font-medium">{disclosure.tier_definition.contract_use}</p>
       <details className="mt-1.5 text-[10px]">
         <summary className="cursor-pointer font-medium">Scope, provenance, and validation</summary>
         <div className="mt-1 space-y-1 opacity-90">
+          <p>{disclosure.tier_definition.meaning}</p>
           <p><b>Implemented:</b> {disclosure.implementation_scope}</p>
           <p><b>Exclusions:</b> {disclosure.known_exclusions}</p>
           <p><b>Clause coverage:</b> {disclosure.clause_coverage.join('; ')}</p>
@@ -1903,7 +1904,7 @@ export default function Prediction({
   activeFolioIdRef.current = folios.activeId
   const [deratingLoading, setDeratingLoading] = useState(false)
   const [deratingError, setDeratingError] = useState<string | null>(null)
-  const [showAllDeratingInputs, setShowAllDeratingInputs] = useState(false)
+  const [showAllDeratingInputs, setShowAllDeratingInputs] = useUiPreference<boolean>('prediction.showAllDeratingInputs', false)
   const deratingResult = state.deratingResult ?? null
   const deratingEnabled = state.deratingEnabled === true
   const deratingLevel = state.deratingLevel ?? 'II'
@@ -3879,7 +3880,7 @@ export default function Prediction({
                   className="rounded text-purple-600 w-4 h-4" />
               </label>
               <p className="text-[10px] text-gray-400 px-1">
-                Checking A/V51.1 asserts known commercial-part pedigree and counterfeit controls. Each part can override the global setting (Global / On / Off).
+                Requires known commercial-part pedigree and counterfeit controls. Individual parts can override this setting.
               </p>
             </>
           )}
@@ -3893,9 +3894,6 @@ export default function Prediction({
                 <option value={3}>Grade 3 — Average</option>
                 <option value={4}>Grade 4 — Below average</option>
               </select>
-              <p className="text-[10px] text-gray-500 mt-1 px-0.5">
-                217Plus process grade factor adjusts failure rates by manufacturing and design maturity.
-              </p>
             </div>
           )}
           {standard === 'FIDES' && (
@@ -4139,7 +4137,7 @@ export default function Prediction({
                 </button>
               )}
               <p className="text-[10px] text-gray-400 px-0.5">
-                Enabled derating runs after each prediction. Exact compatible part inputs are reused automatically.
+                Runs after each prediction using compatible part inputs.
               </p>
               {deratingError && (
                 <p role="alert" className="rounded border border-red-200 bg-red-50 px-2 py-1.5 text-[10px] text-red-700">
@@ -4153,13 +4151,6 @@ export default function Prediction({
         </>
         ) : (
         <>
-        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-          <p className="text-xs font-semibold text-slate-700">Parts List tools</p>
-          <p className="mt-0.5 text-[10px] leading-relaxed text-slate-500">
-            Add components and system blocks here. Select an existing row in the table to edit all of its properties.
-          </p>
-        </div>
-
         {/* Part editor */}
         <div>
           <button onClick={() => setPartEditorOpen(open => !open)}
@@ -4827,7 +4818,7 @@ export default function Prediction({
               </div>
             )}
             <p className="mb-4 rounded border border-gray-200 bg-gray-50 px-3 py-2 text-[11px] leading-relaxed text-gray-600">
-              Prediction context: this is a model-based planning estimate for relative design comparison. It is not an observed or calibrated field failure rate unless supported by representative test or field data.
+              Prediction context: model-based design estimate. Field calibration requires representative test or service data.
             </p>
 
             {/* Derating Analysis summary for all parts */}
@@ -5133,7 +5124,7 @@ export default function Prediction({
                     {preparedContributions.cutoff.mode === 'count'
                       ? `Showing the ${preparedContributions.visibleCount} largest contributors individually.`
                       : `Showing ${preparedContributions.visibleCount} contributors that reach ${(preparedContributions.visibleShare * 100).toFixed(1)}% cumulative contribution (target ${preparedContributions.cutoff.value}%).`}
-                    {' '}“Remaining ({preparedContributions.groupedCount})” preserves the combined failure rate of the other {preparedContributions.groupedCount} contributor{preparedContributions.groupedCount === 1 ? '' : 's'}; hover for exact values.
+                    {' '}“Remaining ({preparedContributions.groupedCount})” combines all other contributors; hover for values.
                   </p>
                 )}
                 {contributionChartMode === 'sankey'
@@ -5142,8 +5133,7 @@ export default function Prediction({
                   <p className="mt-1.5 text-[10px] leading-relaxed text-gray-500">
                     Branches below {preparedContributionSankey.cutoffPercent.toFixed(1)}%
                     of the selected scope are combined into “Other” beneath
-                    their immediate parent. Grouped flows retain their exact
-                    combined failure rate so every displayed level reconciles.
+                    their immediate parent; totals are preserved.
                   </p>
                 )}
               </div>
@@ -5159,9 +5149,8 @@ export default function Prediction({
         )}
 
         <p className="text-xs text-gray-400 mt-4">
-          Prediction per {STANDARD_INFO[standard].name}.
-          {standard === 'MIL-HDBK-217F' && ' The ANSI/VITA 51.1 supplement applies its R2018 COTS defaults, mappings, extensions, manufacturer-data conversions, and alternate PTH method when checked.'}
-          {' '}Verify against the licensed standard for formal deliverables.
+          Reference: {STANDARD_INFO[standard].name}.
+          {standard === 'MIL-HDBK-217F' && ' ANSI/VITA 51.1-2013 (R2018) applies when enabled.'}
         </p>
         </>
         )}

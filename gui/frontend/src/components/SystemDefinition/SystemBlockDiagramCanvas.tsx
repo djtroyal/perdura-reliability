@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, type ReactNode } from 'react'
 
 import type {
   AIAGVDAFMEAAnalysis,
@@ -7,14 +7,18 @@ import type {
   FMEAInterface,
 } from '../../api/reliabilityProgram'
 import type {
-  SystemBlockDefinition,
   SystemDefinitionModel,
   SystemEndpoint,
   SystemInterface,
   SystemInterfaceType,
 } from '../../api/systemDefinition'
 import FmeaBlockDiagramCanvas from '../ReliabilityProgram/FmeaBlockDiagramCanvas'
-import { hierarchyLayout, instanceLabel } from './model'
+import { toast } from '../shared/toast'
+import { instanceLabel } from './model'
+import { defaultHierarchyDiagramNodes, diagramEndpointInstance, interfacesDiagramModel, retainHiddenDiagramData } from './diagramProjection'
+import { projectHierarchicalNodes } from '../shared/hierarchicalDiagram'
+import { hiddenIdsAfterInterfaceEdits } from './interfaceDiagramEdits'
+import { interfaceResourceFlowProjector } from '../shared/interfaceResourceFlows'
 
 const nodeId = (instanceId: string) => `system-instance:${instanceId}`
 const externalNodeId = (externalId: string) => `system-external:${externalId}`
@@ -29,35 +33,37 @@ const densityFromFmea = (value: FMEABlockDiagram['density']) =>
     : value === 'spacious' || value === 'expanded' ? 'detailed' as const
       : 'standard' as const
 
-function compatiblePort(
-  definition: SystemBlockDefinition,
-  type: SystemInterfaceType,
-  direction: 'input'|'output',
-) {
-  return definition.ports.find(port => port.interface_type === type
-    && (port.direction === direction || port.direction === 'bidirectional'))
-    ?? definition.ports.find(port =>
-      port.direction === direction || port.direction === 'bidirectional')
-}
-
 export default function SystemBlockDiagramCanvas({
   model,
-  collapsedInstanceIds,
   onChange,
+  onSelectInstance,
+  selectedInstanceId,
+  selectionRequest,
+  interfaceSelectionRequest,
+  libraryContent,
+  structureInspector,
+  interfaceInspector,
 }: {
   model: SystemDefinitionModel
-  collapsedInstanceIds: string[]
-  onChange: (model: SystemDefinitionModel, collapsedInstanceIds: string[]) => void
+  onChange: (model: SystemDefinitionModel) => void
+  onSelectInstance?: (instanceId: string) => void
+  selectedInstanceId?: string
+  selectionRequest?: { instanceId: string; requestId: number }
+  interfaceSelectionRequest?: { interfaceId: string; requestId: number }
+  libraryContent?: ReactNode
+  structureInspector?: (instanceId: string) => ReactNode
+  interfaceInspector?: (interfaceId: string) => ReactNode
 }) {
   const diagram = model.diagrams[0]
+  const visibleModel = useMemo(() => interfacesDiagramModel(model), [model])
   const analysis = useMemo(() => {
     const stored = new Map((diagram?.nodes ?? []).map(item => [
       item.instance_id ? nodeId(item.instance_id) : externalNodeId(item.external_id ?? ''),
       item,
     ]))
-    const auto = new Map(hierarchyLayout(model, collapsedInstanceIds)
+    const auto = new Map(defaultHierarchyDiagramNodes(model)
       .map(item => [nodeId(item.instance_id ?? ''), item]))
-    const structureNodes = model.instances.map(instance => {
+    const structureNodes = visibleModel.instances.map(instance => {
       const definition = model.definitions.find(item => item.id === instance.definition_id)
       return {
         id: instance.id, name: instanceLabel(model, instance),
@@ -67,15 +73,17 @@ export default function SystemBlockDiagramCanvas({
         element_type: 'canonical_instance',
       }
     })
+    const visibleParents = new Set(visibleModel.instances.flatMap(instance => instance.parent_instance_id
+      ? [instance.parent_instance_id] : []))
     const nodes: FMEABlockDiagramNode[] = [
-      ...model.instances.map(instance => {
+      ...visibleModel.instances.map(instance => {
         const position = stored.get(nodeId(instance.id)) ?? auto.get(nodeId(instance.id))
         return {
           id: nodeId(instance.id), kind: 'structure' as const,
           structure_node_id: instance.id,
           container_parent_block_id: instance.parent_instance_id
             ? nodeId(instance.parent_instance_id) : undefined,
-          expanded: !collapsedInstanceIds.includes(instance.id),
+          expanded: visibleParents.has(instance.id) && Boolean(position?.expanded),
           label: instanceLabel(model, instance),
           x: position?.x ?? 80, y: position?.y ?? 80,
           width: position?.width ?? 180, height: position?.height ?? 72,
@@ -93,7 +101,15 @@ export default function SystemBlockDiagramCanvas({
         }
       }),
     ]
-    const functions = model.instances.flatMap(instance => {
+    // The canvas itself is the top system boundary. Keep an endpoint card
+    // only when a real interface terminates at the system; never lose that
+    // interface or rewrite the installed hierarchy to obtain this view.
+    const rootId = model.root_instance_id
+    const rootHasInterfaces = rootId && visibleModel.interfaces.some(item =>
+      item.source.instance_id === rootId || item.target.instance_id === rootId)
+    const rootBlockId = rootId ? nodeId(rootId) : undefined
+    const displayNodes = projectHierarchicalNodes(nodes, { rootBlockId, rootEndpointRequired: Boolean(rootHasInterfaces) })
+    const functions = visibleModel.instances.flatMap(instance => {
       const definition = model.definitions.find(item => item.id === instance.definition_id)
       return (definition?.functions ?? []).map(fn => ({
         id: functionId(instance.id, fn.id), structure_node_id: instance.id,
@@ -102,7 +118,7 @@ export default function SystemBlockDiagramCanvas({
         owner: '', notes: '',
       }))
     })
-    const interfaces: FMEAInterface[] = model.interfaces.map(item => ({
+    const interfaces: FMEAInterface[] = visibleModel.interfaces.map(item => ({
       id: item.id, name: item.name, interface_type: item.interface_type,
       source_block_id: item.source.instance_id
         ? nodeId(item.source.instance_id) : externalNodeId(item.source.external_id ?? ''),
@@ -135,15 +151,28 @@ export default function SystemBlockDiagramCanvas({
       block_diagram: {
         version: 2, density: diagram?.layoutOptions?.mode === 'expanded' ? 'expanded' : densityToFmea(diagram?.density),
         layoutOptions: diagram?.layoutOptions,
+        connectorStyle: diagram?.connectorStyle,
         boundary: diagram?.boundary ?? {
           label: model.name, x: -40, y: -40, width: 1200, height: 700,
         },
-        nodes,
+        nodes: displayNodes,
         viewport: diagram?.viewport ?? { x: 0, y: 0, zoom: 1 },
         snap_to_grid: diagram?.snap_to_grid ?? true,
       },
     } as unknown as AIAGVDAFMEAAnalysis
-  }, [collapsedInstanceIds, diagram, model])
+  }, [diagram, model, visibleModel])
+  const interfaceEndpoints = useMemo(() => Object.fromEntries(visibleModel.interfaces.map(item => [item.id, {
+    source: item.source.instance_id ? nodeId(diagramEndpointInstance(model, item.source) ?? '')
+      : externalNodeId(item.source.external_id ?? ''),
+    target: item.target.instance_id ? nodeId(diagramEndpointInstance(model, item.target) ?? '')
+      : externalNodeId(item.target.external_id ?? ''),
+  }])), [model, visibleModel])
+  const interfaceResourceFlows = useMemo(() => {
+    const project = interfaceResourceFlowProjector(model)
+    return Object.fromEntries(visibleModel.interfaces.map(item => [item.id, project(item, interfaceEndpoints[item.id])]))
+  }, [model, visibleModel.interfaces, interfaceEndpoints])
+  const interfaceResourceIds = useMemo(() => Object.fromEntries(Object.entries(interfaceResourceFlows)
+    .map(([id, flows]) => [id, [...new Set(flows.map(flow => flow.resourceId))]])), [interfaceResourceFlows])
 
   const update = (patch: Partial<AIAGVDAFMEAAnalysis>) => {
     const nextAnalysis = { ...analysis, ...patch }
@@ -165,41 +194,43 @@ export default function SystemBlockDiagramCanvas({
       }
     })
 
-    let definitions = [...next.definitions]
+    const definitions = next.definitions
     const endpoint = (
       blockId: string | undefined,
       structureId: string | undefined,
       type: SystemInterfaceType,
-      direction: 'input'|'output',
+      original?: SystemEndpoint,
     ): SystemEndpoint|null => {
       if (structureId) {
         const instance = next.instances.find(item => item.id === structureId)
         const definition = definitions.find(item => item.id === instance?.definition_id)
         if (!instance || !definition) return null
-        let port = compatiblePort(definition, type, direction)
-        if (!port) {
-          port = {
-            id: `PORT-${direction}-${type}`, name: `${direction} ${type}`,
-            interface_type: type, direction, description: '', properties: {},
-          }
-          definitions = definitions.map(item => item.id === definition.id
-            ? { ...item, ports: [...item.ports, port!] } : item)
-        }
-        return { instance_id: instance.id, port_id: port.id }
+        // Drawing handles select blocks, not engineering ports. Preserve an authored
+        // terminal when valid; structured I/O pairing supplies the actual resource path.
+        const port = original?.instance_id === instance.id && original.port_id
+          ? definition.ports.find(item => item.id === original.port_id && item.interface_type === type)
+          : undefined
+        return { instance_id: instance.id, ...(port ? { port_id: port.id } : {}) }
       }
       const externalId = blockId ? externalByNode.get(blockId) : undefined
-      return externalId ? { external_id: externalId } : null
+      if (!externalId) return null
+      const port = original?.external_id === externalId && original.port_id
+        ? next.externals.find(item => item.id === externalId)?.ports?.find(item =>
+          item.id === original.port_id && item.interface_type === type)
+        : undefined
+      return { external_id: externalId, ...(port ? { port_id: port.id } : {}) }
     }
     next.interfaces = nextAnalysis.interfaces.flatMap(item => {
+      const previous = model.interfaces.find(existing => existing.id === item.id)
       const source = endpoint(item.source_block_id, item.source_structure_node_id,
-        item.interface_type, 'output')
+        item.interface_type, previous?.source)
       const target = endpoint(item.target_block_id, item.target_structure_node_id,
-        item.interface_type, 'input')
+        item.interface_type, previous?.target)
       if (!source || !target) return []
       const sourcePrefix = source.instance_id ? `${source.instance_id}@@` : ''
       const targetPrefix = target.instance_id ? `${target.instance_id}@@` : ''
-      const previous = model.interfaces.find(existing => existing.id === item.id)
       const converted: SystemInterface = {
+        ...previous,
         id: item.id, name: item.name, interface_type: item.interface_type,
         source, target, linkage: item.linkage, directionality: item.directionality,
         strength: item.relationship_strength === 'strong' || item.relationship_strength === 'weak'
@@ -219,7 +250,7 @@ export default function SystemBlockDiagramCanvas({
     next.definitions = definitions
     const systemNodes: SystemDefinitionModel['diagrams'][number]['nodes'] = []
     for (const item of nextDiagram.nodes) {
-      if (item.kind === 'structure' && item.structure_node_id) systemNodes.push({
+      if (item.kind === 'structure' && item.structure_node_id && item.structure_node_id !== model.root_instance_id) systemNodes.push({
         instance_id: item.structure_node_id,
         x: item.x, y: item.y, width: item.width, height: item.height,
         expanded: Boolean(item.expanded),
@@ -230,24 +261,40 @@ export default function SystemBlockDiagramCanvas({
         expanded: false,
       })
     }
+    // Root endpoint card geometry is a view projection, not a replacement
+    // for the shared full-system arrangement used by other modules.
+    const originalRoot = diagram?.nodes.find(item => item.instance_id === model.root_instance_id)
+    if (originalRoot) systemNodes.push(originalRoot)
     const updatedDiagram = {
       id: diagram?.id ?? 'diagram-1', name: diagram?.name ?? model.name,
       scope_instance_id: diagram?.scope_instance_id,
       density: densityFromFmea(nextDiagram.density),
       layoutOptions: nextDiagram.layoutOptions,
+      connectorStyle: nextDiagram.connectorStyle,
       boundary: nextDiagram.boundary, viewport: nextDiagram.viewport,
       snap_to_grid: nextDiagram.snap_to_grid, mode_ids: diagram?.mode_ids ?? [],
+      hidden_instance_ids: hiddenIdsAfterInterfaceEdits(model, next.interfaces),
       nodes: systemNodes,
     }
     next.diagrams = [updatedDiagram, ...next.diagrams.slice(1)]
-    const parents = new Set(next.instances.flatMap(item => item.parent_instance_id
-      ? [item.parent_instance_id] : []))
-    const collapsed = nextDiagram.nodes.flatMap(item =>
-      item.kind === 'structure' && item.structure_node_id
-      && parents.has(item.structure_node_id) && !item.expanded
-        ? [item.structure_node_id] : [])
-    onChange(next, collapsed)
+    try {
+      onChange(retainHiddenDiagramData(model, next, visibleModel))
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not update the Interfaces diagram.')
+    }
   }
 
-  return <FmeaBlockDiagramCanvas analysis={analysis} update={update} />
+  return <FmeaBlockDiagramCanvas analysis={analysis} update={update} fillHeight allowCanonicalEditing
+    displayPreferenceKey={`system:${model.id}`} resourceOptions={model.resources}
+    hasExpandedSystems={Boolean(diagram?.nodes.some(item => item.instance_id && item.instance_id !== model.root_instance_id && item.expanded))}
+    onCollapseAllSystems={() => onChange({ ...model, diagrams: model.diagrams.map((item, index) => index === 0
+      ? { ...item, nodes: item.nodes.map(node => node.instance_id && node.instance_id !== model.root_instance_id && node.expanded
+        ? { ...node, expanded: false } : node) } : item) })}
+    findingNavigation={interfaceSelectionRequest && { record_id: interfaceSelectionRequest.interfaceId, requestId: interfaceSelectionRequest.requestId }}
+    hideAnalysisBoundary implicitRootStructureId={model.root_instance_id}
+    interfaceEndpoints={interfaceEndpoints} interfaceResourceIds={interfaceResourceIds} interfaceResourceFlows={interfaceResourceFlows} interfaceInspector={interfaceInspector}
+    initialSelectedStructureId={selectedInstanceId}
+    onStructureSelect={onSelectInstance} libraryContent={libraryContent}
+    structureSelection={selectionRequest && { structureId:selectionRequest.instanceId,requestId:selectionRequest.requestId }}
+    hideCreationTools={Boolean(libraryContent)} structureInspector={structureInspector} />
 }

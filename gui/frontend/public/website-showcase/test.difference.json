@@ -2,7 +2,7 @@
   "app": "Perdura",
   "subtitle": "Reliability Engineering and Statistics Suite",
   "website": "https://perdurareliability.com",
-  "schemaVersion": 6,
+  "schemaVersion": 11,
   "createdWith": {
     "version": "0.7.0",
     "commit": "dev",
@@ -82,7 +82,7 @@
         "buildStatus": "development"
       },
       "runId": "run-9103ae7b-bc11-4463-9598-1424e6ee8d44",
-      "moduleLabel": "Reliability Testing — Difference Detection",
+      "moduleLabel": "Reliability Testing \u2014 Difference Detection",
       "analysisName": "Temperature ALT",
       "fingerprintSha256": "85934acba6cea8c3c1b893d6d8798e4f5e88e53044e8fc5d99f990bf45343f90"
     }

@@ -6,22 +6,34 @@ import type { SystemDefinitionState } from '../components/SystemDefinition/model
 import { canonicalDependencyUpdates, createProjectSystem, emptyPredictionScenario, materializePrediction,
   splitPredictionUpdate, systemInputFingerprint, validateProjectSystem, pruneScenarioInputs, mergePredictionResultUpdate,
   type PredictionScenario, type PredictionView } from './sharedSystemModel'
+import { populateSystemInterfaceFunctions } from './interfaceFunctions'
 
 const INITIAL_SYSTEM = createProjectSystem()
 export function currentProjectSystem(): SystemDefinitionState {
   return getProjectState().modules.systemDefinition as SystemDefinitionState ?? INITIAL_SYSTEM
 }
 
-export function commitProjectSystem(next: SystemDefinitionState, label = 'shared-system') {
+/** Shared writes from any workspace use the same dependency and scenario invalidation. */
+export function projectSystemUpdates(before: SystemDefinitionState, next: SystemDefinitionState,
+  modules: Record<string, unknown>): Record<string, unknown> {
   validateProjectSystem(next.model)
-  const project = getProjectState(), before = currentProjectSystem()
-  const updates = canonicalDependencyUpdates(project.modules, before, next)
+  const updates = canonicalDependencyUpdates(modules, before, next)
   if (systemInputFingerprint(before.model) !== systemInputFingerprint(next.model)) {
-    const prediction = project.modules.prediction as { _folioWrap?: boolean; folios?: { state: PredictionScenario; dirty?: boolean }[] }
+    const prediction = modules.prediction as { _folioWrap?: boolean; folios?: { state: PredictionScenario; dirty?: boolean }[] }
     if (prediction?._folioWrap && prediction.folios) updates.prediction = { ...prediction,
       folios: prediction.folios.map(folio => ({ ...folio, dirty: Boolean(folio.state.result || folio.dirty),
         state: { ...pruneScenarioInputs(next.model, folio.state), sourceSystemFingerprint: systemInputFingerprint(next.model) } })) }
   }
+  return updates
+}
+
+export function commitProjectSystem(next: SystemDefinitionState, label = 'shared-system') {
+  const project = getProjectState(), before = currentProjectSystem()
+  // Navigation and diagram presentation must not reconcile authored IO or invalidate results.
+  if (next.model !== before.model && systemInputFingerprint(next.model) !== systemInputFingerprint(before.model)) {
+    next = { ...next, model: populateSystemInterfaceFunctions(next.model, before.model) }
+  }
+  const updates = projectSystemUpdates(before, next, project.modules)
   writeModuleSlices({ ...updates, systemDefinition: next }, { sliceKey: 'systemDefinition', fieldSig: label })
 }
 

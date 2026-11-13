@@ -625,7 +625,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "021baefa8d1f26d2b2baf38237dbabf572b860aecda2efe818f68b5a195a26ce",
+      "definition_sha256": "3c468903057e748f606b52dd502a73b6ff6a8265314a983b06f2d367ffd211b0",
       "id": "api.fmea.POST./analyze",
       "kind": "router_operation",
       "method": "POST",
@@ -664,7 +664,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "6a26c22b56c2d2ad93dbb30faa30ae7b57df23ae7dccb330bc4cb11d6958f52f",
+      "definition_sha256": "d7588d5dc75f3e038f4f18026b19666748a352e3ea9cb972a76ba53b2ba90796",
       "id": "api.fmea.POST./library/instantiate",
       "kind": "router_operation",
       "method": "POST",
@@ -690,7 +690,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "64df7ac3ad9a941cbe3ed7dac5fae89538347fbfbc8e1f4722eee0e66fe834fd",
+      "definition_sha256": "f86a7c282d053e036be8577dd617cded715a2bd33168f54c5a4b67221b4e18ed",
       "id": "api.fmea.POST./lifecycle/transition",
       "kind": "router_operation",
       "method": "POST",
@@ -703,7 +703,20 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "3a48a4d292c59973591a2dd60e13f42fd7301d6d8c7d7e315822cd02cecf97e0",
+      "definition_sha256": "7973e5ecc684f4e046c7e6d609ae932336c43c1482750b1e81ed0ac4d7754754",
+      "id": "api.fmea.POST./readiness",
+      "kind": "router_operation",
+      "method": "POST",
+      "route": "/readiness",
+      "router": "fmea",
+      "source": "gui/backend/routers/fmea.py",
+      "surface": "api",
+      "symbol": "readiness"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "1a85dca53678fefed5788ff682c5e8da297e6425f4a419b8dc6b11450eb4d649",
       "id": "api.fmea.POST./releases",
       "kind": "router_operation",
       "method": "POST",
@@ -729,7 +742,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "b79a2cd5b7238bda902084d0870673c76764ffd048838513dd31257ff307133e",
+      "definition_sha256": "acebeeebe3c4cbcee8e4058e1e39b61f0c3f59ffc2c138b00e26669d5b4f9088",
       "id": "api.fmea.POST./revisions",
       "kind": "router_operation",
       "method": "POST",
@@ -2201,19 +2214,6 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "07ddc2b09f6081a09ce55bd9e8b11ee8a737355304e299537189539a19b48237",
-      "id": "api.system_definition.POST./upgrade",
-      "kind": "router_operation",
-      "method": "POST",
-      "route": "/upgrade",
-      "router": "system_definition",
-      "source": "gui/backend/routers/system_definition.py",
-      "surface": "api",
-      "symbol": "upgrade"
-    },
-    {
-      "assessment": "classification_pending",
-      "assurance_records": [],
       "definition_sha256": "f3f8f6cb22a329ec89a57d19c74ef31da80db9e7d820ed42f92282b3568508f4",
       "id": "api.system_definition.POST./validate",
       "kind": "router_operation",
@@ -3538,7 +3538,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "4bd429ec97688a3166423ff5dcb9244e2ef5b096830d9698af1e27a38989dbaa",
+      "definition_sha256": "d59cf3ce8edf260d8f782867a7bd13652c14635cb37c45e65ac6e15a6e182c47",
       "id": "core.FMEA.analyze_studies",
       "kind": "callable",
       "source": "src/reliability/FMEA.py",
@@ -3558,7 +3558,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "98f30971c1183817e612aa8c10cabd1a33491deaaf29216fdf11599343f71ea7",
+      "definition_sha256": "46b2986a35919bdb3dc10fdc2bdd3cb5c082573eac510afb14f62986635048a6",
       "id": "core.FMEA.create_release",
       "kind": "callable",
       "source": "src/reliability/FMEA.py",
@@ -3568,7 +3568,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "b18bd3caf5417813bd6d33aaa11482ca108f347614e5caca1d0ae026aa6e71fd",
+      "definition_sha256": "bed78b45aac8d0630d8271a9ed1f3f6f62016a15bb096b2b39db36ae6f8788b3",
       "id": "core.FMEA.create_revision",
       "kind": "callable",
       "source": "src/reliability/FMEA.py",
@@ -3648,7 +3648,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "7fb92dc5d1970c028b2097b6c6755c20631b3fecc2552a8bf2b5cfc6243f33f9",
+      "definition_sha256": "17917329ac7e4527b1152a7ea397351d767316bbc2ce4ed9ca6cf915af6dfa78",
       "id": "core.FMEA.transition_lifecycle",
       "kind": "callable",
       "source": "src/reliability/FMEA.py",
@@ -3698,12 +3698,92 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "4498ce1fe5914bb3e10b69704bb44e70e0673286efab1d45e6d1303227366397",
+      "definition_sha256": "269a867ef4f12e55285d6cbf764148ed2fd109c2a92e8ddcb330f5b3aaaa3fda",
       "id": "core.FMEA.verify_release",
       "kind": "callable",
       "source": "src/reliability/FMEA.py",
       "surface": "core",
       "symbol": "verify_release"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "eb868d321c1a05949903f32dd47fe4b0b1667aa22eec336087a16ac212dcf187",
+      "id": "core.FMEA_readiness.FMEAPrerequisiteError",
+      "kind": "class",
+      "source": "src/reliability/FMEA_readiness.py",
+      "surface": "core",
+      "symbol": "FMEAPrerequisiteError"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "3c2c084fac23318eea35364ec4b5fa419b8954bbc7c393dbe64703e8cf34716d",
+      "id": "core.FMEA_readiness.architecture_context",
+      "kind": "callable",
+      "source": "src/reliability/FMEA_readiness.py",
+      "surface": "core",
+      "symbol": "architecture_context"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "ac0889ea8e9539516158066dab4c22c0dbaf38e504b3e56b423400bc74da0588",
+      "id": "core.FMEA_readiness.architecture_findings",
+      "kind": "callable",
+      "source": "src/reliability/FMEA_readiness.py",
+      "surface": "core",
+      "symbol": "architecture_findings"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "3f00620ed7132bd232c2d12ff2da556742d0d37692f7dd70dcbb85f70638e1e9",
+      "id": "core.FMEA_readiness.effective_function",
+      "kind": "callable",
+      "source": "src/reliability/FMEA_readiness.py",
+      "surface": "core",
+      "symbol": "effective_function"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "fdf24fbdf4224156ea2b0d98917bf8744e0a32d9d26bac28e3d246d5d8f160d2",
+      "id": "core.FMEA_readiness.evaluate_fmea_readiness",
+      "kind": "callable",
+      "source": "src/reliability/FMEA_readiness.py",
+      "surface": "core",
+      "symbol": "evaluate_fmea_readiness"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "2d4586a8ca9f0e8af5c0ee4627e477ce0c33e2f17ed7b830eb34ff3a57f6fda6",
+      "id": "core.FMEA_readiness.occurrence_enabled",
+      "kind": "callable",
+      "source": "src/reliability/FMEA_readiness.py",
+      "surface": "core",
+      "symbol": "occurrence_enabled"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "d52af7a104b2de8a0787b162bae70a01b775ace8071fb86821b118d443cab571",
+      "id": "core.FMEA_readiness.require_fmea_readiness",
+      "kind": "callable",
+      "source": "src/reliability/FMEA_readiness.py",
+      "surface": "core",
+      "symbol": "require_fmea_readiness"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "2c86086d2d7a14f36507b1a186cc15f69b27ddcd1a1ec4826c53c3f3a4c89c54",
+      "id": "core.FMEA_readiness.resource_owners",
+      "kind": "callable",
+      "source": "src/reliability/FMEA_readiness.py",
+      "surface": "core",
+      "symbol": "resource_owners"
     },
     {
       "assessment": "classification_pending",
@@ -7100,7 +7180,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "35f22a2d203f9378647e53f7dff9c1437ca13b35f989debbc14ff3dd8ce7ae00",
+      "definition_sha256": "c136552258b5335e2373e0308e1daa8ef95d6a162834550ef1faa3a26a37b4e6",
       "id": "core.Reliability_program.analyze_reliability_program",
       "kind": "callable",
       "source": "src/reliability/Reliability_program.py",
@@ -7954,7 +8034,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "636b1a5c42fcf59e022eb73166e9a97f763c57b18a0699456fe17f47772547b0",
+      "definition_sha256": "9274706a6f861a22c7bfdc7259711f90b8341076af13953260d848135b777bbd",
       "id": "core.SystemDefinition.analyze_system_impact",
       "kind": "callable",
       "source": "src/reliability/SystemDefinition.py",
@@ -7964,7 +8044,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "d81c281a20aa4f161e5fd944696a2a09b3bbb7650ecea196ab550dd39cb1dd78",
+      "definition_sha256": "32e2024c0ea17afc18f3ede1b48313c01568e625319ed0edc5dce6690cc2f3e1",
       "id": "core.SystemDefinition.generate_system_starter",
       "kind": "callable",
       "source": "src/reliability/SystemDefinition.py",
@@ -7984,7 +8064,17 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "466a244a4fed5c89acafb1f099ea4ecc0a5865e88d0cccb5b0498094065375fb",
+      "definition_sha256": "6aa922d1bb0650d0a0f0405ddc33a233d9ea00debdaa031071c8ffe6fac911a0",
+      "id": "core.SystemDefinition.normalize_system_definition",
+      "kind": "callable",
+      "source": "src/reliability/SystemDefinition.py",
+      "surface": "core",
+      "symbol": "normalize_system_definition"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "3c7bf910c8fca989f648563a313c7350826ba0dc38b4231fed0e26a96d7f78d0",
       "id": "core.SystemDefinition.plan_definition_composition",
       "kind": "callable",
       "source": "src/reliability/SystemDefinition.py",
@@ -8004,7 +8094,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "89e19c49a96295d3c3d5a1936feea69e1a66823c415c982410355d8f89dfb297",
+      "definition_sha256": "84bc71e76f678731f38ca1f88d759e42bd2ab995489c1a861eb6a236e14a3f6e",
       "id": "core.SystemDefinition.project_system_definition",
       "kind": "callable",
       "source": "src/reliability/SystemDefinition.py",
@@ -8014,7 +8104,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "1e8e80ceef2cef87d1722f57c6416c4bd4d496267bfd610438b2372eace86986",
+      "definition_sha256": "c5fe46e6507dd759a435fbd03b15af2b95ec30861ce7709a24d83030f1ac5d3e",
       "id": "core.SystemDefinition.propagate_system_definition",
       "kind": "callable",
       "source": "src/reliability/SystemDefinition.py",
@@ -8024,7 +8114,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "1dd6feb236b365a924cb6527028f47b56ab7d9f7adda2a4fd03cb324b87c52b8",
+      "definition_sha256": "d371b38e63181a3e84e5df9321190ea45ef5193d939a707581840a1eb64b14c6",
       "id": "core.SystemDefinition.resolve_analysis_profile",
       "kind": "callable",
       "source": "src/reliability/SystemDefinition.py",
@@ -8034,17 +8124,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "1c08332f9d1d86835d5adb8b80f2558a1e44765618981f6314d327fa8b3bdc87",
-      "id": "core.SystemDefinition.upgrade_system_definition",
-      "kind": "callable",
-      "source": "src/reliability/SystemDefinition.py",
-      "surface": "core",
-      "symbol": "upgrade_system_definition"
-    },
-    {
-      "assessment": "classification_pending",
-      "assurance_records": [],
-      "definition_sha256": "75c70f8c519d9d75b1663af697a0f2d49452ac4168dadf1db99c7b1e8cb53afd",
+      "definition_sha256": "9b983bfe26d1871b296bd81bdc28818d4891466542964479f492b6e62c2275ad",
       "id": "core.SystemDefinition.validate_system_definition",
       "kind": "callable",
       "source": "src/reliability/SystemDefinition.py",
@@ -8702,8 +8782,8 @@
   "model_inventory_complete": false,
   "schema_version": 1,
   "summary": {
-    "core_entries": 628,
-    "entries": 799,
+    "core_entries": 636,
+    "entries": 807,
     "mapped_entries": 18,
     "router_operations": 171
   }

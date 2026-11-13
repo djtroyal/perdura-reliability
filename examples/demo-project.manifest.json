@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "authoringSources": {
+    "gui/frontend/package-lock.json": "11bb0965989a48fdc31d6c84d594b30ca648929fea1484bb6d2c33284fd71d9a",
+    "gui/frontend/scripts/adaptAircraftDemo.mjs": "353d094de896b29f529b7db0788f23a5f2b93062b9d6651f605fb8c0e17811f2",
+    "gui/frontend/scripts/materializeAircraftDemo.mjs": "1df9a5b84cf417f788c13335b35c0cd4662eab4b6fdd1eaa721f97d756fbb2c9",
+    "gui/frontend/src/api/client.ts": "e07ec6673a601e106a638672f52f1046b7f83c85a3414b5cd4d9eee42e2ce462",
+    "gui/frontend/src/api/reliabilityProgram.ts": "306fdb3e6443ae93debc479294ea427e4a53f581f2c420d1a00af9413436aafa",
+    "gui/frontend/src/api/serverCompatibility.ts": "8ea034a7010c2c9cfea72172c6222f866c75045e359b9192bbfeed6fc32592da",
+    "gui/frontend/src/api/systemDefinition.ts": "89625c5d3650ce695ffff46dd14aad957bb73ff7f982abedf4aec2bf080c127a",
+    "gui/frontend/src/components/FaultTree/libraryModel.ts": "dd9c37ef4bc2a06e320404e77e9b31911c9a5d0c58089ad8af55c067a47f4dff",
+    "gui/frontend/src/components/SystemDefinition/diagramProjection.ts": "c42d11eb3f54e3becdb8e08d948ca3e9ceaee8317ed4cbe2353e958a79a33e6c",
+    "gui/frontend/src/components/SystemDefinition/model.ts": "8d283d0c45714ffe5c05d0b4529aa5339870499069aa2da48325c77c9c5f24ed",
+    "gui/frontend/src/components/SystemDefinition/structureEditing.ts": "5a8d0450c96e6bb3e3dc2d35aca9eb3e314b7eb84db8ef7a74195b6286796558",
+    "gui/frontend/src/components/shared/adaptiveDiagramLayout.mjs": "c78d04fd3da2fd019130f9f77180b6b6e51f054fa3ccc4eaf5f71cae98a42390",
+    "gui/frontend/src/components/shared/datasetUnits.ts": "d7d8ef28120b1aa80e530c8b44b5cd66173c421e675f119b9183489bb3308b0d",
+    "gui/frontend/src/components/shared/hierarchicalDiagram.ts": "1dcd3d48d95c64f0bc0b3d73d3cc46d683e60a6538388b859637cecb0ae15d3d",
+    "gui/frontend/src/data/exampleDatasets/catalog.generated.json": "0d7a04b02d833ec31f45ab5d064cdcaa1a4ec019688fa5b775c73638fc349020",
+    "gui/frontend/src/store/fmeaDefaults.ts": "cffc28299e90ec5e4ba51d779ba067fc2c0cb65e010154797a074db8a2ed9a06",
+    "gui/frontend/src/store/fmeaDraftIntegrity.ts": "2590c6d5400c18d9442228727c46793459b47bce9d469167f4507b09b7749f1b",
+    "gui/frontend/src/store/functionResourceFlows.ts": "8facae02a0a457e27d6588b57a56f3f79d38b01369db80efcd58fbe8ae5041da",
+    "gui/frontend/src/store/interfaceFunctions.ts": "a2e80c7fafd7d0024e67922c4170e619743afe185d700c0c69ce561a40c94c31",
+    "gui/frontend/src/store/sharedFmeaModel.ts": "c19d109ae876a6fc0fe524488e19b02d17f6c1e1527d0400c267af37c9dd4279",
+    "gui/frontend/src/store/sharedSystemFingerprint.ts": "935557328ef2689c5595761318dbd1364539a10806a3355433e220da9666d9ee",
+    "gui/frontend/src/store/sharedSystemModel.ts": "95ac272aff7887bc29f13769394f087f566794cfa65c0cbbeb42f4415c854acf",
+    "gui/frontend/src/store/systemArchitecture.ts": "8dd30786529da76305be996316131cc57527f947c03a65dcb6271c2fea0b8295",
+    "gui/frontend/src/version.ts": "0fe3aad2f359059bac1447ebcd6c19d4d7eaab6a4302c9d9a3042b8663460f53",
+    "tools/build_aircraft_demo_model.py": "1141d7a6e1e8946e68b4ac1cb8b5d22d8dfdd5f5d5a48b208d6f1d6d67f8c060",
+    "tools/refresh_demo_project.py": "3884e887eb2f7ece19dd3c83c9da3b999e8f2111fb6c656f9d68f3838566cd68"
+  },
+  "artifacts": {
+    "gui/frontend/src/data/demoProject.json": "d34039a9602273c69a19a57a8a9f9d69e5f7d328ae8e39014c82a41a4998ec7d",
+    "examples/demo-project.json": "d34039a9602273c69a19a57a8a9f9d69e5f7d328ae8e39014c82a41a4998ec7d"
+  }
+}

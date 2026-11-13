@@ -1,0 +1,454 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script language="javascript" src="https://www.google.com/jsapi"></script>
+<meta name="google-site-verification" content="cBccqdfyynKcGEirmXQbX_ZO0KydBSfCJTvSPr15_PY" />
+<link rel="shortcut icon" href="static/rat.ico">
+<meta charset="utf-8" />
+<title>/sample_size</title>
+<meta name="description" content="How reliable is my product? This sample size calculator determines the samples required to demonstrate a certain level of reliability at a given confidence level." >
+<meta name="copyright" content="2010 - 2023">
+<meta name="author" content="Reliability Analytics">
+<meta name="ROBOTS" content="INDEX, FOLLOW">
+<meta name="rating" content="General">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link href="/static/rat.css" rel="stylesheet" type="text/css">
+
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-X7ZS5GNPJP"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-X7ZS5GNPJP');
+</script>
+
+
+</head><a href="https://reliabilityanalyticstoolkit.appspot.com/"><img border="0" src="/static/RAT.gif" alt="Reliability Analytics Corporation" title="The Reliability Analytics Toolkit" align="bottom"></a><img src="/static/appengine-noborder-120x30.gif"  alt="Powered by Google App Engine" /><br>
+<script async src="https://cse.google.com/cse.js?cx=ff1c928896e6473ca"></script>
+<div class="gcse-search"></div>
+<body>
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-6278805415990400"
+     crossorigin="anonymous"></script>
+
+        <h1 class="pagetitle">Sample Size Calculator - Binomial Reliability Demonstration Test</h1>
+        <p>
+This calculator is used to calculate the number of test samples required to demonstrate a required level of reliability at a given confidence level.
+It can be used to answer questions such as:<br><br>
+1. How many test samples are required to demonstrate 95% reliability at a 95% confidence level?<br>
+2. How much test time is needed to demonstrate 90% reliability at a 90% confidence level?<br>
+3. Given some amount of available test time, how many test samples are needed to demonstrate 80% reliability at an 80% confidence level?<br>
+<br>
+Option 1 above uses a non-parametric test approach, while options 2 and 3 assume a Weibull distribution to relate reliability to test time, which is termed a parametric binomial reliability demonstration test.
+<br><br>
+
+<b>Method 1 (non-parametric test).</b> This tool calculates test sample size required to demonstrate a reliability value at a given confidence level. The calculation is based on the following binomial equation:<br>
+<img border="0" src="/static/binomial_equation.png" alt="Binomial Equation" title="Binomial Equation" align="bottom"><br>
+where:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;C is the test confidence level<br>
+&nbsp;&nbsp;&nbsp;&nbsp;R is the reliability to be demonstrated<br>
+&nbsp;&nbsp;&nbsp;&nbsp;f is the number of allowable test failures<br>
+&nbsp;&nbsp;&nbsp;&nbsp;n is the test sample size<br>
+<br>
+Given inputs of C, R and f, this tool solves the above equation for sample size, n.
+<br><br>
+<b>Method 2 (parametric test).</b> Method 2 makes use of the Weibull distribution to define the reliability (R) in the the above binomial equation.  Given a reliability requirement R<sub>rqmt</sub> for a mission time T<sub>mission</sub>
+and a value for the Weibull shape parameter &#946, the Weibull reliability function
+is solved for characteristic life (&#951). This fully defines the Weibull reliability function and
+allows for the calculation of reliability at any other point on the curve below.  R<sub>test</sub> associated with some available test time T<sub>test</sub> is then calculated and used in the above
+binomial equation to calculate the number of test samples needed. Threfore, demonstrating R<sub>test</sub> at time T<sub>test</sub> is equivalent to demonstrating R<sub>rqmt</sub>, provided that
+the estimate of &#946 is accurate. Method 2A solves for required sample size.  Conversely, given a fixed number of samples, Method 2B solves for test time required.<br>.
+<br>
+<img border="0" src="/static/sample_size_parametric_concept.png" alt="Binomial Equation" title="Binomial Equation" align="bottom"><br>
+
+</p>
+        <h2>
+        Calculation Inputs:
+        </h2>
+        <form action=/sample_size_solution method="post">
+        <div>
+1. Select method:
+<select name="method">
+<option value="Method 1">Method 1</option>
+<option value="Method 2A">Method 2A (Calculate Samples)</option>
+<option value="Method 2B">Method 2B (Calculate Test Time)</option>
+</select>
+</div>
+
+<table id="tools">
+<tr>
+<th><center>Method 1<br>Non-Parametric Binomial Reliability Demonstration Test</center></th>
+<th><center>Method 2A<br>Parametric Binomial Reliability Demonstration Test<br>(Calculate Samples)</center></th>
+<th><center>Method 2B<br>Parametric Binomial Reliability Demonstration Test<br>(Calculate Test Time)</center></th>
+</tr>
+<tr>
+<td>
+
+<div>
+2. Number of allowable test failures (f):
+<select name="f1">
+<option value="0">0</option>
+<option value="1">1</option>
+<option value="2">2</option>
+<option value="3">3</option>
+<option value="4">4</option>
+<option value="5">5</option>
+<option value="6">6</option>
+<option value="7">7</option>
+<option value="8">8</option>
+<option value="9">9</option>
+<option value="10">10</option>
+<option value="11">11</option>
+<option value="12">12</option>
+<option value="13">13</option>
+<option value="14">14</option>
+<option value="15">15</option>
+</select>
+</div>
+
+<div>
+3. Reliability requirement (R):
+<input type="text"
+name="R1"
+value=0.80
+size="6"></input>
+</div>
+
+<div>
+4. Test confidence level (C):
+<select name="C1">
+<option value=".90">90%</option>
+<option value=".99">99%</option>
+<option value=".98">98%</option>
+<option value=".95">95%</option>
+<option value=".90">90%</option>
+<option value=".85">85%</option>
+<option value=".80">80%</option>
+<option value=".75">75%</option>
+<option value=".70">70%</option>
+<option value=".65">65%</option>
+<option value=".60">60%</option>
+<option value=".55">55%</option>
+<option value=".50">50%</option>
+</select>
+</div>
+
+<div>
+5. Test options table: <input type="checkbox" name="table1" value="True" /> <br />
+</div>
+
+<div>
+6. OC curve: <input type="checkbox" name="oc_curve" value="True" /> <br />
+</div>
+
+<br><br><br>
+
+</td>
+<td>
+
+<div>
+2. Number of allowable test failures (f):
+<select name="f2">
+<option value="0">0</option>
+<option value="1">1</option>
+<option value="2">2</option>
+<option value="3">3</option>
+<option value="4">4</option>
+<option value="5">5</option>
+<option value="6">6</option>
+<option value="7">7</option>
+<option value="8">8</option>
+<option value="9">9</option>
+<option value="10">10</option>
+<option value="11">11</option>
+<option value="12">12</option>
+<option value="13">13</option>
+<option value="14">14</option>
+<option value="15">15</option>
+</select>
+</div>
+
+
+<div>
+3a. Reliability requirement at T<sub>mission</sub> (R<sub>rqmt</sub>):
+<input type="text"
+name="R2"
+value=0.80
+size="6"></input>
+</div>
+
+<div>
+3b. Mission time (T<sub>mission</sub>, hours):
+<input type="text"
+name="mission_time"
+value=2000
+size="6"></input>
+</div>
+
+<div>
+3c. Weibull shape parameter (&#946):
+<select name="beta">
+<option value="2.0">2.0</option>
+<option value="0.5">0.5</option>
+<option value="0.6">0.6</option>
+<option value="0.7">0.7</option>
+<option value="0.8">0.8</option>
+<option value="0.9">0.9</option>
+<option value="1.0">1.0</option>
+<option value="1.1">1.1</option>
+<option value="1.2">1.2</option>
+<option value="1.3">1.3</option>
+<option value="1.4">1.4</option>
+<option value="1.5">1.5</option>
+<option value="1.6">1.6</option>
+<option value="1.7">1.7</option>
+<option value="1.8">1.8</option>
+<option value="1.9">1.9</option>
+<option value="2.0">2.0</option>
+<option value="2.1">2.1</option>
+<option value="2.2">2.2</option>
+<option value="2.3">2.3</option>
+<option value="2.4">2.4</option>
+<option value="2.5">2.5</option>
+<option value="2.6">2.6</option>
+<option value="2.7">2.7</option>
+<option value="2.8">2.8</option>
+<option value="2.9">2.9</option>
+<option value="3.0">3.0</option>
+<option value="3.1">3.1</option>
+<option value="3.2">3.2</option>
+<option value="3.3">3.3</option>
+<option value="3.4">3.4</option>
+<option value="3.5">3.5</option>
+<option value="3.6">3.6</option>
+<option value="3.7">3.7</option>
+<option value="3.8">3.8</option>
+<option value="3.9">3.9</option>
+<option value="4.0">4.0</option>
+<option value="4.1">4.1</option>
+<option value="4.2">4.2</option>
+<option value="4.3">4.3</option>
+<option value="4.4">4.4</option>
+<option value="4.5">4.5</option>
+<option value="4.6">4.6</option>
+<option value="4.7">4.7</option>
+<option value="4.8">4.8</option>
+<option value="4.9">4.9</option>
+<option value="5.0">5.0</option>
+</select>
+</div>
+
+
+<div>
+4. Test confidence level (C):
+<select name="C2">
+<option value=".90">90%</option>
+<option value=".99">99%</option>
+<option value=".98">98%</option>
+<option value=".95">95%</option>
+<option value=".90">90%</option>
+<option value=".85">85%</option>
+<option value=".80">80%</option>
+<option value=".75">75%</option>
+<option value=".70">70%</option>
+<option value=".65">65%</option>
+<option value=".60">60%</option>
+<option value=".55">55%</option>
+<option value=".50">50%</option>
+</select>
+</div>
+
+<div>
+5. Available test time (T<sub>test</sub>, hours):
+<input type="text"
+name="test_time"
+value=1500
+size="6"></input>
+</div>
+
+<div>
+6. Generate test options table: <input type="checkbox" name="table2" value="True" /> <br />
+</div>
+
+</td>
+
+<td>
+
+<div>
+2. Number of allowable test failures (f):
+<select name="f3">
+<option value="0">0</option>
+<option value="1">1</option>
+<option value="2">2</option>
+<option value="3">3</option>
+<option value="4">4</option>
+<option value="5">5</option>
+<option value="6">6</option>
+<option value="7">7</option>
+<option value="8">8</option>
+<option value="9">9</option>
+<option value="10">10</option>
+<option value="11">11</option>
+<option value="12">12</option>
+<option value="13">13</option>
+<option value="14">14</option>
+<option value="15">15</option>
+</select>
+</div>
+
+
+<div>
+3a. Reliability requirement at T<sub>mission</sub> (R<sub>rqmt</sub>):
+<input type="text"
+name="R3"
+value=0.80
+size="6"></input>
+</div>
+
+<div>
+3b. Mission time (T<sub>mission</sub>, hours):
+<input type="text"
+name="mission_time3"
+value=2000
+size="6"></input>
+</div>
+
+<div>
+3c. Weibull shape parameter (&#946):
+<select name="beta3">
+<option value="2.0">2.0</option>
+<option value="0.5">0.5</option>
+<option value="0.6">0.6</option>
+<option value="0.7">0.7</option>
+<option value="0.8">0.8</option>
+<option value="0.9">0.9</option>
+<option value="1.0">1.0</option>
+<option value="1.1">1.1</option>
+<option value="1.2">1.2</option>
+<option value="1.3">1.3</option>
+<option value="1.4">1.4</option>
+<option value="1.5">1.5</option>
+<option value="1.6">1.6</option>
+<option value="1.7">1.7</option>
+<option value="1.8">1.8</option>
+<option value="1.9">1.9</option>
+<option value="2.0">2.0</option>
+<option value="2.1">2.1</option>
+<option value="2.2">2.2</option>
+<option value="2.3">2.3</option>
+<option value="2.4">2.4</option>
+<option value="2.5">2.5</option>
+<option value="2.6">2.6</option>
+<option value="2.7">2.7</option>
+<option value="2.8">2.8</option>
+<option value="2.9">2.9</option>
+<option value="3.0">3.0</option>
+<option value="3.1">3.1</option>
+<option value="3.2">3.2</option>
+<option value="3.3">3.3</option>
+<option value="3.4">3.4</option>
+<option value="3.5">3.5</option>
+<option value="3.6">3.6</option>
+<option value="3.7">3.7</option>
+<option value="3.8">3.8</option>
+<option value="3.9">3.9</option>
+<option value="4.0">4.0</option>
+<option value="4.1">4.1</option>
+<option value="4.2">4.2</option>
+<option value="4.3">4.3</option>
+<option value="4.4">4.4</option>
+<option value="4.5">4.5</option>
+<option value="4.6">4.6</option>
+<option value="4.7">4.7</option>
+<option value="4.8">4.8</option>
+<option value="4.9">4.9</option>
+<option value="5.0">5.0</option>
+</select>
+</div>
+
+
+<div>
+4. Test confidence level (C):
+<select name="C3">
+<option value=".90">90%</option>
+<option value=".99">99%</option>
+<option value=".98">98%</option>
+<option value=".95">95%</option>
+<option value=".90">90%</option>
+<option value=".85">85%</option>
+<option value=".80">80%</option>
+<option value=".75">75%</option>
+<option value=".70">70%</option>
+<option value=".65">65%</option>
+<option value=".60">60%</option>
+<option value=".55">55%</option>
+<option value=".50">50%</option>
+</select>
+</div>
+
+<div>
+5. Sample size (n):
+<input type="text"
+name="n3"
+value=19
+size="6"></input>
+</div>
+
+<div>
+6. Generate test options table: <input type="checkbox" name="table3" value="True" /> <br />
+</div>
+
+</td>
+
+</tr>
+</table>
+
+<br><br><input type="submit"
+value="Calculate">
+</form>
+
+<br><br>
+<h2>Featured Reference:</h2>
+<div class="img"><a href="http://www.amazon.com/dp/0615324614/?tag=reliabilityan-20"><img src="/static/0615324614.jpg" alt="Sample Size Calculations: Practical Methods for Engineers and Scientists" /></a><br>
+<b><a href="http://www.amazon.com/dp/0615324614/?tag=reliabilityan-20">Sample Size Calculations: Practical Methods for Engineers and Scientists</a></b>
+
+<br><br>
+
+<br><p class="left">
+<a class="one" href="http://reliabilityanalyticstoolkit.appspot.com/" title="Toolkit Home">Toolkit Home</a><br><br>
+
+<b>Comments/Questions:</b><br> <img border="0" src="/static/feedback_email.gif" alt="Feedback" title="Feedback"><br>
+<a href="http://reliabilityanalytics.com/"><img border="0" src="/static/logo_for_blog.png" alt="Reliability Analytics Corporation" title="Reliability Analytics home page" align="bottom"></a><br>
+
+<a class="one" href="http://reliabilityanalytics.com/" title="Reliability Analytics home page">reliabilityanalytics.com</a><br>
+</p>
+<HR><h3 class="ref">References:</h3></u>
+<p><ol><li><a class="one" href="http://www.itl.nist.gov/div898/handbook/prc/section2/prc241.htm" >http://www.itl.nist.gov/div898/handbook/prc/section2/prc241.htm</a>.
+
+<li>MIL-HDBK-338, <a class="one" href="http://reliabilityanalytics.com/reliability_engineering_library/MIL-HDBK-338-V1_Electronic_Reliability_Design_Handbook_15_Oct_1984/MIL-HDBK-338-V1_Electronic_Reliability_Design_Handbook_15_Oct_1984_pp_538.htm" >Electronic Reliability Design Handbook</a>.
+
+<li><a class="one" href="http://en.wikipedia.org/wiki/Binomial_proportion_confidence_interval">http://en.wikipedia.org/wiki/Binomial_proportion_confidence_interval</a>
+
+<li><a class="one" href="http://en.wikipedia.org/wiki/Binomial_distribution">http://en.wikipedia.org/wiki/Binomial_distribution</a>
+
+<li><a class="one" href="http://reliabilityanalyticstoolkit.appspot.com/binomial_confidence">http://reliabilityanalyticstoolkit.appspot.com/binomial_confidence</a>
+
+<li>Mathews, Paul <a href="/static/books.htm#0615324614">Sample Size Calculations: Practical Methods for Engineers and Scientists.</a>
+
+<li>Ryan, Thomas P. <a href="/static/books.htm#1118437608">Sample Size Determination and Power.</a>
+
+<li>Collani, E. von; Drager, Klaus <a href="/static/books.htm#0817641297">Binomial Distribution Handbook for Scientists and Engineers.</a>
+
+<li><a class="one" href="http://reliabilityanalyticstoolkit.appspot.com/static/Calculating Test Sample Sizes with Microsoft Excel.xlsx">Calculating Test Sample Sizes with Microsoft Excel.xlsx</a>
+
+</ol></p>
+            <div id="copyright"><br>
+            <copyright>Copyright &#169 2010 - 2023 <a class="one" href="http://reliabilityanalytics.com">Reliability Analytics Corporation</a><br><br>
+            <a class="one" href="/static/privacypolicy.htm">Privacy Policy</a><br>
+            <br>
+            All content and materials on this site are provided "as is" Reliability Analytics makes no warranty, express or implied, including the warranties of merchantability and fitness for a
+            particular purpose; nor assumes any legal liability or responsibility for the accuracy, completeness, or usefulness of any information, apparatus, product, or process disclosed;
+            nor represents that its use would not infringe privately owned rights.</copyright></div><BR>
+            </body></html>

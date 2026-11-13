@@ -2,7 +2,7 @@
   "app": "Perdura",
   "subtitle": "Reliability Engineering and Statistics Suite",
   "website": "https://perdurareliability.com",
-  "schemaVersion": 6,
+  "schemaVersion": 11,
   "createdWith": {
     "version": "0.7.0",
     "commit": "dev",
@@ -221,7 +221,7 @@
                 "units": {
                   "stress": "MPa",
                   "crack_length": "m",
-                  "stress_intensity": "MPa√m",
+                  "stress_intensity": "MPa\u221am",
                   "crack_growth": "m/cycle; C units depend on the selected growth law and m"
                 },
                 "validity": {

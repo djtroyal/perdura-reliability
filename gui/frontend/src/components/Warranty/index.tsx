@@ -1,3 +1,4 @@
+import { distributionLabel } from '../shared/distributionLabels'
 import { useState, useRef, useEffect } from 'react'
 import Plot from '../shared/ExportablePlot'
 import { Play, Plus, Minus } from 'lucide-react'
@@ -215,8 +216,7 @@ export default function Warranty() {
       <div>
         <InfoLabel tip="Rows are shipment lots and columns are return periods. Each return count is retained as a weighted interval-censored observation over that period; it is not rounded or treated as an exact failure age.">Nevada Chart</InfoLabel>
         <p className="text-[10px] text-gray-500">
-          Enter shipment quantities and the upper-triangular returns matrix in the main
-          area on the right. Rows = ship periods, columns = return periods.
+          Enter shipment quantities and returns in the table. Rows are shipment periods; columns are return periods.
         </p>
         <p className="text-xs text-gray-600 mt-2">
           Record each unit’s first return only. Repeated repair claims require a recurrent-event model.
@@ -276,7 +276,7 @@ export default function Warranty() {
           className={inputCls}
         >
           {DISTRIBUTIONS.map(d => (
-            <option key={d} value={d}>{d.replace(/_/g, ' ')}</option>
+            <option key={d} value={d}>{distributionLabel(d)}</option>
           ))}
         </select>
       </div>
@@ -390,7 +390,7 @@ export default function Warranty() {
 
         {!hasResults && (
           <p className="text-sm text-gray-400">
-            Fill in the Nevada Chart, then click Analyze in the left panel.
+            Enter shipments and returns, then select Analyze.
           </p>
         )}
 
@@ -403,8 +403,7 @@ export default function Warranty() {
               <Card label="Right-censored weight" value={String(convertResult.n_censored)} />
             </div>
             <p className="text-[10px] text-blue-700 bg-blue-50 border border-blue-200 rounded p-2 mt-2">
-              Returns are modeled directly in their observed age intervals (a−1, a];
-              no exact-age pseudo-observations are created.
+              Returns are fitted as interval-censored observations over ages (a−1, a].
             </p>
           </section>
         )}
@@ -414,7 +413,7 @@ export default function Warranty() {
           <section>
             <h3 className="text-sm font-semibold text-gray-800 mb-3">Fit Results</h3>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <Card label="Distribution" value={forecastResult.distribution.replace(/_/g, ' ')} accent />
+              <Card label="Distribution" value={distributionLabel(forecastResult.distribution)} accent />
               <Card label="Observation model" value="Grouped interval-censored MLE" />
               {Object.entries(forecastResult.params)
                 // Base parameters only — bounds/SE render as a bracket on the label.

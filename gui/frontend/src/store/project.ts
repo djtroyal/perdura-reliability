@@ -46,6 +46,8 @@ import { invalidateFtaResults, semanticFtaFingerprint, normalizeFtaLibrary, type
 import type { PredictionPart } from '../api/client'
 import { normalizeSharedSystemModules, systemInputFingerprint } from './sharedSystemModel'
 import type { SystemDefinitionModel } from '../api/systemDefinition'
+import type { AIAGVDAFMEAAnalysis } from '../api/reliabilityProgram'
+import { fmeaEngineeringInputs } from './sharedFmeaModel'
 import { reconcileLinkedSources } from './linkedSourceInvalidation'
 import { ssiInputFingerprint, type StressStrengthInput } from '../components/LifeData/stressStrengthModel'
 import { resolveMcRun, type MonteCarloOwner } from '../components/LifeData/monteCarloModel'
@@ -181,10 +183,33 @@ const MODULE_SLICE_GROUPS: Record<string, string[]> = {
   sixSigma: ['sixSigma.capability', 'sixSigma.spc', 'msa', 'doe'],
 }
 
-export function moduleSlices(moduleKey: string): string[] {
+function hasSharedFmeaInputs(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false
+  const record = value as Record<string, unknown>
+  if (isFolioWrap(record)) return record.folios.some(folio => hasSharedFmeaInputs(folio.state))
+  const analyses = record.analyses ?? record.aiagAnalyses
+  if (!Array.isArray(analyses)) return false
+  return analyses.some(value => {
+    if (!value || typeof value !== 'object') return false
+    const analysis = value as AIAGVDAFMEAAnalysis
+    return Boolean(analysis.system_binding) || ['structure_nodes', 'functions', 'failure_chains', 'interfaces']
+      .some(field => {
+        const records = (analysis as unknown as Record<string, unknown>)[field]
+        return Array.isArray(records) && records.some(value => {
+        if (!value || typeof value !== 'object') return false
+        const row = value as { system_definition_ref?: unknown; source_ref?: { module?: string } }
+        return Boolean(row.system_definition_ref) || row.source_ref?.module === 'system_definition'
+        })
+      })
+  })
+}
+
+export function moduleSlices(moduleKey: string, modules: Record<string, unknown> = state.modules): string[] {
   if (moduleKey === 'faultTree') return ['faultTree', 'faultTreeCatalog']
   if (moduleKey === 'prediction') return ['prediction', 'systemDefinition']
-  return MODULE_SLICE_GROUPS[moduleKey] ?? [moduleKey]
+  const slices = MODULE_SLICE_GROUPS[moduleKey] ?? [moduleKey]
+  return (moduleKey === 'fmea' || moduleKey === 'reliabilityProgram') && hasSharedFmeaInputs(modules[moduleKey])
+    ? [...slices, 'systemDefinition'] : slices
 }
 
 const PLOT_MARKUP_SLICE = '__plotMarkup'
@@ -359,20 +384,14 @@ export function clearPlotMarkupScope(moduleKey: string, analysisId?: string) {
 
 // Browser persistence is scoped by the portable project schema. This prevents
 // an older tab at the same remote origin from overwriting a newer tab's state
-// with a persistence shape it cannot understand. The legacy keys are copied
-// once, never deleted, so an already-open older tab remains isolated.
+// with a persistence shape it cannot understand. Older namespaces remain untouched;
+// this alpha contract intentionally does not migrate or open older models.
 export const PROJECT_STORAGE_NAMESPACE = `perdura:project-schema:${PROJECT_SCHEMA_VERSION}`
 const STORAGE_KEY = `${PROJECT_STORAGE_NAMESPACE}:session`
-const PREVIOUS_STORAGE_KEY = 'perdura:project-schema:7:session'
-const OLDER_STORAGE_KEY = 'perdura:project-schema:6:session'
-const LEGACY_STORAGE_KEY = 'reliability-suite-session'
 // A mirror of the last successfully-written session, so a corrupt/unreadable
 // primary key (external tampering, another tab, a browser hiccup) can be
 // recovered instead of silently falling back to an empty project.
 const SESSION_BACKUP_KEY = `${PROJECT_STORAGE_NAMESPACE}:session-backup`
-const PREVIOUS_SESSION_BACKUP_KEY = 'perdura:project-schema:7:session-backup'
-const OLDER_SESSION_BACKUP_KEY = 'perdura:project-schema:6:session-backup'
-const LEGACY_SESSION_BACKUP_KEY = 'reliability-suite-session-backup'
 
 // A one-shot notice, set during startup load (before the toast viewport exists)
 // and shown by App once it mounts.
@@ -420,15 +439,6 @@ function parseSession(raw: string | null): ProjectState | null {
 function loadPersisted(): ProjectState | null {
   let raw: string | null = null
   try { raw = localStorage.getItem(STORAGE_KEY) } catch { return null }
-  let migratedLegacy = false
-  if (!raw) {
-    try {
-      raw = localStorage.getItem(PREVIOUS_STORAGE_KEY)
-        ?? localStorage.getItem(OLDER_STORAGE_KEY)
-        ?? localStorage.getItem(LEGACY_STORAGE_KEY)
-      migratedLegacy = Boolean(raw)
-    } catch { return null }
-  }
   if (!raw) return null   // fresh install — nothing saved yet
   const primary = parseSession(raw)
   if (primary) {
@@ -437,13 +447,6 @@ function loadPersisted(): ProjectState | null {
   // Primary present but unreadable → recover from the backup mirror.
   let backupRaw: string | null = null
   try { backupRaw = localStorage.getItem(SESSION_BACKUP_KEY) } catch { backupRaw = null }
-  if (!backupRaw && migratedLegacy) {
-    try {
-      backupRaw = localStorage.getItem(PREVIOUS_SESSION_BACKUP_KEY)
-        ?? localStorage.getItem(OLDER_SESSION_BACKUP_KEY)
-        ?? localStorage.getItem(LEGACY_SESSION_BACKUP_KEY)
-    } catch { backupRaw = null }
-  }
   const backup = parseSession(backupRaw)
   if (backup) {
     startupNotice = 'Your saved session was unreadable — recovered from a backup copy.'
@@ -495,35 +498,11 @@ export function hydrateProjectStorage(): Promise<void> {
     // A rejected session must remain exportable from the recovery screen.
     // Validate before migration can write anything or normalize away an entry.
     if (restored) {
-      try { validateFtaIdentities(restored.modules.faultTree) }
-      catch (error) {
-        if (storeVersion === initialVersion) state = { ...restored,
-          identity: cleanIdentity(restored.identity), analysisRuns: cleanAnalysisRuns(restored.analysisRuns),
-          exportLedger: cleanExportLedger(restored.exportLedger), revision: state.revision,
-        }
-        throw error
+      if (storeVersion === initialVersion) state = { ...restored,
+        identity: cleanIdentity(restored.identity), analysisRuns: cleanAnalysisRuns(restored.analysisRuns),
+        exportLedger: cleanExportLedger(restored.exportLedger), revision: state.revision,
       }
-    }
-    if (!await persistence.migrationComplete()) {
-      const legacy = readLegacyProjectsMap()
-      for (const [name, saved] of Object.entries(legacy)) {
-        const id = `named:${name}`
-        if (!await persistence.read(id)) await persistence.save(id, {
-          projectName: name, identity: cleanIdentity(saved.identity), units: saved.units ?? 'hours',
-          analysisRuns: cleanAnalysisRuns(saved.analysisRuns), exportLedger: cleanExportLedger(saved.exportLedger),
-          lastSavedAt: saved.savedAt, modules: normalizeProjectModules(sanitizeMarkupModule(saved.modules ?? {})),
-        })
-        persistence.forget(id)
-      }
-      if (!restored) {
-        const legacySession = loadPersisted()
-        if (legacySession) {
-          restored = projectSnapshot({ ...legacySession, modules: normalizeProjectModules(legacySession.modules) })
-          await persistence.save('session', restored)
-          startupNotice = 'Migrated this browser project to IndexedDB. Previous saved data has been retained.'
-        }
-      }
-      await persistence.markMigrationComplete()
+      validateFtaIdentities(restored.modules.faultTree)
     }
     if (storeVersion !== initialVersion) throw new Error('Project changed while browser storage was opening. Reload before editing.')
     if (restored) state = {
@@ -540,6 +519,53 @@ export function hydrateProjectStorage(): Promise<void> {
   })().catch(error => {
     hydration = undefined
     persistenceError = error instanceof Error ? error.message : 'Cannot open browser project storage.'
+    throw error
+  })
+  return hydration
+}
+
+/** Explicit escape from startup recovery; commit before mounting any editors. */
+export function recoverProjectStorage(payload?: ExportPayload): Promise<void> {
+  if (storageReady || hydration) return Promise.reject(new Error('Project storage is already opening. Retry after it finishes.'))
+  hydration = (async () => {
+    const imported = payload === undefined ? undefined : prepareImportPayload(payload)
+    const next: ProjectState = imported?.next ?? {
+      projectName: 'Untitled Project', identity: newProjectIdentity(), units: 'hours',
+      analysisRuns: [], exportLedger: [], lastSavedAt: null,
+      revision: state.revision + 1, modules: normalizeProjectModules({}),
+    }
+    const initialVersion = storeVersion
+    const legacySession = loadPersisted()
+    const legacyProjects = Object.entries(readLegacyProjectsMap()).flatMap(([name, saved]) => {
+      // An unreadable named entry must not trap the recovery screen. Its raw
+      // localStorage bytes remain untouched, even when it cannot be indexed.
+      if (!saved || typeof saved !== 'object' || Array.isArray(saved)
+          || (saved.modules !== undefined && (!saved.modules || typeof saved.modules !== 'object' || Array.isArray(saved.modules)))) return []
+      return [{
+        projectName: name, identity: cleanIdentity(saved.identity), units: saved.units ?? 'hours',
+        analysisRuns: cleanAnalysisRuns(saved.analysisRuns), exportLedger: cleanExportLedger(saved.exportLedger),
+        lastSavedAt: saved.savedAt, modules: saved.modules ?? {},
+      }]
+    })
+    // Preparation above is read-only. A rejected file or failed transaction keeps
+    // the recovery export and the original persisted session unchanged.
+    await persistence.replaceStartupSession(projectSnapshot(next), {
+      legacySession: legacySession ? projectSnapshot(legacySession) : null, legacyProjects,
+    })
+    await refreshSavedProjects()
+    if (storeVersion !== initialVersion) throw new Error('Project changed during recovery. Reload before editing.')
+    state = next
+    storageReady = true
+    persistenceError = null
+    startupNotice = 'Opened your project. Existing browser projects were retained.'
+    if (imported?.recalculationRequired.length) startupNotice += ` Recalculate ${imported.recalculationRequired.join(', ')} because their calculation engine revision differs.`
+    clearRuntimePlotAssets()
+    pendingMarkupClearScopes.clear()
+    clearHistory()
+    clearDirty()
+    notify()
+  })().catch(error => {
+    hydration = undefined
     throw error
   })
   return hydration
@@ -1883,7 +1909,38 @@ export function analysisInputSnapshot(value: unknown, moduleKey = '', context?: 
       })),
     }
   }
-  if (moduleKey === 'systemDefinition' || moduleKey === 'reliabilityProgram') {
+  if (moduleKey === 'fmea' || moduleKey === 'reliabilityProgram') {
+    const engineering = omit(record, new Set([
+      'view', 'workspaceView', 'step', 'structureView', 'functionVisualView', 'pDiagramId', 'activeId',
+      'fmeaMode', 'fmeaStep', 'fmeaStructureView', 'fmeaFunctionVisualView', 'fmeaPDiagramId',
+      'activeFmeaId', 'fmeaWorkspaceView', 'sourceSystemFingerprint', 'canonicalDependencies',
+    ]))
+    for (const field of ['analyses', 'aiagAnalyses']) if (Array.isArray(engineering[field]))
+      engineering[field] = fmeaEngineeringInputs(engineering[field] as AIAGVDAFMEAAnalysis[])
+    if (engineering.governance && typeof engineering.governance === 'object' && !Array.isArray(engineering.governance)) {
+      const administrative = new Set(['revisions', 'releases', 'lifecycleStatus', 'lifecycleHistory'])
+      const emptyDefaults = new Set(['evidenceLinks', 'fmedaSources', 'fmedaModes', 'processSteps',
+        'verificationPlan', 'specialCharacteristics', 'reviewFindings', 'assignments', 'changeRequests',
+        'libraryItems', 'libraryInstances', 'savedViews'])
+      // First revision capture materializes defaults. Missing and explicitly
+      // empty governance must have the same calculation fingerprint.
+      const governance = Object.fromEntries(Object.entries(engineering.governance as Record<string, unknown>).flatMap(([id, value]) => {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return [[id, value]]
+        const semantic = Object.fromEntries(Object.entries(omit(value as Record<string, unknown>, administrative))
+          .filter(([key, child]) => !(key === 'methodProfileId' && child === 'aiag_vda_2019_public')
+            && !(emptyDefaults.has(key) && Array.isArray(child) && child.length === 0)))
+        return Object.keys(semantic).length ? [[id, semantic]] : []
+      }))
+      if (Object.keys(governance).length) engineering.governance = governance
+      else delete engineering.governance
+    }
+    // Embedded system drawings remain presentation, not engineering inputs. Its drawings remain
+    // presentation; definitions, hierarchy and interfaces are still inputs.
+    if (engineering.model && typeof engineering.model === 'object' && !Array.isArray(engineering.model))
+      engineering.model = omit(engineering.model as Record<string, unknown>, new Set(['diagrams']))
+    return engineering
+  }
+  if (moduleKey === 'systemDefinition') {
     const project = (item: unknown): unknown => {
       if (Array.isArray(item)) return item.map(project)
       if (!item || typeof item !== 'object') return item
@@ -2088,7 +2145,8 @@ export interface ExportPayload {
 
 export function buildExport(moduleKeys?: string[], includeResults = false): ExportPayload {
   flushProjectEditors()
-  const keys = [...new Set((moduleKeys ?? Object.keys(state.modules)).flatMap(key => key === 'prediction' ? ['prediction', 'systemDefinition'] : [key]))]
+  const keys = [...new Set((moduleKeys ?? Object.keys(state.modules)).flatMap(key =>
+    ['prediction', 'fmea', 'reliabilityProgram'].includes(key) ? moduleSlices(key) : [key]))]
   const modules: Record<string, unknown> = {}
   for (const k of keys) {
     if (state.modules[k] === undefined) continue
@@ -2166,17 +2224,17 @@ export async function downloadExport(moduleKeys?: string[], filename?: string, i
  * applied; otherwise every module present in the file is applied and (for
  * full-project files) the project name is adopted.
  */
-export function importPayload(payload: ExportPayload, onlyModule?: string):
-    { applied: string[]; recalculationRequired: string[] } {
+function prepareImportPayload(payload: ExportPayload, onlyModule?: string):
+    { next: ProjectState; applied: string[]; recalculationRequired: string[] } {
   if (!payload || payload.app !== PROJECT_FILE_TYPE || !payload.modules) {
     throw new Error('Not a valid Perdura project export file.')
   }
-  if (![6, 7, PROJECT_SCHEMA_VERSION].includes(payload.schemaVersion)) {
+  if (payload.schemaVersion !== PROJECT_SCHEMA_VERSION) {
     const found = Number.isInteger(payload.schemaVersion)
       ? String(payload.schemaVersion) : 'missing'
     throw new Error(
-      `Unsupported project schema ${found}. This Perdura build accepts schemas 6, 7 `
-      + `or ${PROJECT_SCHEMA_VERSION}; the file was not imported.`,
+      `Unsupported project schema ${found}. This alpha build requires schema ${PROJECT_SCHEMA_VERSION}; `
+      + `older projects are not migrated. Start a blank project or open a current-format file.`,
     )
   }
   if (payload.subtitle !== APP_SUBTITLE || payload.website !== APP_WEBSITE
@@ -2188,7 +2246,7 @@ export function importPayload(payload: ExportPayload, onlyModule?: string):
   }
   const keys = onlyModule
     ? [
-        ...moduleSlices(onlyModule).filter(k => payload.modules[k] !== undefined),
+        ...moduleSlices(onlyModule, payload.modules).filter(k => payload.modules[k] !== undefined),
         ...(payload.modules[PLOT_MARKUP_SLICE] ? [PLOT_MARKUP_SLICE] : []),
       ]
     : Object.keys(payload.modules)
@@ -2197,6 +2255,10 @@ export function importPayload(payload: ExportPayload, onlyModule?: string):
   // as an incidental consequence of a module-scoped import.
   if (keys.includes('prediction') && payload.modules.systemDefinition === undefined)
     throw new Error('Prediction import requires its canonical System Definition companion.')
+  for (const key of ['fmea', 'reliabilityProgram']) {
+    if (keys.includes(key) && hasSharedFmeaInputs(payload.modules[key]) && payload.modules.systemDefinition === undefined)
+      throw new Error(`${MODULE_LABELS[key]} import requires its canonical System Definition companion.`)
+  }
   if (keys.includes('systemDefinition')) {
     const incoming = normalizeSharedSystemModules({ systemDefinition: payload.modules.systemDefinition,
       ...(keys.includes('prediction') ? { prediction: payload.modules.prediction } : {}) })
@@ -2206,7 +2268,7 @@ export function importPayload(payload: ExportPayload, onlyModule?: string):
       const blank = before.model.instances.length === 1 && Object.keys(state.modules)
         .every(key => key === 'systemDefinition' || key === PLOT_MARKUP_SLICE)
       if (!blank && systemInputFingerprint(before.model) !== systemInputFingerprint(after.model))
-        throw new Error('The imported scenario belongs to a different shared system. Open the whole project or import into a new blank project; the current system was not changed.')
+        throw new Error('The imported analysis belongs to a different shared system. Open the whole project or import into a new blank project; the current system was not changed.')
     }
   }
   if (keys.includes('faultTree')) validateFtaIdentities(payload.modules.faultTree)
@@ -2227,14 +2289,8 @@ export function importPayload(payload: ExportPayload, onlyModule?: string):
       Object.entries(plotMarkupMap()).filter(([key]) =>
         key.split(':', 1)[0] !== selectedMarkupOwner),
     )
-    for (const token of pendingMarkupClearScopes) {
-      if (token.startsWith(`${selectedMarkupOwner}:`)) {
-        pendingMarkupClearScopes.delete(token)
-      }
-    }
   } else {
     delete modules[PLOT_MARKUP_SLICE]
-    pendingMarkupClearScopes.clear()
   }
   for (const k of keys) {
     let incoming = payload.modules[k]
@@ -2289,8 +2345,7 @@ export function importPayload(payload: ExportPayload, onlyModule?: string):
     }
     modules[k] = incoming
   }
-  clearRuntimePlotAssets()
-  state = {
+  const next: ProjectState = {
     projectName: !onlyModule && payload.project ? payload.project : state.projectName,
     identity: !onlyModule ? cleanIdentity(payload.identity) : state.identity,
     analysisRuns: !onlyModule ? cleanAnalysisRuns(payload.analysisRuns) : state.analysisRuns,
@@ -2300,6 +2355,20 @@ export function importPayload(payload: ExportPayload, onlyModule?: string):
     revision: state.revision + 1,
     modules: normalizeProjectModules(modules),
   }
+  return { next, applied: keys, recalculationRequired }
+}
+
+export function importPayload(payload: ExportPayload, onlyModule?: string):
+    { applied: string[]; recalculationRequired: string[] } {
+  const { next, applied, recalculationRequired } = prepareImportPayload(payload, onlyModule)
+  clearRuntimePlotAssets()
+  if (onlyModule) {
+    const owner = cleanPlotKeyPart(plotOwnerForSlice(onlyModule))
+    for (const token of pendingMarkupClearScopes) {
+      if (token.startsWith(`${owner}:`)) pendingMarkupClearScopes.delete(token)
+    }
+  } else pendingMarkupClearScopes.clear()
+  state = next
   emit()
   if (recalculationRequired.length) {
     toast.info(
@@ -2310,7 +2379,7 @@ export function importPayload(payload: ExportPayload, onlyModule?: string):
   // A full-project import matches the source file, so treat it as a clean
   // baseline; a module-scoped import edits the current project, so keep dirty.
   if (!onlyModule) { clearHistory(); clearDirty() }
-  return { applied: keys, recalculationRequired }
+  return { applied, recalculationRequired }
 }
 
 export function newProject(name = 'Untitled Project') {
@@ -2345,14 +2414,6 @@ export function clearAllModules() {
 const PROJECTS_KEY = `${PROJECT_STORAGE_NAMESPACE}:projects`
 const PROJECTS_BACKUP_KEY = `${PROJECT_STORAGE_NAMESPACE}:projects-backup`
 const RECENT_PROJECTS_KEY = `${PROJECT_STORAGE_NAMESPACE}:recent-projects`
-const PREVIOUS_PROJECTS_KEY = 'perdura:project-schema:7:projects'
-const OLDER_PROJECTS_KEY = 'perdura:project-schema:6:projects'
-const PREVIOUS_PROJECTS_BACKUP_KEY = 'perdura:project-schema:7:projects-backup'
-const OLDER_PROJECTS_BACKUP_KEY = 'perdura:project-schema:6:projects-backup'
-const PREVIOUS_RECENT_PROJECTS_KEY = 'perdura:project-schema:7:recent-projects'
-const LEGACY_PROJECTS_KEY = 'reliability-suite-projects'
-const LEGACY_PROJECTS_BACKUP_KEY = 'reliability-suite-projects-backup'
-const LEGACY_RECENT_PROJECTS_KEY = 'reliability-suite-recent-projects'
 const MAX_RECENT_PROJECTS = 5
 
 interface SavedProject {
@@ -2403,15 +2464,6 @@ function parseProjects(raw: string | null): Record<string, SavedProject> | null 
 function readLegacyProjectsMap(): Record<string, SavedProject> {
   let raw: string | null = null
   try { raw = localStorage.getItem(PROJECTS_KEY) } catch { return {} }
-  let migratedLegacy = false
-  if (!raw) {
-    try {
-      raw = localStorage.getItem(PREVIOUS_PROJECTS_KEY)
-        ?? localStorage.getItem(OLDER_PROJECTS_KEY)
-        ?? localStorage.getItem(LEGACY_PROJECTS_KEY)
-      migratedLegacy = Boolean(raw)
-    } catch { return {} }
-  }
   const primary = parseProjects(raw)
   if (primary) {
     return primary
@@ -2421,12 +2473,6 @@ function readLegacyProjectsMap(): Record<string, SavedProject> {
     // rather than silently reporting zero saved projects.
     let backupRaw: string | null = null
     try { backupRaw = localStorage.getItem(PROJECTS_BACKUP_KEY) } catch { backupRaw = null }
-    if (!backupRaw && migratedLegacy) {
-      try {
-        backupRaw = localStorage.getItem(PREVIOUS_PROJECTS_BACKUP_KEY)
-          ?? localStorage.getItem(LEGACY_PROJECTS_BACKUP_KEY)
-      } catch { backupRaw = null }
-    }
     const backup = parseProjects(backupRaw)
     if (!projectsRecoveryNotified) {
       projectsRecoveryNotified = true
@@ -2452,15 +2498,10 @@ export function listSavedProjects(): SavedProjectListItem[] {
 function readRecentProjects(): RecentProjectRecord[] {
   try {
     const current = localStorage.getItem(RECENT_PROJECTS_KEY)
-    const legacy = current == null
-      ? localStorage.getItem(PREVIOUS_RECENT_PROJECTS_KEY)
-        ?? localStorage.getItem(LEGACY_RECENT_PROJECTS_KEY)
-      : null
-    const parsed = JSON.parse(current ?? legacy ?? '[]')
+    const parsed = JSON.parse(current ?? '[]')
     if (!Array.isArray(parsed)) return []
     const records = parsed.filter(item => item && typeof item === 'object'
       && typeof item.name === 'string' && typeof item.openedAt === 'string')
-    if (current == null && legacy != null) writeRecentProjects(records)
     return records
   } catch {
     return []

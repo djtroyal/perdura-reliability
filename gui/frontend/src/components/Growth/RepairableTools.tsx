@@ -78,8 +78,7 @@ function Rocof({ state, setState }: { state: RocofState; setState: SetRocofState
     <div className="flex flex-1 overflow-hidden">
       <div className="w-80 shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-3">
         <p className="text-xs text-gray-500 leading-snug">
-          Tests whether failure inter-arrival times show a statistically significant trend
-          (Laplace test). When a trend exists, a Power-Law NHPP is fitted.
+          Laplace trend test, with a power-law NHPP fit when a trend is detected.
         </p>
         <div>
           <InfoLabel tip="Inter-arrival times are the gaps between successive failures. Cumulative are the system ages at each failure.">Input type</InfoLabel>
@@ -235,10 +234,7 @@ function MCF({ state, setState, folioId }: {
     <div className="flex flex-1 overflow-hidden">
       <div className="w-80 shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-3">
         <p className="text-xs text-gray-500 leading-snug">
-          Estimates the average cumulative number of repairs per system over time. A
-          concave-down (levelling) shape descriptively suggests improvement; straight suggests
-          a constant recurrence rate; concave-up suggests worsening. Use the optional power-law
-          β profile interval for model-based trend inference.
+          Mean cumulative repairs per system over time.
         </p>
         <div>
           <InfoLabel tip="One system per line in explicit 'event times | observation end' form. An event may equal the observation end and will still be counted.">Repair data (events | end)</InfoLabel>

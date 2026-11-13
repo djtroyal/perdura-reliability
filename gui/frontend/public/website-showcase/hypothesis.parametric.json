@@ -2,7 +2,7 @@
   "app": "Perdura",
   "subtitle": "Reliability Engineering and Statistics Suite",
   "website": "https://perdurareliability.com",
-  "schemaVersion": 6,
+  "schemaVersion": 11,
   "createdWith": {
     "version": "0.7.0",
     "commit": "dev",
@@ -134,7 +134,7 @@
         "ci_upper": 11.103342939999317,
         "ci_level": 0.95,
         "ci_on": "mean",
-        "interpretation": "Fail to reject H₀: no significant result (one-sample t-test)."
+        "interpretation": "Fail to reject H\u2080: no significant result (one-sample t-test)."
       },
       "error": null
     }

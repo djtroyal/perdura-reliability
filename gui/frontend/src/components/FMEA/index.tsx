@@ -1,3 +1,4 @@
+import DropdownDetails from '../shared/DropdownDetails'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Archive,
@@ -26,6 +27,7 @@ import {
   getFmeaMethodProfiles,
   getFmeaSuggestions,
   instantiateFmeaLibraryItem,
+  inspectFmeaReadiness,
   prepareFmeaLibraryItem,
   transitionFmeaLifecycle,
   verifyFmeaRelease,
@@ -51,26 +53,32 @@ import {
   type FMEASavedView,
   type FMEASuggestion,
   type FMEAStudy,
+  type FMEAReadiness,
   type FMEAFailureFlowRegistry,
   type FMEAVerificationPlanRow,
   type RequirementInput,
 } from '../../api/fmea'
 import { getFmeaRatingProfiles } from '../../api/reliabilityProgram'
+import type { SystemDefinitionModel } from '../../api/systemDefinition'
+import { assertFmeaEditAllowed, evaluateFmeaReadiness, useFmeaReadiness } from '../../store/fmeaReadiness'
 import {
-  beginFolioRequest,
-  useFolioState,
   useModuleFolios,
   useModuleState,
-  writeFolioStatesWithCompanion,
+  getProjectState,
+  writeModuleSlices,
 } from '../../store/project'
-import { currentProjectSystem, useSharedSystemDefinition } from '../../store/sharedSystem'
-import { brokenSystemReferences, materializePrediction, systemInputFingerprint, type PredictionScenario } from '../../store/sharedSystemModel'
+import { currentProjectSystem, projectSystemUpdates, useSharedSystemDefinition } from '../../store/sharedSystem'
+import { useSharedFmeaState } from '../../store/useSharedFmeaState'
+import { collectFmeaProtectedEntityIds, fmeaEngineeringFingerprint, fmeaSemanticFingerprint, inspectFmeaBinding, materializeFmeaAnalysis, splitFmeaUpdate } from '../../store/sharedFmeaModel'
+import { brokenSystemReferences, materializePrediction, validateProjectSystem, type PredictionScenario } from '../../store/sharedSystemModel'
 import { useBookmarkNavigationTarget } from '../../store/bookmarks'
+import { setUiPreference } from '../../store/uiPreferences'
 import { APP_COMMIT, APP_VERSION } from '../../version'
 import { useHelpTopic } from '../help/context'
 import FolioBar from '../shared/FolioBar'
 import { toast } from '../shared/toast'
 import AiagVdaWorkspace from '../ReliabilityProgram/AiagVdaWorkspace'
+import type { FunctionTraceNavigation } from '../shared/FunctionInputSuppliers'
 import { normalizeFmeaAnalysis } from '../ReliabilityProgram/fmeaModel'
 import { EMPTY_FMEA_VOCABULARY_PROFILE } from '../ReliabilityProgram/fmeaVocabulary'
 import type {
@@ -117,6 +125,7 @@ interface StudyGovernance {
 }
 
 interface FMEAState {
+  sourceSystemFingerprint?: string
   canonicalDependencies?: { status: string; message: string; missingInstanceIds?: string[] }
   view: TopView
   workspaceView: WorkspaceView
@@ -179,10 +188,12 @@ function emptyGovernance(): StudyGovernance {
 
 function errorText(error: unknown): string {
   const detail = (error as {
-    response?: { data?: { detail?: string|{ msg?: string }[] } }
+    response?: { data?: { detail?: string|{ msg?: string }[]|FMEAReadiness } }
   })?.response?.data?.detail
   if (typeof detail === 'string') return detail
   if (Array.isArray(detail)) return detail.map(item => item.msg ?? 'Invalid input').join('; ')
+  if (detail && 'findings' in detail) return detail.findings.filter(item => item.severity === 'error')
+    .map(item => `Step ${item.step}${item.record_id ? ` · ${item.record_id}` : ''}: ${item.message}`).slice(0, 8).join(' ')
   return error instanceof Error ? error.message : 'The request failed.'
 }
 
@@ -216,7 +227,7 @@ function buildStudy(
   failureFlow: ReturnType<typeof failureFlowSnapshot>,
 ): FMEAStudy {
   return {
-    schema_version: 2,
+    schema_version: 4,
     id: analysis.id,
     lifecycle_status: governance.lifecycleStatus,
     method_profile_id: governance.methodProfileId,
@@ -242,20 +253,28 @@ function buildStudy(
 
 export default function FMEA({
   onNavigatePrediction,
+  onNavigateSystemFunction,
+  onNavigateSystemInterface,
 }: {
+  onNavigateSystemFunction?: FunctionTraceNavigation['onNavigateFunction']
+  onNavigateSystemInterface?: FunctionTraceNavigation['onNavigateInterface']
   onNavigatePrediction?: (target: {
     analysisId: string
     entityId: string
     pieceKey?: string
   }) => void
 }) {
-  const [state, setState, folios] = useFolioState<FMEAState>('fmea', INITIAL_STATE)
+  const [state, setState, folios, startRequest] = useSharedFmeaState<FMEAState>('fmea', INITIAL_STATE, 'analyses')
   const fmeaFolios = useModuleFolios<FMEAState>('fmea')
   const [failureFlowRegistry] = useModuleState<FMEAFailureFlowRegistry>(
     'fmeaFailureFlow', EMPTY_FAILURE_FLOW_REGISTRY)
   const predictionFolios = useModuleFolios<PredictionScenario>('prediction')
   const [sharedSystem] = useSharedSystemDefinition()
-  const brokenReferences = useMemo(() => brokenSystemReferences(state.analyses, sharedSystem.model), [state.analyses, sharedSystem.model])
+  const brokenReferences = useMemo(() => [...new Set([
+    ...brokenSystemReferences(state.analyses, sharedSystem.model),
+    ...state.analyses.flatMap(analysis => inspectFmeaBinding(sharedSystem.model, analysis)
+      .filter(issue => issue.code !== 'unbound_structure').map(issue => issue.message)),
+  ])], [state.analyses, sharedSystem.model])
   const programFolios = useModuleFolios<{
     rows?: { requirements?: Record<string, unknown>[]; hazards?: Record<string, unknown>[]; fracas?: Record<string, unknown>[] }
   }>('reliabilityProgram')
@@ -276,6 +295,7 @@ export default function FMEA({
     ? { ...emptyGovernance(), ...(state.governance?.[active.id] ?? {}) }
     : emptyGovernance()
   const stale = folios.folios.find(item => item.id === folios.activeId)?.dirty || !!state.canonicalDependencies
+    || Boolean(state.sourceSystemFingerprint && state.sourceSystemFingerprint !== fmeaSemanticFingerprint(sharedSystem.model, analyses))
   const activeResult = stale ? undefined : state.result?.studies.find(item => item.study_id === active?.id)
   const failureFlowPortfolio = useMemo((): FMEAFlowPortfolioAnalysis[] =>
     fmeaFolios.flatMap(folio => {
@@ -283,13 +303,14 @@ export default function FMEA({
       return (folioState.analyses ?? []).map(analysis => ({
         ref: { folio_id: folio.id, analysis_id: analysis.id },
         folio_name: folio.name,
-        analysis: normalizeFmeaAnalysis(analysis),
+        analysis: materializeFmeaAnalysis(sharedSystem.model, normalizeFmeaAnalysis(analysis),
+          collectFmeaProtectedEntityIds(folioState, failureFlowRegistry)),
         lifecycle_status: {
           ...emptyGovernance(),
           ...(folioState.governance?.[analysis.id] ?? {}),
         }.lifecycleStatus,
       }))
-    }), [fmeaFolios])
+    }), [fmeaFolios, sharedSystem.model, failureFlowRegistry])
   const normalizedFailureFlow = useMemo(
     () => normalizeFailureFlowRegistry(failureFlowRegistry),
     [failureFlowRegistry],
@@ -355,10 +376,13 @@ export default function FMEA({
         && bookmarkTarget.source.analysisId !== folios.activeId) return
     const target = bookmarkTarget.source.view
     if (!target?.startsWith('fmea:')) return
-    const [, encodedId, section, visual, encodedDiagram] = target.split(':')
+    const [, encodedId, section, visual, encodedDiagram, encodedFocus] = target.split(':')
     const analysisId = decodeURIComponent(encodedId ?? '')
     if (!analyses.some(item => item.id === analysisId)) return
     appliedBookmark.current = bookmarkTarget.nonce
+    if (['structure', 'function', 'equipment'].includes(section) && encodedDiagram === 'focus') {
+      setUiPreference(`fmea.${section === 'equipment' ? 'equipment' : 'focus'}:${sharedSystem.model.id}:${analysisId}`, decodeURIComponent(encodedFocus ?? ''))
+    }
     setState(previous => ({
       ...previous,
       view: 'analysis',
@@ -368,7 +392,7 @@ export default function FMEA({
         : section === 'control_plan' ? 'control_plan'
         : 'guided',
       step: section === 'documentation' ? 7
-        : section === 'structure' ? 2
+        : section === 'structure' || section === 'equipment' ? 2
         : section === 'function' ? 3 : previous.step,
       structureView: section === 'structure' && visual === 'block_diagram'
         ? 'diagram' : previous.structureView,
@@ -376,9 +400,9 @@ export default function FMEA({
         && ['tree', 'interfaces', 'p_diagram', 'coverage'].includes(visual)
         ? visual as FMEAState['functionVisualView']
         : previous.functionVisualView,
-      pDiagramId: encodedDiagram ? decodeURIComponent(encodedDiagram) : '',
+      pDiagramId: encodedDiagram && encodedDiagram !== 'focus' ? decodeURIComponent(encodedDiagram) : '',
     }))
-  }, [analyses, bookmarkTarget, folios.activeId, setState])
+  }, [analyses, bookmarkTarget, folios.activeId, setState, sharedSystem.model.id])
 
   const patch = (change: Partial<FMEAState>) => {
     setState(previous => ({ ...previous, ...change }))
@@ -387,43 +411,55 @@ export default function FMEA({
   const updateGovernance = (
     id: string,
     update: (previous: StudyGovernance) => StudyGovernance,
-  ) => setState(previous => ({
-    ...previous,
-    governance: {
-      ...(previous.governance ?? {}),
-      [id]: update({
-        ...emptyGovernance(),
-        ...(previous.governance?.[id] ?? {}),
-      }),
-    },
-    result: null,
-  }))
+  ) => {
+    const before = { ...emptyGovernance(), ...(state.governance?.[id] ?? {}) }
+    const next = update(before)
+    const phases: Partial<Record<keyof StudyGovernance, number>> = { methodProfileId: 1,
+      evidenceLinks: 3, processSteps: 2, verificationPlan: 6, specialCharacteristics: 5,
+      fmedaSources: 5, fmedaModes: 5, libraryItems: 3, libraryInstances: 3,
+      reviewFindings: 7, assignments: 7, changeRequests: 7 }
+    const requiredPhase = Math.max(1, ...Object.entries(phases).filter(([key]) => JSON.stringify(before[key as keyof StudyGovernance])
+      !== JSON.stringify(next[key as keyof StudyGovernance])).map(([, value]) => value!))
+    const blocked = id === active?.id && readiness?.findings.find(item => item.step < requiredPhase && item.severity === 'error')
+    if (blocked) { setError(`Complete Step ${blocked.step} first: ${blocked.message}`); return }
+    const administrative = new Set<keyof StudyGovernance>(['revisions', 'releases', 'lifecycleStatus', 'lifecycleHistory'])
+    const contentChanged = (Object.keys(next) as (keyof StudyGovernance)[]).some(key =>
+      !administrative.has(key) && JSON.stringify(before[key]) !== JSON.stringify(next[key]))
+    setState(previous => ({ ...previous, governance: { ...(previous.governance ?? {}), [id]: next },
+      result: contentChanged ? null : previous.result }))
+  }
   const commitFailureFlow = (
     commit: FailureFlowCommit,
     summary: string,
   ) => {
-    const updates = fmeaFolios.map(folio => {
-      const byId = new Map(commit.portfolio
-        .filter(item => item.ref.folio_id === folio.id)
-        .map(item => [item.analysis.id, item.analysis]))
-      const nextAnalyses = (folio.state.analyses ?? []).map(analysis =>
-        byId.get(analysis.id) ?? analysis)
-      return {
-        folioId: folio.id,
-        nextState: {
-          ...folio.state,
-          analyses: nextAnalyses,
-          result: null,
-        },
-      }
-    })
-    writeFolioStatesWithCompanion(
-      'fmea',
-      updates,
-      'fmeaFailureFlow',
-      commit.registry,
-      `failure-flow:${summary || 'linked-statement-edit'}`,
-    )
+    try {
+      const project = getProjectState(), beforeSystem = currentProjectSystem()
+      let model = beforeSystem.model
+      const updates = fmeaFolios.map(folio => {
+        const byId = new Map(commit.portfolio
+          .filter(item => item.ref.folio_id === folio.id)
+          .map(item => [item.analysis.id, item.analysis]))
+        const nextAnalyses = (folio.state.analyses ?? []).map(analysis => {
+          const next = byId.get(analysis.id)
+          if (!next) return analysis
+          const protectedIds = collectFmeaProtectedEntityIds(folio.state, commit.registry)
+          const previous = materializeFmeaAnalysis(beforeSystem.model, analysis, protectedIds)
+          assertFmeaEditAllowed(previous, next, model, folio.state.governance?.[next.id]?.methodProfileId)
+          const split = splitFmeaUpdate(model, previous, next, protectedIds)
+          model = split.model
+          return split.analysis
+        })
+        return { ...folio, state: { ...folio.state, analyses: nextAnalyses, result: null } }
+      })
+      validateProjectSystem(model)
+      const nextSystem = { ...beforeSystem, model }
+      const raw = project.modules.fmea as { _folioWrap?: boolean; activeId?: string }
+      writeModuleSlices({ ...projectSystemUpdates(beforeSystem, nextSystem, project.modules),
+        systemDefinition: nextSystem,
+        fmea: { ...raw, _folioWrap: true, activeId: raw?.activeId ?? folios.activeId, folios: updates },
+        fmeaFailureFlow: commit.registry,
+      }, { sliceKey: 'fmea', fieldSig: `failure-flow:${summary || 'linked-statement-edit'}` })
+    } catch (caught) { setError(errorText(caught)); return }
     setError(null)
     if (summary) toast.success(summary)
   }
@@ -489,15 +525,31 @@ export default function FMEA({
     ? studies.find(item => item.id === active.id) ?? null
     : null
 
+  const readinessProfiles = useMemo(() => [...builtInProfiles, ...(state.customRatingProfiles ?? [])], [builtInProfiles, state.customRatingProfiles])
+  const readiness = useFmeaReadiness(active, sharedSystem.model, readinessProfiles, requirements, activeStudy ?? undefined)
+  const localPortfolioReadiness = useMemo(() => analyses.map(analysis => evaluateFmeaReadiness(analysis, sharedSystem.model, readinessProfiles)),
+    [analyses, sharedSystem.model, readinessProfiles])
+  const canAnalyze = Boolean(readiness?.can_analyze) && localPortfolioReadiness.every(item => item.can_analyze)
+  const firstBlocker = readiness?.findings.find(item => item.severity === 'error')
+  const viewPhase: Partial<Record<TopView, number>> = { evidence: 3, verification: 4, fmeda: 5, knowledge: 3, review: 7 }
+  const phase = viewPhase[state.view]
+  const downstreamReadOnly = Boolean(phase && !readiness?.stages[phase - 1]?.eligible)
+  const downstreamBlocker = readiness?.findings.find(item => item.severity === 'error' && item.step < (phase ?? 1))
+
   const analyze = async () => {
-    if (brokenReferences.length) { setError('Resolve or detach missing shared system references before analyzing FMEA.'); return }
-    const request = beginFolioRequest('fmea', folios.activeId, state, 'analysis',
-      () => systemInputFingerprint(currentProjectSystem().model))
+    if (brokenReferences.length) { setError('Resolve missing shared system references before analyzing FMEA.'); return }
+    if (!canAnalyze) { setError(firstBlocker?.message ?? 'Complete prerequisite steps for every study before analysis.'); return }
+    const request = startRequest()
     setLoading(true); setError(null)
     try {
+      const checks = await Promise.all(studies.map(study => inspectFmeaReadiness(study, sharedSystem.model, state.customRatingProfiles ?? [], requirements)))
+      if (!request.isCurrent()) return
+      const blocked = checks.find(check => !check.can_analyze)
+      if (blocked) throw new Error(blocked.findings.filter(item => item.step <= 5 && item.severity === 'error').map(item => `Step ${item.step}: ${item.message}`).join(' '))
       const result = await analyzeFmeaStudies(
-        studies, state.customRatingProfiles ?? [], requirements)
-      request.commit(previous => ({ ...previous, result, canonicalDependencies: undefined }))
+        studies, state.customRatingProfiles ?? [], requirements, sharedSystem.model)
+      request.commit(previous => ({ ...previous, result, canonicalDependencies: undefined,
+        sourceSystemFingerprint: fmeaSemanticFingerprint(currentProjectSystem().model, previous.analyses) }))
     } catch (caught) {
       if (request.isCurrent()) setError(errorText(caught))
     } finally {
@@ -541,7 +593,8 @@ export default function FMEA({
           }`}>
           {activeResult.release_ready ? 'Release ready' : 'Review findings'}
         </span>}
-        <button onClick={analyze} disabled={loading || analyses.length === 0 || brokenReferences.length > 0}
+        <button onClick={analyze} disabled={loading || analyses.length === 0 || brokenReferences.length > 0 || !canAnalyze}
+          title={!canAnalyze ? firstBlocker?.message ?? 'Complete prerequisite steps for every study.' : undefined}
           className="inline-flex items-center gap-1.5 rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50">
           {loading ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
           {loading ? 'Analyzing…' : 'Analyze FMEA'}
@@ -555,6 +608,20 @@ export default function FMEA({
     {error && <div role="alert" className="border-b border-red-200 bg-red-50 px-4 py-2 text-xs text-red-700">
       {error}
     </div>}
+    {readiness && readiness.findings.some(item => item.severity === 'error') && <details className="border-b border-amber-200 bg-amber-50">
+      <summary className="cursor-pointer px-4 py-2 text-xs font-medium text-amber-900">
+        Complete prerequisites · {readiness.findings.filter(item => item.severity === 'error').length} item(s)
+      </summary>
+      <div className="grid max-h-44 gap-2 overflow-auto px-4 pb-3 md:grid-cols-2">
+        {readiness.findings.filter(item => item.severity === 'error').map((finding, index) => <button
+          key={`${finding.code}-${finding.record_id}-${index}`} className="rounded border border-amber-200 bg-white p-2 text-left text-xs text-slate-700 hover:border-blue-400"
+          onClick={() => patch(finding.step === 7 ? { view: 'review' } : finding.path === 'method_profile_id' ? { view: 'methods' }
+            : { view: 'analysis', workspaceView: 'guided', step: finding.step })}>
+          <span className="font-semibold">Step {finding.step}{finding.record_id ? ` · ${finding.record_id}` : ''}</span>
+          <span className="mt-1 block">{finding.message}</span>
+        </button>)}
+      </div>
+    </details>}
     {activeResult && activeResult.issue_index.length > 0 && <details
       className="border-b border-amber-200 bg-amber-50">
       <summary className="flex cursor-pointer items-center gap-2 px-4 py-2 text-xs font-medium text-amber-800">
@@ -582,7 +649,9 @@ export default function FMEA({
     </details>}
     <main className="min-h-0 flex-1 overflow-auto">
       {state.view === 'analysis' && <AiagVdaWorkspace
+        studyReadiness={readiness}
         analyses={analyses}
+        systemModel={sharedSystem.model}
         predictionSources={predictionSources}
         programRequirements={requirements}
         customProfiles={state.customRatingProfiles ?? []}
@@ -590,7 +659,7 @@ export default function FMEA({
         hazardOptions={hazardOptions}
         fracasOptions={fracasOptions}
         builtInProfiles={builtInProfiles}
-        result={state.result?.core}
+        result={stale ? undefined : state.result?.core}
         activeId={state.activeId}
         onActiveId={activeId => patch({ activeId })}
         view={state.workspaceView}
@@ -610,12 +679,14 @@ export default function FMEA({
             item.id,
             previous.governance?.[item.id] ?? emptyGovernance(),
           ])),
-          result: null,
+          result: fmeaEngineeringFingerprint(previous.analyses) === fmeaEngineeringFingerprint(next) ? previous.result : null,
         }))}
         onProfilesChange={customRatingProfiles => patch({ customRatingProfiles, result: null })}
         onVocabularyProfileChange={vocabularyProfile => patch({ vocabularyProfile })}
         onNavigateReference={() => toast.info('Open the linked record from Reliability Program.')}
         onNavigatePrediction={onNavigatePrediction}
+        onNavigateSystemFunction={onNavigateSystemFunction}
+        onNavigateSystemInterface={onNavigateSystemInterface}
         failureFlow={activeFailureFlowRef ? {
           registry: normalizedFailureFlow,
           portfolio: failureFlowPortfolio,
@@ -624,6 +695,11 @@ export default function FMEA({
           onChainChange: changeFailureChain,
         } : undefined}
       />}
+      {downstreamReadOnly && <div role="status" className="border-b border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900">
+        This work is read-only until its prerequisites are repaired. {downstreamBlocker?.message}
+        {downstreamBlocker && <button className="ml-2 underline" onClick={() => patch({ view: 'analysis', workspaceView: 'guided', step: downstreamBlocker.step })}>Open Step {downstreamBlocker.step}</button>}
+      </div>}
+      <fieldset disabled={downstreamReadOnly} className="m-0 min-w-0 border-0 p-0" aria-label="FMEA supporting analysis and governance">
       {state.view === 'evidence' && <EvidenceView
         analysis={active}
         links={governance.evidenceLinks}
@@ -659,21 +735,19 @@ export default function FMEA({
         onChange={next => active && updateGovernance(active.id, () => next)}
         onError={setError}
       />}
-      {state.view === 'review' && brokenReferences.length > 0 && <Empty>Resolve missing shared system references before review or release.</Empty>}
-      {state.view === 'review' && brokenReferences.length === 0 && <ReviewView
+      {state.view === 'review' && <ReviewView
         analysis={active}
         governance={governance}
         result={activeResult}
         ratingProfiles={state.customRatingProfiles ?? []}
         requirements={requirements}
         buildStudy={() => activeStudy}
-        onGovernance={next => active && setState(previous => ({
-          ...previous,
-          governance: { ...previous.governance, [active.id]: next },
-          result: null,
-        }))}
+        canonicalSystem={sharedSystem.model}
+        readiness={readiness}
+        onGovernance={next => active && updateGovernance(active.id, () => next)}
         onError={setError}
       />}
+      </fieldset>
       {state.view === 'methods' && <MethodsView
         profiles={methodProfiles}
         selected={governance.methodProfileId}
@@ -721,8 +795,7 @@ function EvidenceView({
     <div className="flex items-start justify-between">
       <div><h2 className="text-base font-semibold text-slate-900">Evidence register</h2>
         <p className="mt-1 max-w-3xl text-xs text-slate-500">
-          Link a claim to the exact FMEA record it supports. Checksums and source
-          revisions make stale evidence visible; they do not replace technical review.
+          Link evidence to an FMEA record.
         </p></div>
       <button className={buttonClass} onClick={add}><Plus size={13} /> Add evidence</button>
     </div>
@@ -876,9 +949,8 @@ function FmedaView({
     <div className="flex items-start justify-between">
       <div><h2 className="text-base font-semibold text-slate-900">Quantitative FMEDA</h2>
         <p className="mt-1 max-w-3xl text-xs text-slate-500">
-          Allocate source failure rates to failure modes and classifications.
-          Perdura checks conservation and reports method-neutral metrics. A verified
-          ISO/IEC profile is required before claiming standards conformance.
+          Allocate source failure rates to failure modes. These metrics do not
+          establish ISO/IEC conformance without a verified profile.
         </p></div>
       <div className="flex gap-2">
         <button className={buttonClass} onClick={addSource}>
@@ -910,8 +982,7 @@ function FmedaView({
       <div className="border-b border-slate-100 px-3 py-2">
         <h3 className="text-xs font-semibold text-slate-800">Failure-rate sources</h3>
         <p className="text-[10px] text-slate-500">
-          Define each source rate once. Mode fractions below allocate that rate
-          without copying or double-counting it.
+          Define each source rate once, then allocate it using mode fractions.
         </p>
       </div>
       {sources.length === 0
@@ -1055,7 +1126,7 @@ function LinkSelector({
   const selected = new Set(values)
   return <label className="relative block text-[10px] text-slate-500">
     {label}
-    <details className="group mt-1">
+    <DropdownDetails className="group mt-1">
       <summary className={`${fieldClass} cursor-pointer list-none truncate`}>
         {values.length === 0
           ? 'None selected'
@@ -1078,7 +1149,7 @@ function LinkSelector({
               <span>{option.label}</span>
             </label>)}
       </div>
-    </details>
+    </DropdownDetails>
   </label>
 }
 
@@ -1135,9 +1206,8 @@ function VerificationView({
   return <section className="mx-auto max-w-7xl space-y-5 p-5">
     <div><h2 className="text-base font-semibold text-slate-900">Process and verification flow-down</h2>
       <p className="mt-1 max-w-4xl text-xs text-slate-500">
-        Model PFMEA process sequence, plan requirement/failure verification,
-        and trace special characteristics into process and Control Plan records.
-        IDs are stable links; completed verification requires evidence.
+        Link process steps, verification, and special characteristics.
+        Completed verification requires evidence.
       </p></div>
     {findings.length > 0 && <div className="rounded border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
       {findings.map((item, index) => <p key={`${item.record_id}-${index}`}>{item.message}</p>)}
@@ -1145,7 +1215,7 @@ function VerificationView({
     <div className="rounded border border-slate-200 bg-white shadow-xs">
       <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
         <div><h3 className="text-xs font-semibold text-slate-800">PFMEA process flow</h3>
-          <p className="text-[10px] text-slate-400">Predecessor links form an acyclic directed flow.</p></div>
+          <p className="text-[10px] text-slate-400">Link steps in process order, without loops.</p></div>
         <button className={buttonClass} onClick={() => onChange({
           ...governance,
           processSteps: [...governance.processSteps, {
@@ -1417,8 +1487,7 @@ function KnowledgeView({
         <div><h2 className="text-base font-semibold text-slate-900">
           Foundation and family library
         </h2><p className="mt-1 text-xs text-slate-500">
-          Reuse normalized records with stable provenance. Instantiation creates
-          new IDs and records the source version and checksum.
+          Save and reuse groups of FMEA records.
         </p></div>
         <button className={buttonClass} disabled={busy} onClick={captureFamily}>
           <LibraryBig size={13} /> Capture family
@@ -1461,8 +1530,7 @@ function KnowledgeView({
         <div><h2 className="text-base font-semibold text-slate-900">
           Evidence-grounded guidance
         </h2><p className="mt-1 text-xs text-slate-500">
-          Local rules identify missing bases and explicit evidence-backed rating
-          proposals. Guidance never silently edits or approves the model.
+          Review suggested changes before applying them.
         </p></div>
         <button className={buttonClass} disabled={busy} onClick={propose}>
           <Sparkles size={13} /> Generate proposals
@@ -1506,6 +1574,8 @@ function ReviewView({
   ratingProfiles,
   requirements,
   buildStudy: getStudy,
+  canonicalSystem,
+  readiness,
   onGovernance,
   onError,
 }: {
@@ -1515,6 +1585,8 @@ function ReviewView({
   ratingProfiles: FMEARatingProfile[]
   requirements: RequirementInput[]
   buildStudy: () => FMEAStudy|null
+  canonicalSystem: SystemDefinitionModel
+  readiness?: FMEAReadiness
   onGovernance: (value: StudyGovernance) => void
   onError: (message: string|null) => void
 }) {
@@ -1524,8 +1596,18 @@ function ReviewView({
   const [changes, setChanges] = useState<FMEASemanticChange[]>([])
   const latest = governance.revisions[governance.revisions.length - 1]
   const study = getStudy()
+  const operationContext = JSON.stringify({ study: study && { ...study, model: { ...study.model, block_diagram: undefined } },
+    architecture: study && fmeaSemanticFingerprint(canonicalSystem, [study.model]), ratingProfiles, requirements })
+  const currentContext = useRef(operationContext)
+  currentContext.current = operationContext
+  const currentOperation = () => {
+    if (currentContext.current === operationContext) return true
+    onError('The study changed while this request was running. Review the current content and retry.')
+    return false
+  }
   if (!analysis || !study) return <Empty>Create an FMEA analysis before review.</Empty>
   const transition = async (targetStatus: FMEALifecycleStatus) => {
+    if (targetStatus !== 'draft' && !readiness?.can_release) { onError('Complete the prerequisite, evidence, and review findings before progression.'); return }
     setBusy(true); onError(null)
     const attestation: FMEAAttestation[] = targetStatus === 'approved' ? [{
       id: uid('att'),
@@ -1538,7 +1620,8 @@ function ReviewView({
     }] : []
     try {
       const next = await transitionFmeaLifecycle(
-        study, targetStatus, actor, summary, attestation)
+        study, targetStatus, actor, summary, attestation, canonicalSystem, ratingProfiles, requirements)
+      if (!currentOperation()) return
       onGovernance({
         ...governance,
         lifecycleStatus: next.lifecycle_status,
@@ -1552,7 +1635,8 @@ function ReviewView({
   const capture = async () => {
     setBusy(true); onError(null)
     try {
-      const revision = await createFmeaRevision(study, actor, summary)
+      const revision = await createFmeaRevision(study, actor, summary, canonicalSystem)
+      if (!currentOperation()) return
       onGovernance({
         ...governance,
         revisions: [...governance.revisions, revision],
@@ -1571,6 +1655,7 @@ function ReviewView({
     finally { setBusy(false) }
   }
   const release = async () => {
+    if (!readiness?.can_release) { onError('Complete all prerequisites before release.'); return }
     setBusy(true); onError(null)
     const attestation: FMEAAttestation = {
       id: uid('att'),
@@ -1583,7 +1668,8 @@ function ReviewView({
     }
     try {
       const manifest = await createFmeaRelease(
-        study, ratingProfiles, requirements, APP_VERSION, APP_COMMIT, [attestation])
+        study, ratingProfiles, requirements, APP_VERSION, APP_COMMIT, [attestation], canonicalSystem)
+      if (!currentOperation()) return
       onGovernance({
         ...governance,
         lifecycleStatus: 'released',
@@ -1655,8 +1741,7 @@ function ReviewView({
       <div className="flex items-start justify-between gap-3">
         <div><h2 className="text-base font-semibold text-slate-900">Controlled lifecycle</h2>
         <p className="mt-1 text-xs text-slate-500">
-          Revisions record a content hash and parent. Releases are immutable
-          manifests. Local names are attestations, not authenticated identities.
+          Releases are immutable. Local approvals do not authenticate identity.
         </p></div>
         <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-blue-700">
           {governance.lifecycleStatus.replace(/_/g, ' ')}
@@ -1671,11 +1756,12 @@ function ReviewView({
             onChange={event => setSummary(event.target.value)} /></label>
         <div className="flex flex-wrap gap-2">
           <button className={buttonClass} disabled={busy || !actor.trim() || !summary.trim()}
+            title={readiness?.stages.slice(0, 2).every(item => item.complete) ? undefined : 'Complete planning and structure before capturing a revision.'}
             onClick={capture}><Archive size={13} /> Capture revision</button>
           <button className={buttonClass} disabled={busy || !latest}
             onClick={compare}><FileDiff size={13} /> Diff from baseline</button>
           {governance.lifecycleStatus === 'draft' && <button className={buttonClass}
-            disabled={busy || !actor.trim() || !summary.trim() || !latest}
+            disabled={busy || !actor.trim() || !summary.trim() || !latest || !readiness?.can_release}
             onClick={() => transition('in_review')}>
             <ClipboardCheck size={13} /> Submit for review
           </button>}
@@ -1683,7 +1769,7 @@ function ReviewView({
             className={buttonClass}
             disabled={
               busy || !actor.trim() || !summary.trim()
-              || !result?.release_ready
+              || !result?.release_ready || !readiness?.can_release
             }
             onClick={() => transition('approved')}>
             <CheckCircle2 size={13} /> Approve baseline
@@ -1693,11 +1779,12 @@ function ReviewView({
             onClick={() => transition('draft')}>Return to draft</button>}
           <button className="inline-flex items-center gap-1.5 rounded bg-emerald-600 px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-50"
             disabled={
-              busy || !actor.trim() || !result?.release_ready
+              busy || !actor.trim() || !result?.release_ready || !readiness?.can_release
               || governance.lifecycleStatus !== 'approved'
             }
             onClick={release}><ShieldCheck size={13} /> Release</button>
         </div>
+        {!readiness?.can_release && <p className="text-[10px] text-amber-700">Live prerequisite checks must pass before review, approval, or release.</p>}
         {!result && <p className="text-[10px] text-amber-700">Run the analysis before release.</p>}
         {result && !result.release_ready && <p className="text-[10px] text-amber-700">
           Release is blocked by unresolved model or evidence errors.
@@ -1782,9 +1869,7 @@ function ReviewView({
         <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
           <div><h3 className="text-xs font-semibold text-slate-800">
             Assignments and change requests
-          </h3><p className="text-[10px] text-slate-400">
-            Coordinate review work without changing the approved engineering model.
-          </p></div>
+          </h3></div>
           <div className="flex gap-2">
             <button className={buttonClass} onClick={addAssignment}>
               <Plus size={13} /> Assignment
@@ -1935,9 +2020,8 @@ function MethodsView({
   return <section className="mx-auto max-w-6xl space-y-4 p-5">
     <div><h2 className="text-base font-semibold text-slate-900">Method profiles</h2>
       <p className="mt-1 max-w-3xl text-xs text-slate-500">
-        A profile controls vocabulary, ratings, calculations, validation, and
-        exports. Reference-gated profiles are visible for planning but cannot be
-        selected until their source rules are independently verified.
+        Choose the rating and calculation method. Profiles marked “Reference
+        required” remain unavailable until their rules are verified.
       </p></div>
     <div className="grid grid-cols-2 gap-3">
       {profiles.map(profile => {

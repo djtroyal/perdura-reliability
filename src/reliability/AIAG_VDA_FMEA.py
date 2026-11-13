@@ -363,7 +363,7 @@ def _validate_structure(analysis: Mapping, issues: list[dict]) -> None:
                 2, "missing_structure_name",
                 "Structure elements require a name.",
                 record_id=node_id, field="name"))
-        if level not in STRUCTURE_LEVELS[kind]:
+        if not analysis.get("system_binding") and level not in STRUCTURE_LEVELS[kind]:
             issues.append(_issue(
                 2, "invalid_structure_level",
                 f"'{level}' is not a valid {kind.upper()} structure level.",
@@ -399,7 +399,7 @@ def _validate_structure(analysis: Mapping, issues: list[dict]) -> None:
             seen.add(cursor)
             cursor = str(by_id[cursor].get("parent_id") or "")
     focus_level = "process_step" if kind == "pfmea" else "focus"
-    if nodes and not any(str(node.get("level")) == focus_level for node in nodes):
+    if nodes and not analysis.get("system_binding") and not any(str(node.get("level")) == focus_level for node in nodes):
         issues.append(_issue(
             2, "missing_focus_element",
             f"Add at least one {focus_level.replace('_', ' ')} element.",
@@ -1050,17 +1050,17 @@ def _validate_function_analysis(
 
 def _validate_planning(analysis: Mapping, issues: list[dict]) -> None:
     planning = analysis.get("planning", {}) or {}
-    required = {
+    suggested = {
         "subject": "Define the analysis subject.",
         "scope": "Define what is included in the analysis.",
         "intent": "Record the analysis intent.",
     }
-    for field, message in required.items():
+    for field, message in suggested.items():
         if not _nonempty(planning.get(field)):
             issues.append(_issue(
                 1, f"missing_{field}", message,
                 severity="warning", field=field))
-    if not planning.get("team"):
+    if not any(_nonempty(member) for member in planning.get("team", [])):
         issues.append(_issue(
             1, "missing_team", "Identify at least one cross-functional team member.",
             severity="warning", field="team"))

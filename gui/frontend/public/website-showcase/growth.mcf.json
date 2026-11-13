@@ -2,7 +2,7 @@
   "app": "Perdura",
   "subtitle": "Reliability Engineering and Statistics Suite",
   "website": "https://perdurareliability.com",
-  "schemaVersion": 6,
+  "schemaVersion": 11,
   "createdWith": {
     "version": "0.7.0",
     "commit": "dev",
@@ -505,7 +505,7 @@
                 },
                 "trend": {
                   "trend": "worsening",
-                  "detail": "Descriptive segment slopes suggest the recurrence rate increased from 1.49e-01 to 2.01e-01 per unit time (ratio 1.35) — system appears to be worsening (reliability degradation). This is a visual shape indicator, not a hypothesis test or calibrated trend decision.",
+                  "detail": "Descriptive segment slopes suggest the recurrence rate increased from 1.49e-01 to 2.01e-01 per unit time (ratio 1.35) \u2014 system appears to be worsening (reliability degradation). This is a visual shape indicator, not a hypothesis test or calibrated trend decision.",
                   "method": "descriptive_two_segment_slope_ratio",
                   "inferential": false
                 },

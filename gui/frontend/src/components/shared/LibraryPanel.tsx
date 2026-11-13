@@ -1,3 +1,4 @@
+import { distributionLabel } from './distributionLabels'
 import { useState } from 'react'
 import { BookMarked, Plus, Trash2, Link2 } from 'lucide-react'
 import { useModuleState, useUnits, useStoreVersion, getProjectState } from '../../store/project'
@@ -18,7 +19,7 @@ export function itemSummary(item: LibraryItem): string {
   if (item.sourceRef) return 'Live project distribution'
   if (item.kind === 'manual') return `R = ${item.value}`
   if (item.kind === 'lambda') return `Manual snapshot · λ = ${item.lambdaFpmh} FPMH`
-  return `Manual snapshot · ${item.distribution} (${Object.entries(item.params ?? {}).map(([k,v])=>`${k}=${Number(v.toPrecision(5))}`).join(', ')})`
+  return `Manual snapshot · ${distributionLabel(item.distribution)} (${Object.entries(item.params ?? {}).map(([k,v])=>`${k}=${Number(v.toPrecision(5))}`).join(', ')})`
 }
 interface Props { mode: 'reliability'|'probability'; selectedLabel: string|null; onApply: (item: LibraryItem, value: number)=>void }
 const toItem = (source: ReliabilitySource): LibraryItem => ({ id: `source:${source.id}`, name: source.name,

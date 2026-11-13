@@ -2,7 +2,7 @@
   "app": "Perdura",
   "subtitle": "Reliability Engineering and Statistics Suite",
   "website": "https://perdurareliability.com",
-  "schemaVersion": 6,
+  "schemaVersion": 11,
   "createdWith": {
     "version": "0.7.0",
     "commit": "dev",
@@ -128,7 +128,7 @@
         "alternative": "two-sided",
         "n_a": 7,
         "n_b": 7,
-        "interpretation": "Reject H₀: significant result (Mann-Whitney U)."
+        "interpretation": "Reject H\u2080: significant result (Mann-Whitney U)."
       },
       "error": null
     }

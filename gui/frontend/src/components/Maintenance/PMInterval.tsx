@@ -1,3 +1,4 @@
+import { distributionLabel } from '../shared/distributionLabels'
 import { useState, useRef } from 'react'
 import Plot from '../shared/ExportablePlot'
 import { computePMInterval, PMIntervalResponse } from '../../api/client'
@@ -64,7 +65,7 @@ export default function PMInterval() {
         <select aria-label="Failure distribution" value={st.srcId} onChange={e => patch({ srcId: e.target.value })} className={inputCls}>
           <option value="">Manual Weibull</option>
           {st.srcId && !activeSrc && <option value={st.srcId}>Unavailable or incompatible source</option>}
-          {sources.map(s => <option key={s.id} value={s.id}>{s.name} — {s.sourceDist} ({s.moduleLabel})</option>)}
+          {sources.map(s => <option key={s.id} value={s.id}>{s.name} — {distributionLabel(s.sourceDist)} ({s.moduleLabel})</option>)}
         </select>
         {activeSrc && <p className="text-xs text-blue-700 mt-0.5 truncate" title={activeSrc.label}>↳ {activeSrc.label}</p>}
       </div>
@@ -127,7 +128,7 @@ export default function PMInterval() {
 
   return (
     <ToolLayout
-      intro="Finds the preventive-maintenance interval that keeps reliability at or above a target. With as-good-as-new PM, reliability sawtooths between 1 and the target — the interval is the Maintenance-Free Operating Period (MFOP)."
+      intro="Find the maintenance-free operating period (MFOP) for a reliability target, assuming as-good-as-new preventive maintenance."
       controls={controls} err={error} loading={loading} onRun={run} runLabel="Compute interval" results={results}
     />
   )

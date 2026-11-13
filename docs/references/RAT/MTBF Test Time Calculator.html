@@ -1,0 +1,166 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script language="javascript" src="https://www.google.com/jsapi"></script>
+<meta name="google-site-verification" content="cBccqdfyynKcGEirmXQbX_ZO0KydBSfCJTvSPr15_PY" />
+<link rel="shortcut icon" href="static/rat.ico">
+<meta charset="utf-8" />
+<title>MTBF Test Time Calculator</title>
+<meta name="description" content="Test time calculator for verifying an MTBF at a given confidence level, assuming an exponential failure distribution." >
+<meta name="copyright" content="2010 - 2023">
+<meta name="author" content="Reliability Analytics">
+<meta name="ROBOTS" content="INDEX, FOLLOW">
+<meta name="rating" content="General">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link href="/static/rat.css" rel="stylesheet" type="text/css">
+
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-X7ZS5GNPJP"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-X7ZS5GNPJP');
+</script>
+
+
+</head><a href="https://reliabilityanalyticstoolkit.appspot.com/"><img border="0" src="/static/RAT.gif" alt="Reliability Analytics Corporation" title="The Reliability Analytics Toolkit" align="bottom"></a><img src="/static/appengine-noborder-120x30.gif"  alt="Powered by Google App Engine" /><br>
+<script async src="https://cse.google.com/cse.js?cx=ff1c928896e6473ca"></script>
+<div class="gcse-search"></div>
+<body>
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-6278805415990400"
+     crossorigin="anonymous"></script>
+
+            <h1 class="pagetitle">MTBF Test Time Calculator</h1>
+            <p>
+This tool calculates the test time required to demonstrate a mean time between failure (MTBF) value at a given confidence level. It assumes an exponential failure distribution (i.e., constant unit failure rate) and uses the chi-square distribution, as described in
+the "Confidence Limits - Exponential Distribution" tool, taking as input the number of allowable failures and required MTBF and solving <a class="one" href="http://reliabilityanalyticstoolkit.appspot.com/confidence_limits_exponential_distribution" >Equation 2</a> for T, the required test time. Because the failure rate is constant (i.e., only "chance" failures occur, no wearout), testing one unit for 100 hours is equivalent to testing 10 units for 10 hours each.
+
+            </p>
+            <img border="0" src="/static/mtbf_test_time_calculation.gif" alt="MTBF Test Time Calculation" title="MTBF Test Time Calculation" align="bottom"><br><br>
+            <h2>
+            Calculation Inputs:
+            </h2>
+
+            <form action=/mtbf_test_calculator_solution method="post">
+            <div>
+            1. Select method:
+            <select name="method">
+            <option value="Method 1">Method 1</option>
+            <option value="Method 2">Method 2</option>
+            </select>
+            </div>
+
+        <table id="tools">
+          <tr>
+            <th><center>Method 1</center></th>
+            <th><center>Method 2</center></th>
+          </tr>
+
+          <tr>
+            <td>
+                <div>2. Unit MTBF requirement (hours):
+                <input type="text"
+                name="mtbf"
+                value=1000
+                size="6"></input>
+                </div>
+
+
+                </td>
+                <td>
+                <div>2a. Unit reliability requirement, R(t) (0 &#60 R(t) &#60 1.0):
+                <input type="text"
+                value=0.9
+                name="R"
+                size="6"></input>
+                </div>
+
+                <div>2b. Mission time (t, hours)
+                <input type="text"
+                name="mission_time"
+                value=100
+                size="6"></input>
+                </div>
+                </td>
+              </tr>
+            </table>
+
+                <br><div>3. Allowable test failures (r):
+                <input type="text"
+                value=0
+                name="r"
+                size="6"></input>
+                </div>
+
+                <div>4. Confidence level:
+                <select name="confidencelevel">"
+        <option value='.600'>60.0%</option>
+        <option value='.500'>50.0%</option>
+        <option value='.600'>60.0%</option>
+        <option value='.700'>70.0%</option>
+        <option value='.800'>80.0%</option>
+        <option value='.900'>90.0%</option>
+        <option value='.950'>95.0%</option>
+        <option value='.990'>99.0%</option>
+
+                </select>
+
+                <div>5. Decimal places:
+                <select name="rounddigits">
+                <option value="0">0</option>"
+            <option value='0'>0</option>
+            <option value='1'>1</option>
+            <option value='2'>2</option>
+            <option value='3'>3</option>
+            <option value='4'>4</option>
+            <option value='5'>5</option>
+            <option value='6'>6</option>
+            <option value='7'>7</option>
+            <option value='8'>8</option>
+            <option value='9'>9</option>
+            <option value='10'>10</option>
+            <option value='15'>15</option>
+            <option value='20'>20</option>
+            </select><br><br>
+            <input type="submit"
+            value="Calculate">
+            </form>
+
+<br><br>
+<h2>Featured Reference:</h2>
+<div class="img"><a href="http://www.amazon.com/dp/0471018333/?tag=reliabilityan-20"><img src="/static/0471018333.jpg" alt="Introduction to Reliability Engineering" /></a><br>
+<b><a href="http://www.amazon.com/dp/0471018333/?tag=reliabilityan-20">Introduction to Reliability Engineering</a></b>
+
+<br><br>
+
+<br><p class="left">
+<a class="one" href="http://reliabilityanalyticstoolkit.appspot.com/" title="Toolkit Home">Toolkit Home</a><br><br>
+
+<b>Comments/Questions:</b><br> <img border="0" src="/static/feedback_email.gif" alt="Feedback" title="Feedback"><br>
+<a href="http://reliabilityanalytics.com/"><img border="0" src="/static/logo_for_blog.png" alt="Reliability Analytics Corporation" title="Reliability Analytics home page" align="bottom"></a><br>
+
+<a class="one" href="http://reliabilityanalytics.com/" title="Reliability Analytics home page">reliabilityanalytics.com</a><br>
+</p>
+<HR><h3 class="ref">References:</h3></u>
+<p><ol><li>MIL-HDBK-338, <a class="one" href="http://reliabilityanalytics.com/reliability_engineering_library/MIL-HDBK-338-V1_Electronic_Reliability_Design_Handbook_15_Oct_1984/MIL-HDBK-338-V1_Electronic_Reliability_Design_Handbook_15_Oct_1984_pp_536.htm" >Electronic Reliability Design Handbook</a>.
+
+<li>Bazovsky, Igor, <a href="/static/books.htm#0486438678">Reliability Theory and Practice</a>.
+
+<li><a class="one" href="http://en.wikipedia.org/wiki/Chi-square" >http://en.wikipedia.org/wiki/Chi-square</a>
+
+<li>O'Connor, Patrick, D. T., <a href="/static/books.htm#047097981X">Practical Reliability Engineering</a>.
+
+<li>Birolini, Alessandro, <a href="/static/books.htm#3662542080">Reliability Engineering: Theory and Practice</a>.
+
+</ol></p>
+            <div id="copyright"><br>
+            <copyright>Copyright &#169 2010 - 2023 <a class="one" href="http://reliabilityanalytics.com">Reliability Analytics Corporation</a><br><br>
+            <a class="one" href="/static/privacypolicy.htm">Privacy Policy</a><br>
+            <br>
+            All content and materials on this site are provided "as is" Reliability Analytics makes no warranty, express or implied, including the warranties of merchantability and fitness for a
+            particular purpose; nor assumes any legal liability or responsibility for the accuracy, completeness, or usefulness of any information, apparatus, product, or process disclosed;
+            nor represents that its use would not infringe privately owned rights.</copyright></div><BR>
+            </body></html>

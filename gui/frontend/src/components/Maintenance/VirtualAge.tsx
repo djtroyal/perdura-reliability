@@ -105,7 +105,7 @@ export default function VirtualAge() {
   </div>
 
   return <ToolLayout
-    intro="Simulates imperfect corrective and preventive maintenance with Kijima Type-II virtual age. Unlike long-run cost-rate formulas, failures, cost, downtime, and availability are reported over the chosen finite calendar horizon with Monte Carlo uncertainty."
+    intro="Simulate imperfect maintenance using Kijima Type-II virtual age over a finite horizon, with Monte Carlo uncertainty."
     controls={controls} err={error} loading={loading} onRun={run} runLabel="Run virtual-age simulation" results={results}
   />
 }
