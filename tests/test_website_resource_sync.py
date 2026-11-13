@@ -1,5 +1,6 @@
 """Exercise the publication workflow's actual shell steps without GitHub access."""
 
+import hashlib
 import json
 import os
 import subprocess
@@ -28,6 +29,8 @@ SOURCE_GUARDS = [
 ]
 CONFIGURATION = next(step for step in STEPS if step.get("id") == "configured")
 SUMMARY = next(step for step in STEPS if step["name"] == "Report screenshot publication status")
+VERIFIER_CHECKOUT = next(step for step in STEPS if step.get("with", {}).get("path") == "source")
+VERIFY_BUNDLE = next(step for step in STEPS if step["name"] == "Verify bundle source, inventory, and image hashes")
 SOURCE_COMMIT = "a" * 40
 PR_URL = "https://github.com/example/website/pull/14"
 SOURCE_RUN_URL = "https://github.com/example/app/actions/runs/123"
@@ -79,6 +82,65 @@ def run_step(step, tmp_path, environment, **overrides):
         timeout=10,
         check=False,
     )
+
+
+def test_verifier_code_is_trusted_main_and_payload_only_identifies_bundle_data():
+    assert VERIFIER_CHECKOUT["uses"].startswith("actions/checkout@")
+    assert VERIFIER_CHECKOUT["with"]["ref"] == "refs/heads/main"
+    assert VERIFIER_CHECKOUT["with"]["persist-credentials"] == "false"
+    assert VERIFIER_CHECKOUT["with"].get("repository", "${{ github.repository }}") == "${{ github.repository }}"
+    assert VERIFIER_CHECKOUT["if"] == VERIFY_BUNDLE["if"] == "steps.configured.outputs.enabled == 'true'"
+    assert VERIFY_BUNDLE["env"]["SOURCE_COMMIT"] == "${{ github.event.workflow_run.head_sha }}"
+    app_token = next(step for step in STEPS if step.get("id") == "app-token")
+    assert STEPS.index(SOURCE) < STEPS.index(VERIFIER_CHECKOUT) < STEPS.index(VERIFY_BUNDLE)
+    assert STEPS.index(VERIFY_BUNDLE) < STEPS.index(app_token) < STEPS.index(PUBLICATION_SOURCE)
+
+
+@pytest.mark.parametrize("mutation,error", [
+    (None, None),
+    ("wrong-source", "source commit"),
+    ("changed-image", "Checksum mismatch"),
+    ("unlisted-image", "manifest inventory"),
+])
+def test_workflow_verifier_enforces_bundle_identity_and_integrity(
+    tmp_path, shell_environment, mutation, error,
+):
+    # Model the trusted checkout separately from the downloaded artifact, then
+    # execute the workflow's actual verifier command with a real minimal bundle.
+    (tmp_path / "source").symlink_to(ROOT, target_is_directory=True)
+    generated = tmp_path / "generated-resources"
+    images = generated / "screenshots"
+    images.mkdir(parents=True)
+    image = b"\x89PNG\r\n\x1a\nfixture"
+    (images / "example.png").write_bytes(image)
+    (generated / "screenshots.generated.json").write_text(json.dumps({
+        "schema": "perdura.website-resources/v1", "captures": [{
+            "id": "example", "file": "example.png", "sizeBytes": len(image),
+            "sha256": hashlib.sha256(image).hexdigest(),
+        }],
+    }), encoding="utf-8")
+    (generated / "build-provenance.json").write_text(json.dumps({
+        "schema": "perdura.website-resource-build/v1", "captures": 1,
+        "sourceCommit": "b" * 40 if mutation == "wrong-source" else SOURCE_COMMIT,
+    }), encoding="utf-8")
+    (generated / "diff-report.json").write_text('{"differences": []}', encoding="utf-8")
+    (generated / "SHA256SUMS").write_text("".join(
+        f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.relative_to(generated).as_posix()}\n"
+        for path in sorted(generated.rglob("*")) if path.is_file()
+    ), encoding="utf-8")
+    if mutation == "changed-image":
+        (images / "example.png").write_bytes(image + b"tampered")
+    elif mutation == "unlisted-image":
+        (images / "unlisted.png").write_bytes(image)
+
+    result = run_step(VERIFY_BUNDLE, tmp_path, shell_environment)
+
+    if error:
+        assert result.returncode != 0
+        assert error in result.stderr
+    else:
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == f"Verified 1 screenshots from {SOURCE_COMMIT}"
 
 
 @pytest.mark.parametrize("current_commit,expected", [

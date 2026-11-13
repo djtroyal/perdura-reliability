@@ -87,11 +87,13 @@ jobs:
           gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY"
           --name "$RESOURCE_NAME" --dir generated-resources
 
-      - name: Check out the validated source revision
+      - name: Check out the trusted main verifier
         if: steps.configured.outputs.enabled == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          # workflow_run payloads identify data to verify, never executable code.
+          ref: refs/heads/main
+          persist-credentials: false
           path: source
 
       - name: Verify bundle source, inventory, and image hashes
