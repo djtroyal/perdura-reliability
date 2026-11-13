@@ -1304,7 +1304,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "0ab78150f3e5f1039aadb1f38f4ed0fbaa5fe05fb28d9225c3f3faaf99ea9c89",
+      "definition_sha256": "6f23e5e7b021b3a80a77edf8d5800f862bb723e980986db2181bbd3ad1815a3d",
       "id": "api.life_data.POST./stress-strength",
       "kind": "router_operation",
       "method": "POST",
@@ -1924,6 +1924,19 @@
       "source": "gui/backend/routers/prediction.py",
       "surface": "api",
       "symbol": "predict_standard"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "ca54c804d19e36c39d4aa4ffe038fcda031915fa40a8643f93b7b9d106a0599f",
+      "id": "api.prediction.POST./predict-system",
+      "kind": "router_operation",
+      "method": "POST",
+      "route": "/predict-system",
+      "router": "prediction",
+      "source": "gui/backend/routers/prediction.py",
+      "surface": "api",
+      "symbol": "predict_system"
     },
     {
       "assessment": "classification_pending",
@@ -7961,6 +7974,16 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
+      "definition_sha256": "e4e41c65450406052356ad3c99e481c3e1ad84fcf890d00daca62082a6b1d926",
+      "id": "core.SystemDefinition.materialize_prediction_scenario",
+      "kind": "callable",
+      "source": "src/reliability/SystemDefinition.py",
+      "surface": "core",
+      "symbol": "materialize_prediction_scenario"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
       "definition_sha256": "466a244a4fed5c89acafb1f099ea4ecc0a5865e88d0cccb5b0498094065375fb",
       "id": "core.SystemDefinition.plan_definition_composition",
       "kind": "callable",
@@ -8021,7 +8044,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "d2282820c2f549a9c88ee38efdb7119c78ae5d7558f5ed34b22678f5406462ac",
+      "definition_sha256": "75c70f8c519d9d75b1663af697a0f2d49452ac4168dadf1db99c7b1e8cb53afd",
       "id": "core.SystemDefinition.validate_system_definition",
       "kind": "callable",
       "source": "src/reliability/SystemDefinition.py",
@@ -8679,9 +8702,9 @@
   "model_inventory_complete": false,
   "schema_version": 1,
   "summary": {
-    "core_entries": 627,
-    "entries": 797,
+    "core_entries": 628,
+    "entries": 799,
     "mapped_entries": 18,
-    "router_operations": 170
+    "router_operations": 171
   }
 }

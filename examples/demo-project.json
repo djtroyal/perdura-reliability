@@ -3030,6 +3030,41 @@
         ],
         "issues": []
       }
+    },
+    "faultTreeCatalog": {
+      "schemaVersion": 1,
+      "byTreeId": {
+        "f0": {
+          "code": "FTA-001",
+          "description": "",
+          "tags": []
+        },
+        "fta-simple-or": {
+          "code": "FTA-002",
+          "description": "",
+          "tags": []
+        },
+        "fta-vote": {
+          "code": "FTA-003",
+          "description": "",
+          "tags": []
+        },
+        "fta-pand": {
+          "code": "FTA-004",
+          "description": "",
+          "tags": []
+        },
+        "fta-spare": {
+          "code": "FTA-005",
+          "description": "",
+          "tags": []
+        },
+        "fta-fdep": {
+          "code": "FTA-006",
+          "description": "",
+          "tags": []
+        }
+      }
     }
   },
   "schemaVersion": 9,
@@ -3076,7 +3111,8 @@
     "rdtBayesian": 1,
     "differenceDetection": 1,
     "maintTaskAnalysis": 1,
-    "systemDefinition": 2
+    "systemDefinition": 2,
+    "faultTreeCatalog": 1
   },
   "identity": {
     "projectId": "prj-example-demo-project"

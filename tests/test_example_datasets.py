@@ -248,3 +248,19 @@ def test_demo_uses_the_canonical_nist_payloads():
     for example_id in canonical:
         for slice_key, expected in entries[example_id]["payload"]["modules"].items():
             assert modules[slice_key] == expected
+
+
+def test_demo_fta_catalog_matches_all_canonical_tree_identities():
+    for path in (DEMO_PATH, ROOT / "examples" / "demo-project.json"):
+        demo = load(path)
+        folios = demo["modules"]["faultTree"]["folios"]
+        catalog = demo["modules"]["faultTreeCatalog"]
+        metadata = catalog["byTreeId"]
+        assert catalog["schemaVersion"] == 1
+        assert set(metadata) == {folio["id"] for folio in folios}
+        codes = [entry["code"] for entry in metadata.values()]
+        assert all(codes)
+        assert len(set(codes)) == len(folios)
+        assert all(isinstance(entry["description"], str) for entry in metadata.values())
+        assert all(isinstance(entry["tags"], list) for entry in metadata.values())
+        assert demo["engineRevisions"]["faultTreeCatalog"] == 1

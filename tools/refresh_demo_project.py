@@ -304,6 +304,18 @@ def fault_tree_demo() -> dict[str, Any]:
         ],
     }
 
+
+def fault_tree_catalog_demo(trees: dict[str, Any]) -> dict[str, Any]:
+    """Persist the same tree identities and codes used by FTA import normalization."""
+    return {
+        "schemaVersion": 1,
+        "byTreeId": {
+            folio["id"]: {"code": f"FTA-{index:03d}", "description": "", "tags": []}
+            for index, folio in enumerate(trees["folios"], 1)
+        },
+    }
+
+
 MTA_DEMO_STATE: dict[str, Any] = {
     "version": 1,
     "view": "definition",
@@ -689,6 +701,7 @@ def expected_demo() -> dict[str, Any]:
         demo["modules"].update(modules)
     modernize_existing_slices(demo["modules"])
     demo["modules"].update(CURRENT_SLICE_EXAMPLES)
+    demo["modules"]["faultTreeCatalog"] = fault_tree_catalog_demo(demo["modules"]["faultTree"])
     demo.pop("version", None)
     demo.update({
         "app": "Perdura",
@@ -718,6 +731,7 @@ def render(value: Any) -> str:
 def expected_example_demo() -> dict[str, Any]:
     demo = json.loads(EXAMPLE_DEMO_PATH.read_text(encoding="utf-8"))
     demo["modules"]["faultTree"] = fault_tree_demo()
+    demo["modules"]["faultTreeCatalog"] = fault_tree_catalog_demo(demo["modules"]["faultTree"])
     demo["modules"]["maintTaskAnalysis"] = MTA_DEMO_STATE
     demo.pop("version", None)
     demo.update({
