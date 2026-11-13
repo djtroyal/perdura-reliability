@@ -13,6 +13,19 @@ import tomllib
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def _load_unique_json(path: Path) -> dict:
+    """Reject shadowed declarations instead of accepting JSON's last value."""
+    def unique_object(pairs: list[tuple[str, object]]) -> dict:
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise RuntimeError(f"{path}: duplicate JSON key {key!r}")
+            result[key] = value
+        return result
+
+    return json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=unique_object)
+
+
 def _python_runtime_version() -> str:
     source = (ROOT / "src" / "reliability" / "_version.py").read_text(
         encoding="utf-8"
@@ -71,12 +84,8 @@ def main() -> int:
 
     with (ROOT / "pyproject.toml").open("rb") as stream:
         project = tomllib.load(stream)["project"]
-    frontend = json.loads(
-        (ROOT / "gui" / "frontend" / "package.json").read_text(encoding="utf-8")
-    )
-    frontend_lock = json.loads(
-        (ROOT / "gui" / "frontend" / "package-lock.json").read_text(encoding="utf-8")
-    )
+    frontend = _load_unique_json(ROOT / "gui/frontend/package.json")
+    frontend_lock = _load_unique_json(ROOT / "gui/frontend/package-lock.json")
 
     declarations = {
         "pyproject.toml": project["version"],

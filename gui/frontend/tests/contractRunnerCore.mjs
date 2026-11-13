@@ -2,6 +2,11 @@ import { readFile } from 'node:fs/promises'
 
 export const CONTRACT_RUNNER_SCRIPT = 'test:contracts'
 
+export function contractProcessStatus(processResult) {
+  return processResult.status === 0 && !processResult.error && !processResult.signal
+    ? 'passed' : 'failed'
+}
+
 export async function discoverContractScripts(packagePath) {
   const pkg = JSON.parse(await readFile(packagePath, 'utf8'))
   return Object.keys(pkg.scripts ?? {})
