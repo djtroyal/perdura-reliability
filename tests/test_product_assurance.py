@@ -94,6 +94,19 @@ def test_ci_keeps_partial_evidence_and_enforces_every_job_after_cancellation():
     assert coverage["if"] == "always() && matrix.python-version == '3.13'"
 
 
+def test_ci_requires_settled_metadata_capture_without_losing_failure_reports():
+    steps = _workflow("ci.yml")["jobs"]["verification-report"]["steps"]
+    capture = next(step for step in steps if step.get("id") == "workflow-jobs")
+    compile_step = next(step for step in steps if step.get("id") == "compile")
+    assert capture["continue-on-error"] == "true"
+    assert "build_verification_evidence.py capture-jobs" in capture["run"]
+    assert "--input evidence-source --output evidence-source/workflow-jobs.json" in capture["run"]
+    assert "--run-id '${{ github.run_id }}' --run-attempt '${{ github.run_attempt }}'" in capture["run"]
+    assert "--repository '${{ github.repository }}' --commit '${{ github.sha }}'" in capture["run"]
+    assert "--job-result workflow-metadata=${{ steps.workflow-jobs.outcome }}" in compile_step["run"]
+    assert steps.index(capture) < steps.index(compile_step)
+
+
 def test_local_product_assurance_controls_pass():
     report = MODULE.evaluate()
 

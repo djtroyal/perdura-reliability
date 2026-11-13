@@ -23,6 +23,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from typing import Any, Iterable
 import xml.etree.ElementTree as ET
 import zipfile
@@ -649,6 +650,57 @@ def select_attempt_evidence(inputs: list[Path], paths: list[Path], args,
     return selected_paths, selection, jobs_by_component
 
 
+def capture_jobs_command(args: argparse.Namespace) -> int:
+    """Wait for GitHub's jobs API to reflect completed prerequisite jobs.
+
+    The needs context can release this publisher before the REST job record is
+    terminal. Never infer success from completed steps: fetch a settled snapshot
+    for the same executions selected by artifact provenance. Unrelated future
+    jobs in a reusable-workflow caller must not hold this capture open.
+    """
+    if args.max_attempts < 1 or args.retry_delay < 0 or not args.timeout_seconds > 0:
+        raise ValueError("Capture attempts and timeout must be positive and delay nonnegative")
+    inputs = [Path(value) for value in args.input]
+    output = Path(args.output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.unlink(missing_ok=True)
+    endpoint = f"repos/{args.repository}/actions/runs/{args.run_id}/jobs?filter=all&per_page=100"
+    deadline = time.monotonic() + args.timeout_seconds
+    for attempt in range(args.max_attempts):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        try:
+            result = subprocess.run(
+                ["gh", "api", "--paginate", "--slurp", endpoint],
+                check=True, capture_output=True, text=True, timeout=min(30, remaining),
+            )
+            pages = json.loads(result.stdout)
+            if (not isinstance(pages, list) or not pages
+                    or any(not isinstance(page, dict) or not isinstance(page.get("jobs"), list)
+                           or any(not isinstance(job, dict) for job in page["jobs"]) for page in pages)):
+                raise ValueError("GitHub job pages must contain arrays of job objects")
+            write_json(output, {"jobs": [job for page in pages for job in page["jobs"]]})
+            issues: list[str] = []
+            _, _, component_jobs = select_attempt_evidence(inputs, all_files(inputs), args, issues)
+            pending = [job["name"] for job in component_jobs.values()
+                       if job.get("status") != "completed" or not job.get("conclusion")]
+            if not issues and not pending:
+                print(f"Captured settled workflow metadata for {len(component_jobs)} evidence components.")
+                return 0
+            detail = "; ".join(issues + [f"Job metadata not settled: {name}" for name in pending])
+        except (OSError, subprocess.SubprocessError, ValueError) as exc:
+            detail = str(exc)
+        print(f"Workflow metadata capture {attempt + 1}/{args.max_attempts}: {redact(detail)}", file=sys.stderr)
+        if attempt + 1 < args.max_attempts:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            time.sleep(min(args.retry_delay, remaining))
+    print("Workflow job metadata did not settle; verification remains fail-closed.", file=sys.stderr)
+    return 1
+
+
 def compile_command(args: argparse.Namespace) -> int:
     inputs = [Path(value) for value in args.input]
     output = Path(args.output)
@@ -1052,6 +1104,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     component.add_argument("--file", action="append", default=[])
     component.set_defaults(func=component_command)
+
+    capture = sub.add_parser("capture-jobs", help="Capture settled job metadata for downloaded CI evidence")
+    capture.add_argument("--input", action="append", required=True)
+    capture.add_argument("--output", required=True)
+    capture.add_argument("--repository", required=True)
+    capture.add_argument("--commit", required=True)
+    capture.add_argument("--run-id", required=True)
+    capture.add_argument("--run-attempt", required=True)
+    capture.add_argument("--max-attempts", type=int, default=25)
+    capture.add_argument("--retry-delay", type=float, default=5)
+    capture.add_argument("--timeout-seconds", type=float, default=120)
+    capture.set_defaults(func=capture_jobs_command)
 
     compile_parser = sub.add_parser("compile", help="Compile a complete CI evidence report")
     compile_parser.add_argument("--input", action="append", required=True)

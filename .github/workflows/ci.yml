@@ -669,14 +669,17 @@ jobs:
           fi
 
       - name: Capture workflow job and step timestamps
+        id: workflow-jobs
         continue-on-error: true
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p evidence-source
-          gh api --paginate --slurp 'repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs?filter=all&per_page=100' \
-            | jq '{jobs: [.[].jobs[]]}' > evidence-source/workflow-jobs.json
+          python tools/build_verification_evidence.py capture-jobs \
+            --input evidence-source --output evidence-source/workflow-jobs.json \
+            --repository '${{ github.repository }}' --commit '${{ github.sha }}' \
+            --run-id '${{ github.run_id }}' --run-attempt '${{ github.run_attempt }}'
 
       - name: Compile human and machine-readable verification reports
         id: compile
@@ -713,6 +716,7 @@ jobs:
             --job-result frontend=${{ needs.frontend.result }} \
             --job-result application-wheel=${{ needs.application-wheel.result }} \
             --job-result website-resources=${{ needs.website-resources.result }} \
+            --job-result workflow-metadata=${{ steps.workflow-jobs.outcome }} \
             --repository '${{ github.repository }}' --commit '${{ github.sha }}' \
             --ref '${{ github.ref }}' --event '${{ github.event_name }}' \
             --version "$VERSION" --run-id '${{ github.run_id }}' \
