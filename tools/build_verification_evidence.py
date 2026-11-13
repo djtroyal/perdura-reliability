@@ -635,8 +635,11 @@ def select_attempt_evidence(inputs: list[Path], paths: list[Path], args,
             job = max(matching_jobs, key=lambda item: (int(item["run_attempt"]), int(item["id"])))
             record["job_id"] = job["id"]
             jobs_by_component[component_id] = job
-            generated = datetime.fromisoformat(component["generated_at"].replace("Z", "+00:00"))
-            started = datetime.fromisoformat(job["started_at"].replace("Z", "+00:00"))
+            generated_text, started_text = component["generated_at"], job["started_at"]
+            if not isinstance(generated_text, str) or not isinstance(started_text, str):
+                raise ValueError("component and job execution timestamps must be strings")
+            generated = datetime.fromisoformat(generated_text.replace("Z", "+00:00"))
+            started = datetime.fromisoformat(started_text.replace("Z", "+00:00"))
             if generated < started:
                 raise ValueError("artifact predates the latest execution; its replacement evidence is missing")
         except (OSError, ValueError, KeyError, TypeError) as exc:
