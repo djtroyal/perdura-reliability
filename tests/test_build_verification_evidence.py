@@ -96,6 +96,114 @@ def _compile_attempts(source, output, jobs, *expected, job_results=()):
         "--select-latest-attempts", "--run-attempt", "2", *job_results))
 
 
+def _capture_jobs(source, monkeypatch, snapshots):
+    calls, delays = [], []
+    remaining = iter(snapshots)
+
+    def github(command, **kwargs):
+        assert command == [
+            "gh", "api", "--paginate", "--slurp",
+            "repos/example/perdura/actions/runs/42/jobs?filter=all&per_page=100",
+        ]
+        assert kwargs == {"check": True, "capture_output": True, "text": True, "timeout": 30}
+        calls.append(command)
+        snapshot = next(remaining)
+        if isinstance(snapshot, Exception):
+            raise snapshot
+        return evidence.subprocess.CompletedProcess(command, 0, stdout=json.dumps(snapshot))
+
+    monkeypatch.setattr(evidence.subprocess, "run", github)
+    monkeypatch.setattr(evidence.time, "sleep", delays.append)
+    code = evidence.main([
+        "capture-jobs", "--input", str(source),
+        "--output", str(source / "workflow-jobs.json"),
+        "--repository", "example/perdura", "--commit", "a" * 40,
+        "--run-id", "42", "--run-attempt", "2", "--max-attempts", str(len(snapshots)),
+    ])
+    return code, calls, delays
+
+
+def test_metadata_capture_waits_for_job_conclusion_and_preserves_selective_reruns(tmp_path, monkeypatch):
+    source = tmp_path / "source"
+    _attempt_artifact(source, "python-3.13", 1, tests=True)
+    # GitHub copies the old execution into the selective retry. Its current
+    # record, not an older successful record or completed steps, is authoritative.
+    old = {**_workflow_job("python-3.13", 1), "name": "test / python-3.13"}
+    completed = {**_workflow_job("python-3.13", 2, execution_attempt=1), "name": old["name"]}
+    stale = {**completed, "status": "in_progress", "conclusion": None,
+             "steps": [{"name": "Complete job", "status": "completed", "conclusion": "success"}]}
+    unrelated = [
+        {"name": "test / Publish verification evidence", "status": "in_progress"},
+        {"name": "Publish release", "status": "queued"},
+    ]
+    code, calls, delays = _capture_jobs(source, monkeypatch, [
+        [{"jobs": [old, stale]}, {"jobs": unrelated}],
+        [{"jobs": [old, completed]}, {"jobs": unrelated}],
+    ])
+
+    assert code == 0 and len(calls) == 2 and delays == [5]
+    jobs = json.loads((source / "workflow-jobs.json").read_text())["jobs"]
+    assert jobs == [old, completed, *unrelated]
+    report = _compile_attempts(source, tmp_path / "report", jobs, "python-3.13")
+    assert report["status"] == "passed"
+    assert report["tests"]["totals"]["total"] == 2
+
+
+@pytest.mark.parametrize("outcome,expected", [("failure", "failed"), ("cancelled", "incomplete")])
+def test_settled_failure_is_captured_without_retrying_for_a_pass(tmp_path, monkeypatch, outcome, expected):
+    source = tmp_path / "source"
+    _attempt_artifact(source, "python-3.13", 2, tests=True)
+    jobs = [_workflow_job("python-3.13", 2, outcome=outcome)]
+
+    code, calls, delays = _capture_jobs(source, monkeypatch, [[{"jobs": jobs}]])
+
+    assert code == 0 and len(calls) == 1 and delays == []
+    report = _compile_attempts(source, tmp_path / "report", jobs, "python-3.13")
+    assert report["status"] == expected
+
+
+@pytest.mark.parametrize("missing", [False, True])
+def test_unsettled_or_missing_metadata_times_out_and_blocks_gate(tmp_path, monkeypatch, missing):
+    source = tmp_path / "source"
+    _attempt_artifact(source, "python-3.13", 2, tests=True)
+    jobs = [] if missing else [{**_workflow_job("python-3.13", 2), "conclusion": None}]
+
+    code, calls, delays = _capture_jobs(source, monkeypatch, [[{"jobs": jobs}]] * 2)
+
+    assert code == 1 and len(calls) == 2 and delays == [5]
+    assert json.loads((source / "workflow-jobs.json").read_text())["jobs"] == jobs
+    report = _compile_attempts(source, tmp_path / "report", jobs, "python-3.13",
+                               job_results=("--job-result", "workflow-metadata=failure"))
+    assert report["status"] == "failed"
+    assert evidence.main(["gate", "--report", str(tmp_path / "report/verification-report.json")]) == 1
+
+
+@pytest.mark.parametrize("snapshot", [[], [{"jobs": [None]}], OSError("GitHub unavailable")])
+def test_invalid_metadata_cannot_reuse_a_previous_capture(tmp_path, monkeypatch, snapshot):
+    source = tmp_path / "source"
+    _attempt_artifact(source, "python-3.13", 2, tests=True)
+    output = source / "workflow-jobs.json"
+    output.write_text(json.dumps({"jobs": [_workflow_job("python-3.13", 2)]}))
+
+    code, calls, delays = _capture_jobs(source, monkeypatch, [snapshot])
+
+    assert code == 1 and len(calls) == 1 and delays == []
+    assert not output.exists()
+
+
+def test_metadata_capture_has_an_overall_time_budget(tmp_path, monkeypatch):
+    source = tmp_path / "source"
+    _attempt_artifact(source, "python-3.13", 2, tests=True)
+    jobs = [{**_workflow_job("python-3.13", 2), "status": "in_progress", "conclusion": None}]
+    clock = iter([0, 0, 120])
+    monkeypatch.setattr(evidence.time, "monotonic", lambda: next(clock))
+
+    code, calls, delays = _capture_jobs(source, monkeypatch, [[{"jobs": jobs}]] * 3)
+
+    assert code == 1 and len(calls) == 1 and delays == []
+    assert json.loads((source / "workflow-jobs.json").read_text())["jobs"] == jobs
+
+
 def test_selective_rerun_combines_unchanged_and_rerun_components(tmp_path):
     source = tmp_path / "source"
     _attempt_artifact(source, "python-3.13", 1, tests=True)
