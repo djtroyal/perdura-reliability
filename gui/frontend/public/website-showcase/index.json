@@ -1,7 +1,7 @@
 {
   "schema": "perdura.website-showcase-fixtures/v1",
   "generatedAt": "2026-09-14T08:05:27.092Z",
-  "demoProjectSha256": "5f252f6beb4e5603571d4c370e8541428faea52b9aa7213c04d650a046496da3",
+  "demoProjectSha256": "1139dcf521587ccf626e6aaf296eadb1d9066cd549628e5ee8fd2520ffffb63d",
   "captures": [
     {
       "id": "life-data.parametric",
