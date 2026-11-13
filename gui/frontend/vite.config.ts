@@ -3,6 +3,7 @@ import { createRequire } from 'node:module'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import { re2PrefilterPlugin } from './tools/re2Prefilter.mjs'
 
 // App version, in priority order: an explicit build env (set from the git tag
 // in CI / the Docker build arg) -> package.json version -> 'dev'. Exposed to the
@@ -41,7 +42,7 @@ function manualChunkFor(id: string): string | undefined {
 }
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), {
+  plugins: [react(), tailwindcss(), re2PrefilterPlugin(), {
     name: 'perdura-non-map-plotly-bundle',
     generateBundle(_options, bundle) {
       // Only the non-map partial Plotly bundle is validated. Fail the build
