@@ -3,7 +3,7 @@
 import sys
 from pathlib import Path
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
 
@@ -17,6 +17,9 @@ from reliability.SystemDefinition import (  # noqa: E402
     resolve_analysis_profile,
     validate_system_definition,
 )
+from reliability.SystemRequirements import (  # noqa: E402
+    evaluate_system_requirements, review_verification_case,
+)
 from system_definition_schemas import (  # noqa: E402
     SystemDefinitionCompositionPlanRequest,
     SystemDefinitionImpactRequest,
@@ -25,6 +28,8 @@ from system_definition_schemas import (  # noqa: E402
     SystemDefinitionResolveProfileRequest,
     SystemDefinitionStarterRequest,
     SystemDefinitionValidateRequest,
+    SystemRequirementsAssessRequest,
+    SystemRequirementsReviewRequest,
 )
 
 
@@ -40,6 +45,29 @@ def adapters() -> dict:
 @router.post("/validate", response_model=dict, summary="Validate a canonical system model")
 def validate(request: SystemDefinitionValidateRequest) -> dict:
     return validate_system_definition(request.model.model_dump())
+
+
+@router.post("/requirements/assess", response_model=dict,
+             summary="Assess requirement traceability and verification evidence")
+def assess_requirements(request: SystemRequirementsAssessRequest) -> dict:
+    # Do not introduce default/null fields into the user's reviewed inputs.
+    return evaluate_system_requirements(
+        request.model.model_dump(exclude_unset=True),
+        [source.model_dump() for source in request.sources],
+    )
+
+
+@router.post("/requirements/review", response_model=dict,
+             summary="Record an explicit engineer verification review")
+def review_requirement(request: SystemRequirementsReviewRequest) -> dict:
+    try:
+        return review_verification_case(
+            request.model.model_dump(exclude_unset=True), request.case_id,
+            request.reviewer, [source.model_dump() for source in request.sources],
+            request.reviewed_at,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
 
 
 @router.post("/resolve-profile", response_model=dict,

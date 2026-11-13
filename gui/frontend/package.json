@@ -1,7 +1,7 @@
 {
   "name": "perdura-gui",
   "private": true,
-  "version": "0.8.3",
+  "version": "0.8.4",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -80,6 +80,10 @@
     "test:adopted-distribution": "node --experimental-strip-types tests/adoptedDistribution.test.mjs",
     "test:reliability-sources": "node --experimental-strip-types tests/reliabilitySources.test.mjs",
     "test:shared-system": "node tests/sharedSystem.test.mjs",
+    "test:system-requirements": "node tests/systemRequirements.test.mjs",
+    "assurance:system-requirements": "node tests/systemRequirementsBrowser.mjs",
+    "assurance:shared-requirements": "node tests/sharedRequirementsBrowser.mjs",
+    "test:verification-evidence": "node tests/systemVerificationEvidence.test.mjs",
     "assurance:adopted-distribution": "node tests/adoptedDistributionBrowser.mjs",
     "assurance:diagram-layout": "node tests/diagramLayoutBrowser.mjs",
     "test:monte-carlo-sources": "node --experimental-strip-types tests/monteCarloSources.test.mjs",
@@ -89,6 +93,7 @@
     "assurance:reliability-sources": "node tests/reliabilitySourcesBrowser.mjs",
     "test:shared-system-units": "node tests/sharedSystemUnits.test.mjs",
     "test:shared-fmea": "node tests/sharedFmeaModel.test.mjs",
+    "test:shared-requirement-views": "node tests/sharedRequirementViews.test.mjs",
     "test:shared-fmea-serialization": "node tests/sharedFmeaSerialization.test.mjs",
     "test:fmea-diagram-projection": "node --experimental-strip-types tests/fmeaDiagramProjection.test.mjs",
     "assurance:shared-fmea": "node tests/sharedFmeaBrowser.mjs",

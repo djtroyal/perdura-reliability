@@ -24,6 +24,20 @@ version_check = importlib.util.module_from_spec(VERSION_SPEC)
 VERSION_SPEC.loader.exec_module(version_check)
 
 
+def test_release_stamping_preserves_current_project_schema(tmp_path, monkeypatch):
+    spec = importlib.util.spec_from_file_location("stamp_build_test", ROOT / "tools/stamp_build.py")
+    stamp = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(stamp)
+    (tmp_path / "gui/frontend/src").mkdir(parents=True)
+    (tmp_path / "src/reliability").mkdir(parents=True)
+    (tmp_path / "gui/frontend/src/version.ts").write_text("export const PROJECT_SCHEMA_VERSION = 42\n")
+    monkeypatch.setattr(stamp, "ROOT", tmp_path)
+    monkeypatch.setattr("sys.argv", ["stamp_build.py", "--commit", "a" * 40,
+                                    "--timestamp", "2026-11-13T00:00:00Z"])
+    assert stamp.main() == 0
+    assert "PROJECT_SCHEMA_VERSION = 42" in (tmp_path / "src/reliability/_build.py").read_text()
+
+
 def _fixture(root: Path, version: str = "0.6.0") -> None:
     (root / "src/reliability").mkdir(parents=True)
     (root / "src/perdura_app").mkdir(parents=True)

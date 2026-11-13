@@ -112,6 +112,7 @@ try {
       try {
         const data = await readFile(resolve(fixtureDir, `${capture.id}.json`), 'utf8')
         const parsed = JSON.parse(data)
+        if (parsed.schemaVersion !== demo.schemaVersion) throw new Error('Fixture project schema requires reauthoring.')
         records.push({ id: capture.id, modules: Object.keys(parsed.modules ?? {}), sha256: sha256(data) })
         process.stdout.write(`retained ${capture.id}\n`)
         continue
@@ -180,7 +181,7 @@ try {
         throw new Error(`${capture.id}: analysis produced no persisted state change`)
       }
       // Dependent modules must remain portable current-format project exports.
-      if (['prediction', 'fmea'].some(key => key in changedModules) && exported.modules.systemDefinition)
+      if (['prediction', 'fmea', 'reliabilityProgram'].some(key => key in changedModules) && exported.modules.systemDefinition)
         changedModules.systemDefinition = exported.modules.systemDefinition
       const fixture = { ...exported, modules: changedModules }
       const data = `${JSON.stringify(fixture, null, 2)}\n`

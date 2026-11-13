@@ -71,6 +71,8 @@ def analyze(request: FMEAAnalyzeRequest) -> dict[str, Any]:
         return analyze_studies(
             [item.model_dump() for item in request.studies],
             canonical_system=request.canonical_system.model_dump() if request.canonical_system else None,
+            verification_model=request.canonical_system.model_dump(exclude_unset=True) if request.canonical_system else None,
+            verification_sources=[item.model_dump() for item in request.verification_sources],
             rating_profiles=[item.model_dump() for item in request.rating_profiles],
             program_requirements=[item.model_dump() for item in request.program_requirements],
         )
@@ -109,6 +111,8 @@ def release(request: FMEAReleaseRequest) -> dict[str, Any]:
         return create_release(
             request.study.model_dump(),
             canonical_system=request.canonical_system.model_dump() if request.canonical_system else None,
+            verification_model=request.canonical_system.model_dump(exclude_unset=True) if request.canonical_system else None,
+            verification_sources=[item.model_dump() for item in request.verification_sources],
             rating_profiles=[
                 item.model_dump() for item in request.rating_profiles
             ],

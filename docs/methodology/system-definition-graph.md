@@ -21,7 +21,7 @@ analysis-owned.
 ## Storage decision
 
 System model version 4 is a portable JSON property graph inside project
-schema 11. FMEA studies use schema version 4. Older alpha projects, studies,
+schema 12. FMEA studies use schema version 4. Older alpha projects, studies,
 libraries, and workbook contracts are rejected; there is no automatic migration. The singleton lives in `modules.systemDefinition`; Prediction scenario
 format 1 stores `partInputs` and `blockInputs` under each folio. Scenario exports
 and bound FMEA/Program module exports include the canonical System Definition
@@ -185,10 +185,42 @@ Each reviewed downstream projection includes canonical entity checksums in a bin
 Impact analysis compares those checksums with the current model and reports
 added, modified, and removed entities before an analysis is refreshed.
 
+## Requirements and verification
+
+The **Requirements & Verification** workspace records design intent once in the
+canonical System Model. Requirement identities survive block renames and moves.
+Allocations reference installed blocks, occurrence-qualified functions, or
+interfaces; parent requirements express derivation independently of containment.
+The whole-project list can be searched or filtered to the selected installed
+block and its descendants. Physical FMEA and Reliability Program requirement
+editors use these same records. Process-specific PFMEA requirements remain local.
+
+Draft requirements and planned verification cases do not prevent architecture
+exploration or calculations. A review needs acceptance criteria, applicable
+evidence, an explicit assessment, and a named reviewing engineer. Adding a
+document or selecting a passing outcome alone does not establish verification.
+Internal evidence identifies a completed analysis run and its fingerprint;
+external evidence identifies a document/test record, revision, and checksum.
+The engineer reviews its applicability to the requirement's modes, units, and
+mission context. This is an engineering review record, not an authenticated
+electronic signature or certification decision.
+
+Verification freshness follows the requirement's engineering dependencies and
+evidence. Relevant requirement, allocation, interface, function, and calculation
+changes require a new review. Diagram positions and other presentation changes
+do not. Requirements and review records are excluded from independent numerical
+calculation fingerprints. Report Builder exposes **Requirements Traceability**
+and **Verification Evidence Review** tables with the current assessment status.
+
+The Aircraft example includes illustrative requirements from system level to an
+installed motor, together with planned review cases. It contains no fabricated
+qualification evidence or verified claims.
+
 ## Scope
 
 The vocabulary is inspired by MBSE and SysML concepts—definition versus usage,
 ports, interfaces, allocation, modes, and traceability—but Perdura does not
-claim SysML compliance or interchange support. Requirements, verification
-cases, parametric constraint solving, and formal SysML serialization remain
-future extensions.
+claim SysML compliance or interchange support. General state-machine behavior,
+parametric constraint solving, and formal SysML serialization remain future
+extensions. Physical containment does not infer RBD success topology or fault
+tree logic.

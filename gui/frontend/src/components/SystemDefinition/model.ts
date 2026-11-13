@@ -21,7 +21,7 @@ export interface SystemDefinitionState {
   selectedModeId: string
   selectedInstanceId: string
   structureCollapsedIds: string[]
-  view: 'structure'|'architecture'|'functions'|'fault-map'|'integrations'
+  view: 'structure'|'architecture'|'functions'|'requirements'|'fault-map'|'integrations'
   decisions: ProposalDecision[]
   propagation?: SystemPropagationResult|null
   analysisBindings?: SystemAnalysisBinding[]

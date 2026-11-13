@@ -3,6 +3,8 @@ import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createServer as createHttpServer } from 'node:http'
+import { createSsrTestServer } from './viteTestLifecycle.mjs'
 import { captures, validateCaptureRegistry, WEBSITE_RESOURCE_SCHEMA } from '../website/captures.mjs'
 import {
   isTransientCaptureContextError, withTransientCaptureRetry,
@@ -81,6 +83,9 @@ const compatibilitySource = readFileSync(
 const frontendContract = compatibilitySource.match(/export const FRONTEND_API_CONTRACT = (\d+)/)?.[1]
 assert.equal(String(CAPTURE_API_CONTRACT), frontendContract, 'capture API contract must match the frontend')
 const fixtureIndex = JSON.parse(readFileSync(resolve(fixtureDir, 'index.json'), 'utf8'))
+const projectSchema = Number(readFileSync(resolve(fixtureDir, '../../src/version.ts'), 'utf8')
+  .match(/export const PROJECT_SCHEMA_VERSION = (\d+)/)?.[1])
+assert.ok(Number.isInteger(projectSchema), 'current project schema must be declared')
 assert.equal(fixtureIndex.schema, 'perdura.website-showcase-fixtures/v1')
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex')
 assert.equal(fixtureIndex.demoProjectSha256,
@@ -94,6 +99,8 @@ for (const capture of captures.filter(item => item.resultRequired)) {
   assert.ok(existsSync(resolve(fixtureDir, `${capture.id}.json`)), `missing fixture file: ${capture.id}`)
   assert.equal(record.sha256, sha256(readFileSync(resolve(fixtureDir, `${capture.id}.json`))),
     `completed-analysis fixture bytes do not match their index: ${capture.id}`)
+  const fixture = JSON.parse(readFileSync(resolve(fixtureDir, `${capture.id}.json`), 'utf8'))
+  assert.equal(fixture.schemaVersion, projectSchema, `completed-analysis fixture uses an unsupported project schema: ${capture.id}`)
   if (capture.fixtureId) {
     assert.ok(indexedFixtures.has(capture.fixtureId), `shared fixture is not indexed: ${capture.fixtureId}`)
     assert.ok(existsSync(resolve(fixtureDir, `${capture.fixtureId}.json`)), `shared fixture file is missing: ${capture.fixtureId}`)
@@ -146,5 +153,25 @@ await assert.rejects(
   /fixture is invalid/,
 )
 assert.equal(nonTransientAttempts, 1)
+
+// Every screenshot patch must survive the same canonical import path used by
+// applyWebsiteShowcaseFixture, without silently discarding computed outputs.
+const hmrServer = createHttpServer()
+const vite = await createSsrTestServer({ root: resolve(fixtureDir, '../..'), appType: 'custom',
+  server: { middlewareMode: true, ws: { server: hmrServer } } })
+try {
+  const store = await vite.ssrLoadModule('/src/store/project.ts')
+  const demo = JSON.parse(readFileSync(resolve(fixtureDir, '../../src/data/demoProject.json'), 'utf8'))
+  for (const record of fixtureIndex.captures) {
+    const fixture = JSON.parse(readFileSync(resolve(fixtureDir, `${record.id}.json`), 'utf8'))
+    const merged = { ...fixture, modules: { ...demo.modules, ...fixture.modules },
+      engineRevisions: { ...demo.engineRevisions,
+        ...Object.fromEntries(Object.keys(fixture.modules).map(key => [key, fixture.engineRevisions[key]])) } }
+    const imported = store.importPayload(merged)
+    assert.deepEqual(imported.recalculationRequired, [], `${record.id}: saved results require regeneration through the current API`)
+    for (const [key, value] of Object.entries(fixture.modules)) if (store.hasComputedResults(value))
+      assert.ok(store.hasComputedResults(store.getProjectState().modules[key]), `${record.id}: ${key} computed results were lost during import`)
+  }
+} finally { await vite.close(); hmrServer.close() }
 
 console.log(`website-resource contracts passed (${captures.length} captures)`)

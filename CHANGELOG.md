@@ -3,6 +3,54 @@
 All notable Perdura changes are documented here. Releases use stable semantic
 versions in the `0.x` series as defined in [VERSIONING.md](VERSIONING.md).
 
+## 0.8.4
+
+This alpha release adds shared system modeling, requirements traceability, and
+explicit evidence review. It uses project schema 12; older alpha project files
+are not migrated.
+
+### Added
+
+- A canonical project System Model shared with physical FMEA and failure-rate
+  prediction, with installed hierarchy, structured functions, resources,
+  interfaces, and an Aircraft example extending through L4.
+- A Requirements & Verification workspace with stable requirement identities,
+  derivation, block/function/interface allocations, operating-mode applicability,
+  evidence, engineer assessments, and traceability report tables.
+- Shared requirement editing in physical FMEA and Reliability Program. Process
+  FMEA retains its process-specific requirements.
+- A system-scale FTA library with stable references and report integration, plus
+  improved diagram layouts, library navigation, and canvas controls.
+
+### Changed
+
+- Verification becomes stale when its relevant engineering inputs or evidence
+  change. Diagram presentation does not invalidate a review, and unrelated
+  numerical analyses remain current.
+- Improved Life Data distribution selection and reuse, data entry, shared
+  interface views, and persistent display preferences.
+- Improved logo contrast and website screenshot delivery. Updated frontend
+  dependencies and development tooling.
+
+### Fixed
+
+- Internal verification evidence now requires its recorded calculation results
+  and matching input/result hashes; an inputs-only export cannot retain a current
+  verification claim. Shared editors preserve reviewed records.
+- Reduced repeated verification work for large requirement sets while retaining
+  semantic freshness checks.
+- Hardened CI evidence collection, retries, cancellation, accessibility checks,
+  and website artifact verification.
+- Release stamping preserves the current project schema instead of an obsolete
+  hard-coded value.
+
+### Compatibility
+
+- Project schema 12 stores physical-system requirements and verification in the
+  canonical System Model. Browser storage is isolated by schema, and unsupported
+  alpha formats are rejected without migration.
+- This is an MBSE foundation; full SysML authoring and interchange are not included.
+
 ## 0.8.3
 
 This patch preserves analytical results and project compatibility while fixing

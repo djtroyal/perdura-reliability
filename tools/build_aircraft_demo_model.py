@@ -604,6 +604,48 @@ def build_aircraft_model(existing_model: dict[str, Any] | None = None) -> dict[s
         "viewport": {"x": 0, "y": 0, "zoom": 0.75}, "snap_to_grid": True,
         "mode_ids": [], "nodes": nodes, "hidden_instance_ids": [],
     }]
+    # Illustrative design intent is deliberately unverified. These records teach
+    # derivation/allocation without inventing qualification evidence or limits.
+    def requirement(ident: str, statement: str, block_id: str, criteria: str,
+                    parent: str = "", function_id: str = "") -> dict[str, Any]:
+        allocation = {"system_model_id": model["id"], "instance_id": block_id}
+        if function_id:
+            allocation["function_id"] = function_id
+        return {
+            "id": ident, "statement": statement, "requirement_type": "functional",
+            "measure": "", "target": "", "unit": "", "acceptance_criteria": criteria,
+            "operating_condition": "", "source": "Illustrative aircraft design intent",
+            "owner": "", "confidence": "", "verification_method": "analysis",
+            "evidence_ids": [], "special_characteristic": "", "lifecycle": "draft",
+            "derived_from_ids": [parent] if parent else [], "allocations": [allocation],
+            "mode_ids": ["run", "takeoff", "landing"], "mission_profile": "",
+            "failure_definition": "", "supporting_analyses": [],
+        }
+
+    model["requirements"] = [
+        requirement("REQ-AIRCRAFT-CONTROL", "The aircraft shall translate crew intent into controlled aircraft motion.",
+                    "aircraft", "Demonstrate traceability from crew commands through propulsion and control-surface functions to aircraft motion.",
+                    function_id="fly-aircraft"),
+        requirement("REQ-PROPULSION-COMMAND", "The propulsion system shall provide thrust in response to aircraft control demands.",
+                    "propulsion", "Show a complete command, electrical-power, and thrust path for each propulsion channel.",
+                    "REQ-AIRCRAFT-CONTROL", "perform"),
+        requirement("REQ-ESSENTIAL-POWER", "The electrical power system shall supply the essential DC loads required for controlled flight.",
+                    "electrical-power", "Review every essential load against its allocated supply, interfaces, and failure response.",
+                    "REQ-AIRCRAFT-CONTROL", "supply-essential-power"),
+        requirement("REQ-LEFT-MOTOR-CONVERSION", "The left motor shall convert supplied phase power into commanded shaft torque.",
+                    "motor-left", "Demonstrate the phase-power input, torque output, and associated failure-mode coverage for the installed left motor.",
+                    "REQ-PROPULSION-COMMAND", "perform"),
+    ]
+    model["verification_cases"] = [{
+        "id": f"VER-{item['id'][4:]}", "objective": f"Review {item['id']}",
+        "requirement_ids": [item["id"]], "failure_chain_ids": [], "method": "analysis",
+        "level": "System" if item["id"] == "REQ-AIRCRAFT-CONTROL" else "Allocated item",
+        "sample_size": "", "acceptance_criteria": item["acceptance_criteria"], "owner": "",
+        "status": "planned", "evidence_link_ids": [], "mode_ids": item["mode_ids"],
+        "outcome": "not_assessed", "assessment": "", "reviewed_by": "", "reviewed_at": "",
+        "reviewed_fingerprint": "", "reviewed_revision": "",
+    } for item in model["requirements"]]
+    model["verification_evidence"] = []
     return deepcopy(model)
 
 

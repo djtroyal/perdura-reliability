@@ -10,7 +10,9 @@ import {
   type ReliabilityProgramRequest,
   type ReliabilityProgramResponse,
 } from '../../api/reliabilityProgram'
-import { useModuleFolios } from '../../store/project'
+import { getProjectState, useModuleFolios, useStoreVersion } from '../../store/project'
+import { sharedProgramRequirementInputs } from '../../store/sharedRequirementViews'
+import { verificationSourcesForProject } from '../../store/systemVerificationState'
 import { useBookmarkNavigationTarget } from '../../store/bookmarks'
 import { setUiPreference } from '../../store/uiPreferences'
 import FolioBar from '../shared/FolioBar'
@@ -53,6 +55,7 @@ interface Column {
   width?: string
   title?: string
   referenceView?: 'hazards'|'fracas'
+  readOnly?: boolean
 }
 
 interface ReliabilityProgramState {
@@ -142,11 +145,11 @@ const COLUMNS: Record<View, Column[]> = {
     { key: 'fmeaLinks', label: 'FMEA IDs', width: 'w-28' },
   ],
   requirements: [
-    { key: 'id', label: 'ID', width: 'w-24' }, { key: 'statement', label: 'Requirement statement', width: 'w-64' },
+    { key: 'id', label: 'ID', width: 'w-24', readOnly: true }, { key: 'statement', label: 'Requirement statement', width: 'w-64' },
     { key: 'measure', label: 'Measure', width: 'w-36' }, { key: 'target', label: 'Target', width: 'w-28' },
     { key: 'confidence', label: 'Confidence', width: 'w-24' }, { key: 'missionProfile', label: 'Mission / use profile', width: 'w-48' },
     { key: 'failureDefinition', label: 'Failure definition', width: 'w-48' }, { key: 'verification', label: 'Verification method', width: 'w-40' },
-    { key: 'owner', label: 'Owner', width: 'w-28' }, { key: 'status', label: 'Status', type: 'select', options: ['draft','approved','in verification','verified','accepted'], width: 'w-28' },
+    { key: 'owner', label: 'Owner', width: 'w-28' }, { key: 'status', label: 'Lifecycle', type: 'select', options: ['draft','active','retired'], width: 'w-28' },
     { key: 'evidence', label: 'Evidence / analysis IDs', width: 'w-48' },
   ],
   testability: [
@@ -204,6 +207,7 @@ export default function ReliabilityProgram({
 }) {
   const [state, setState, folios, startRequest] = useSharedFmeaState<ReliabilityProgramState>('reliabilityProgram', INITIAL_STATE, 'aiagAnalyses')
   const [sharedSystem] = useSharedSystemDefinition()
+  const projectRevision = useStoreVersion()
   const predictionFolios = useModuleFolios<PredictionStructureState>('prediction')
   const predictionSources = useMemo(() =>
     predictionFolios.map((folio): PredictionAnalysisSource => ({
@@ -335,6 +339,9 @@ export default function ReliabilityProgram({
     } })
   }
   const removeRow = (index: number) => {
+    if (state.view === 'requirements' && !window.confirm(
+      'Delete this shared system requirement? Referencing analyses and verification cases will need review.',
+    )) return
     const removed = currentRows[index]
     const nextRows = currentRows.filter((_, rowIndex) => rowIndex !== index)
     if (state.view === 'fmea' && state.fmeaMode === 'classic') {
@@ -468,18 +475,8 @@ export default function ReliabilityProgram({
         ? decodeURIComponent(encodedDiagram) : '',
     }))
   }, [bookmarkTarget, folios.activeId, normalizedAnalyses, setState, sharedSystem.model.id])
-  const programRequirements = useMemo(
-    () => state.rows.requirements.map(row => ({
-      id: String(row.id), statement: String(row.statement),
-      measure: String(row.measure), target: String(row.target),
-      confidence: String(row.confidence),
-      mission_profile: String(row.missionProfile),
-      failure_definition: String(row.failureDefinition),
-      verification_method: String(row.verification), owner: String(row.owner),
-      status: String(row.status), evidence_ids: list(row.evidence),
-    })),
-    [state.rows.requirements],
-  )
+  const programRequirements = useMemo(() => sharedProgramRequirementInputs(sharedSystem.model,
+    verificationSourcesForProject(getProjectState())), [sharedSystem.model, projectRevision])
   const request = useMemo((): ReliabilityProgramRequest => ({
     hazards: state.rows.hazards.map(row => ({ id: String(row.id), title: String(row.title), description: String(row.description), cause: String(row.cause), initial_probability: String(row.initialProbability) as 'A', initial_severity: String(row.initialSeverity) as 'I', mitigation: String(row.mitigation), verification: String(row.verification), residual_probability: String(row.residualProbability) as 'D', residual_severity: String(row.residualSeverity) as 'III', acceptance_status: String(row.status), acceptance_authority: String(row.authority), linked_fmea_ids: list(row.fmeaLinks) })),
     fracas: state.rows.fracas.map(row => ({ id: String(row.id), system: String(row.system), failure_mode: String(row.failureMode), symptom: String(row.symptom), exposure_at_event: optionalNumber(row.exposure), root_cause: String(row.rootCause), corrective_action: String(row.action), status: String(row.status), action_owner: String(row.owner), effectiveness_verified: Boolean(row.verified), recurrence: Boolean(row.recurrence), downtime: Number(row.downtime) || 0, linked_fmea_ids: list(row.fmeaLinks) })),
@@ -679,6 +676,7 @@ function EditableTable({
                         onNavigateReference(column.referenceView!, id)}
                       compact />
                   : <input type={column.type === 'number' ? 'number' : 'text'}
+                      readOnly={column.readOnly}
                       aria-label={`${column.label}, row ${index + 1}`}
                       value={String(row[column.key] ?? '')}
                       onChange={event =>
