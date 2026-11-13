@@ -2,7 +2,7 @@
   "app": "Perdura",
   "subtitle": "Reliability Engineering and Statistics Suite",
   "website": "https://perdurareliability.com",
-  "schemaVersion": 6,
+  "schemaVersion": 11,
   "createdWith": {
     "version": "0.7.0",
     "commit": "dev",
@@ -153,7 +153,7 @@
               "regime_warning": null,
               "interpretation": {
                 "trend": "improving",
-                "detail": "Duane slope α = 0.284: cumulative MTBF is increasing — reliability is growing. Current (instantaneous) MTBF ≈ 450."
+                "detail": "Duane slope \u03b1 = 0.284: cumulative MTBF is increasing \u2014 reliability is growing. Current (instantaneous) MTBF \u2248 450."
               },
               "growth_rate": 0.283518,
               "mtbf_instantaneous": 450.04391591860775,

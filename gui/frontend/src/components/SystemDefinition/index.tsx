@@ -1,8 +1,10 @@
 import StructureTable from './StructureTable'
-import { useMemo, useState } from 'react'
+import SystemFunctionsEditor from './SystemFunctionsEditor'
+import { appendCompositionInstance, moveSystemSibling, reparentSystemInstance, systemHierarchyInstances, systemStructureRows } from './structureEditing'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Box, Check, ChevronDown, ChevronRight, CircleAlert, GitBranch, Layers3, Link2,
-  Network, Plus, RefreshCw, Send, ShieldAlert, TableProperties, Trash2, X,
+  Eye, EyeOff, Minus, Network, PanelRightClose, PanelRightOpen, Plus, RefreshCw, Send, ShieldAlert, TableProperties, Trash2, X,
 } from 'lucide-react'
 
 import {
@@ -21,17 +23,29 @@ import {
   type SystemInterface,
   type SystemInterfaceType,
   type SystemProjectionResult,
+  type SystemResource,
 } from '../../api/systemDefinition'
 import { useModuleState } from '../../store/project'
+import { useUiPreference } from '../../store/uiPreferences'
 import { captureSharedSystemContext, useSharedSystemDefinition } from '../../store/sharedSystem'
-import { createProjectSystem } from '../../store/sharedSystemModel'
+import { createProjectSystem, systemInputFingerprint } from '../../store/sharedSystemModel'
 import { createFmeaAnalysis } from '../ReliabilityProgram/fmeaModel'
+import { bindFmeaAnalysis } from '../../store/sharedFmeaModel'
+import type { AIAGVDAFMEAAnalysis } from '../../api/reliabilityProgram'
 import { toast } from '../shared/toast'
+import { distributionLabel } from '../shared/distributionLabels'
 import {
-  applyHierarchyLayout, decisionStatus, hierarchyLayout, instanceLabel,
+  decisionStatus, hierarchyLayout, instanceLabel,
   type SystemDefinitionState,
 } from './model'
 import SystemBlockDiagramCanvas from './SystemBlockDiagramCanvas'
+import { defaultHierarchyDiagramNodes, diagramBranchVisible, diagramBranchSelection, diagramInstanceSelected,
+  setDiagramBranchVisibility, setDiagramVisibility } from './diagramProjection'
+import { hierarchyIndex, interfaceBoundaryInstances } from '../shared/hierarchicalDiagram'
+import { SystemInterfaceTransferEditor } from '../shared/ResourceTransferEditor'
+import { effectiveSystemFunctions, syncGeneratedDescriptions } from '../../store/systemArchitecture'
+import { upsertInstalledFunction, disconnectInterface, isolateInstalledOutputs } from '../../store/functionResourceFlows'
+import { populateSystemInterfaceFunctions } from '../../store/interfaceFunctions'
 
 const INITIAL_STATE = createProjectSystem()
 const fieldClass = 'w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-xs outline-hidden focus:border-blue-500'
@@ -42,6 +56,17 @@ const reliabilityDistributionDefaults: Record<string, Record<string, number>> = 
   normal: { mu: 1000, sigma: 200 }, lognormal: { mu: 6.9, sigma: 0.5 },
   gamma: { alpha: 2, beta: 500 }, loglogistic: { alpha: 1000, beta: 2 },
   gumbel: { mu: 1000, sigma: 200 }, beta: { alpha: 2, beta: 2 },
+}
+
+/** Fill new records without resetting any manually positioned installed block. */
+function ensureMasterDiagramNodes(model: SystemDefinitionModel): SystemDefinitionModel {
+  const diagram = model.diagrams[0]
+  if (!diagram) return model
+  const existing = new Map(diagram.nodes.flatMap(node => node.instance_id ? [[node.instance_id, node] as const] : []))
+  return { ...model, diagrams: [{ ...diagram, nodes: [
+    ...defaultHierarchyDiagramNodes(model).map(node => existing.get(node.instance_id ?? '') ?? node),
+    ...diagram.nodes.filter(node => node.external_id),
+  ] }, ...model.diagrams.slice(1)] }
 }
 
 function activeFolioUpdate(raw: unknown, update: (state: Record<string, unknown>) => Record<string, unknown>): unknown {
@@ -103,46 +128,58 @@ function functionRefKey(ref: SystemFunctionRef): string {
 }
 
 function HierarchyTree({
-  model, selectedId, onSelect,
+  model, selectedId, onSelect, onVisibilityChange, hidePieceParts = false, label = 'System hierarchy',
 }: {
   model: SystemDefinitionModel
   selectedId: string
   onSelect: (id: string) => void
+  onVisibilityChange?: (id: string, visible: boolean) => void
+  hidePieceParts?: boolean
+  label?: string
 }) {
   const byParent = new Map<string, SystemBlockInstance[]>()
-  for (const item of model.instances) {
+  for (const item of systemHierarchyInstances(model, hidePieceParts)) {
     const key = item.parent_instance_id ?? ''
     byParent.set(key, [...(byParent.get(key) ?? []), item])
   }
   const branch = (item: SystemBlockInstance, depth: number): React.ReactNode => {
     const definition = model.definitions.find(value => value.id === item.definition_id)
+    const visibility = diagramBranchSelection(model, item.id)
+    const contextOnly = diagramBranchVisible(model, item.id) && !diagramInstanceSelected(model, item.id)
     return <div key={item.id}>
-      <button type="button" onClick={() => onSelect(item.id)}
-        className={`flex w-full items-center gap-1 rounded px-1.5 py-1 text-left text-xs ${
+      <div className="flex items-start gap-1"><button type="button" onClick={() => onSelect(item.id)}
+        className={`flex min-w-0 flex-1 items-center gap-1 rounded px-1.5 py-1 text-left text-xs ${
           selectedId === item.id ? 'bg-blue-100 text-blue-800' : 'text-slate-700 hover:bg-slate-100'
         }`} style={{ paddingLeft: 6 + depth * 14 }}>
-        <ChevronRight size={11} className={(byParent.get(item.id)?.length ?? 0) ? 'text-slate-400' : 'invisible'} />
-        <Box size={12} className="text-blue-500" />
-        <span className="truncate">{instanceLabel(model, item)}</span>
-        <span className="ml-auto text-[9px] text-slate-400">{definition?.classification}</span>
+        <ChevronRight size={11} className={`shrink-0 ${(byParent.get(item.id)?.length ?? 0) ? 'text-slate-400' : 'invisible'}`} />
+        <Box size={12} className="shrink-0 text-blue-500" />
+        <span className="min-w-0 flex-1 whitespace-normal [overflow-wrap:anywhere]">{instanceLabel(model, item)}</span>
+        <span className="ml-auto shrink-0 text-[9px] text-slate-600" title={definition?.classification}>L{depth + 1}</span>
       </button>
+      {onVisibilityChange && item.id !== model.root_instance_id && <button type="button"
+        aria-label={`Diagram visibility for ${instanceLabel(model, item)}`} aria-pressed={visibility}
+        title={`${contextOnly ? 'Parent context only. ' : visibility === 'mixed' ? 'Partially selected branch. ' : ''}${visibility === true ? 'Hide' : 'Show'} this entire branch`}
+        onClick={() => onVisibilityChange(item.id, visibility !== true)}
+        className="mt-0.5 shrink-0 rounded p-1 text-slate-600 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500">
+        {visibility === 'mixed' ? <Minus size={14} className="text-blue-700" /> : visibility ? <Eye size={14} /> : <EyeOff size={14} />}
+      </button>}</div>
       {(byParent.get(item.id) ?? []).map(child => branch(child, depth + 1))}
     </div>
   }
-  return <div>{(byParent.get('') ?? []).map(item => branch(item, 0))}</div>
+  return <div role="group" aria-label={label}>{(byParent.get('') ?? []).map(item => branch(item, 0))}</div>
 }
 
 
 function ArchitectureDiagram({
-  model, selectedId, collapsedInstanceIds, onSelect, onToggleCollapse,
+  model, selectedId, structureCollapsedIds, onSelect, onToggleCollapse,
 }: {
   model: SystemDefinitionModel
   selectedId: string
-  collapsedInstanceIds: string[]
+  structureCollapsedIds: string[]
   onSelect: (id: string) => void
   onToggleCollapse: (id: string) => void
 }) {
-  const collapsed = new Set(collapsedInstanceIds)
+  const collapsed = new Set(structureCollapsedIds)
   const layouts = hierarchyLayout(model, collapsed)
   const byId = new Map(layouts.map(item => [item.instance_id, item]))
   const instanceById = new Map(model.instances.map(item => [item.id, item]))
@@ -291,9 +328,50 @@ function FaultTraceDiagram({ result }: { result: NonNullable<SystemDefinitionSta
   </div>
 }
 
-export default function SystemDefinition() {
+export default function SystemDefinition({ functionNavigation, interfaceNavigation }: {
+  functionNavigation?: { instanceId: string; functionId: string; nonce: number }
+  interfaceNavigation?: { interfaceId: string; nonce: number }
+} = {}) {
   const [state, setState] = useSharedSystemDefinition()
-  const [showPieceParts, setShowPieceParts] = useState(false)
+  const [showPieceParts, setShowPieceParts] = useUiPreference<boolean>('systemDefinition.showPieceParts', false)
+  const [editStructure, setEditStructure] = useUiPreference<boolean>('systemDefinition.editStructure', false)
+  const [modelToolsOpen, setModelToolsOpen] = useState(false)
+  const [diagramSelectionRequest,setDiagramSelectionRequest] = useState<{instanceId:string;requestId:number}>()
+  const [interfaceSelectionRequest, setInterfaceSelectionRequest] = useState<{interfaceId:string;requestId:number}>()
+  const [functionFocusRequest, setFunctionFocusRequest] = useState<{instanceId:string;functionId:string;nonce:number}>()
+  const navigateFunction = useCallback((target: {instanceId:string;functionId:string}) => {
+    setState(current => ({ ...current, view: 'functions', selectedInstanceId: target.instanceId }))
+    setFunctionFocusRequest(current => ({ ...target, nonce: (current?.nonce ?? 0) + 1 }))
+    setModelToolsOpen(false)
+  }, [setState])
+  const navigateInterface = useCallback((interfaceId: string) => {
+    setState(current => {
+      const item = current.model.interfaces.find(edge => edge.id === interfaceId)
+      if (!item) return current
+      let next = current.model
+      const instanceIds: string[] = []
+      for (const endpoint of [item.source, item.target]) {
+        let instance = next.instances.find(value => value.id === endpoint.instance_id)
+        const seen = new Set<string>()
+        while (instance && next.definitions.find(definition => definition.id === instance?.definition_id)?.kind === 'piece_part'
+            && !seen.has(instance.id)) {
+          seen.add(instance.id)
+          const parentId = instance.parent_instance_id
+          instance = next.instances.find(value => value.id === parentId)
+        }
+        if (instance) {
+          instanceIds.push(instance.id)
+          if (instance.id !== next.root_instance_id) next = setDiagramBranchVisibility(next, instance.id, true)
+        }
+      }
+      return { ...current, view: 'architecture', selectedInstanceId: instanceIds[0] ?? current.selectedInstanceId, model: next }
+    })
+    setDiagramSelectionRequest(undefined)
+    setInterfaceSelectionRequest(current => ({ interfaceId, requestId: (current?.requestId ?? 0) + 1 }))
+    setModelToolsOpen(false)
+  }, [setState])
+  useEffect(() => { if (functionNavigation) navigateFunction(functionNavigation) }, [functionNavigation, navigateFunction])
+  useEffect(() => { if (interfaceNavigation) navigateInterface(interfaceNavigation.interfaceId) }, [interfaceNavigation, navigateInterface])
   const [rbdModule, setRbd] = useModuleState<unknown>('system', {})
   const [ftaModule, setFta] = useModuleState<unknown>('faultTree', {})
   const [markovModule, setMarkov] = useModuleState<unknown>('markov', {})
@@ -306,18 +384,25 @@ export default function SystemDefinition() {
   const [projectionScopeId, setProjectionScopeId] = useState('')
   const [impactReport, setImpactReport] = useState<Record<string, unknown>[]>([])
   const model = state.model ?? INITIAL_STATE.model
-  const collapsedInstanceIds = state.collapsedInstanceIds ?? []
+  const structureCollapsedIds = state.structureCollapsedIds ?? []
   const selected = model.instances.find(item => item.id === state.selectedInstanceId)
     ?? model.instances[0]
   const selectedDefinition = model.definitions.find(item => item.id === selected?.definition_id)
   const functionOptions = useMemo(() => model.instances.flatMap(instance => {
-    const definition = model.definitions.find(item => item.id === instance.definition_id)
-    return (definition?.functions ?? []).map(fn => ({
+    return effectiveSystemFunctions(model, instance.id).map(fn => ({
       key: `${instance.id}::${fn.id}`,
       ref: { instance_id: instance.id, function_id: fn.id },
       label: `${instanceLabel(model, instance)} — ${fn.description}`,
     }))
   }), [model])
+  const visibleInterfaceInstances = useMemo(() => {
+    const index = hierarchyIndex(model.instances)
+    const nodes = new Map((model.diagrams[0]?.nodes ?? []).flatMap(node => node.instance_id ? [[node.instance_id, node] as const] : []))
+    return model.instances.filter(instance => instance.id !== model.root_instance_id
+      && model.definitions.find(definition => definition.id === instance.definition_id)?.kind !== 'piece_part'
+      && diagramBranchVisible(model, instance.id)
+      && index.ancestors(instance.id).every(id => id === model.root_instance_id || nodes.get(id)?.expanded))
+  }, [model])
   const acceptedProposalIds = useMemo(() => new Set([
     ...state.decisions.filter(item => item.status === 'accepted'
       && item.fingerprint === state.propagation?.fingerprint).map(item => item.proposal_id),
@@ -332,22 +417,30 @@ export default function SystemDefinition() {
   [state.propagation, acceptedProposalIds])
 
   const updateModel = (update: (value: SystemDefinitionModel) => SystemDefinitionModel) =>
-    setState(current => ({
-      ...current, model: applyHierarchyLayout(update(current.model)), propagation: null,
-    }))
+    setState(current => {
+      const next = update(current.model)
+      if (systemInputFingerprint(next) === systemInputFingerprint(current.model)) return { ...current, model: next }
+      return { ...current, model: populateSystemInterfaceFunctions(next, current.model), propagation: null }
+    })
 
   const updateDefinition = (definitionId: string, patch: Partial<SystemBlockDefinition>) =>
     updateModel(current => ({ ...current, definitions: current.definitions.map(item =>
       item.id === definitionId ? { ...item, ...patch } : item) }))
 
-  const changeParent = (instanceId: string, parentInstanceId?: string) => {
-    if (instanceId === model.root_instance_id) return
-    updateModel(current => ({
-      ...current,
-      instances: current.instances.map(item => item.id === instanceId
-        ? { ...item, parent_instance_id: parentInstanceId || current.root_instance_id } : item),
-    }))
-  }
+  const changeParent = (instanceId: string, parentInstanceId: string) => setState(current => {
+    const nextModel = reparentSystemInstance(current.model, instanceId, parentInstanceId)
+    if (nextModel === current.model) return current
+    const ancestors = new Set(systemStructureRows(nextModel).find(row => row.instance.id === instanceId)?.ancestors)
+    return { ...current, model: nextModel, propagation: null,
+      selectedInstanceId: instanceId,
+      structureCollapsedIds: (current.structureCollapsedIds ?? []).filter(id => !ancestors.has(id)) }
+  })
+
+  const moveSibling = (instanceId: string, direction: -1 | 1) => setState(current => {
+    const nextModel = moveSystemSibling(current.model, instanceId, direction, showPieceParts)
+    return nextModel === current.model ? current : { ...current,
+      model: nextModel, selectedInstanceId: instanceId, propagation: null }
+  })
 
   const addProfile = (domain: 'prediction'|'reliability') => {
     if (!selectedDefinition) return
@@ -473,11 +566,14 @@ export default function SystemDefinition() {
     if (!window.confirm(`Apply ${proposals.length} reviewed reusable-definition update(s)?`)) return
     updateModel(current => {
       let instances = [...current.instances]
+      let resources = [...current.resources]
       for (const proposal of proposals) {
         if (proposal.blocked) continue
         if (proposal.action === 'add' && proposal.instance) {
           const created = proposal.instance as unknown as SystemBlockInstance
-          if (!instances.some(item => item.id === created.id)) instances.push(created)
+          const addedResources = Array.isArray(proposal.resources) ? proposal.resources as SystemResource[] : []
+          resources = [...resources, ...addedResources.filter(item => !resources.some(existing => existing.id === item.id))]
+          instances = appendCompositionInstance(instances, created, () => uid('INSTANCE'))
         } else if (proposal.action === 'update' && proposal.instance_id) {
           const changes = (proposal.changes ?? {}) as Partial<SystemBlockInstance>
           instances = instances.map(item => item.id === proposal.instance_id
@@ -486,7 +582,7 @@ export default function SystemDefinition() {
           instances = instances.filter(item => item.id !== proposal.instance_id)
         }
       }
-      return { ...current, instances }
+      return { ...current, instances, resources }
     })
     setCompositionPlan(null)
     toast.success('Reviewed reusable-definition updates applied.')
@@ -550,7 +646,7 @@ export default function SystemDefinition() {
       || item.failure_mode_overrides.some(value => value.mode_ids?.includes(id)))
       || model.definitions.some(definition => definition.functions.some(item => item.mode_ids.includes(id))
         || definition.failure_modes.some(item => item.mode_ids.includes(id)))
-      || model.interfaces.some(item => item.mode_ids.includes(id))
+      || model.interfaces.some(item => item.mode_ids.includes(id) || item.transfers?.some(transfer => transfer.mode_ids.includes(id)))
       || model.function_links.some(item => item.mode_ids.includes(id))
       || model.propagation_rules.some(item => item.mode_ids.includes(id))
     if (referenced) {
@@ -566,10 +662,10 @@ export default function SystemDefinition() {
     const instanceId = uid('INST')
     setState(current => ({
       ...current, selectedInstanceId: instanceId, propagation: null,
-      collapsedInstanceIds: parent
-        ? (current.collapsedInstanceIds ?? []).filter(id => id !== parent.id)
-        : current.collapsedInstanceIds ?? [],
-      model: applyHierarchyLayout({
+      structureCollapsedIds: parent
+        ? (current.structureCollapsedIds ?? []).filter(id => id !== parent.id)
+        : current.structureCollapsedIds ?? [],
+      model: ensureMasterDiagramNodes(isolateInstalledOutputs({
         ...current.model,
         instances: [...current.model.instances, {
           id: instanceId, definition_id: definition.id, parent_instance_id: parent?.id,
@@ -578,7 +674,7 @@ export default function SystemDefinition() {
           origin: 'ad_hoc', definition_revision: definition.revision ?? current.model.revision,
           properties: {}, profile_overrides: [],
         }],
-      }),
+      }, [instanceId])),
     }))
   }
 
@@ -604,10 +700,10 @@ export default function SystemDefinition() {
     }
     setState(current => ({
       ...current, selectedInstanceId: instanceId, propagation: null,
-      collapsedInstanceIds: parent
-        ? (current.collapsedInstanceIds ?? []).filter(id => id !== parent.id)
-        : current.collapsedInstanceIds ?? [],
-      model: applyHierarchyLayout({
+      structureCollapsedIds: parent
+        ? (current.structureCollapsedIds ?? []).filter(id => id !== parent.id)
+        : current.structureCollapsedIds ?? [],
+      model: ensureMasterDiagramNodes({
         ...current.model,
         definitions: [...current.model.definitions, createdDefinition],
         instances: [...current.model.instances, createdInstance],
@@ -646,22 +742,25 @@ export default function SystemDefinition() {
     }))
     setState(current => ({
       ...current, selectedInstanceId: '',
-      collapsedInstanceIds: (current.collapsedInstanceIds ?? []).filter(id => id !== selected.id),
+      structureCollapsedIds: (current.structureCollapsedIds ?? []).filter(id => id !== selected.id),
     }))
   }
 
   const addFunction = () => {
-    if (!selectedDefinition) return
-    updateDefinition(selectedDefinition.id, { functions: [...selectedDefinition.functions, {
-      id: uid('FN'), description: 'Provide function', function_type: 'primary', mode_ids: [],
-    }] })
+    if (!selected || !selectedDefinition) return
+    const id = uid('FN')
+    updateModel(current => upsertInstalledFunction(current, selected.id, {
+      id, description: '', function_type: 'primary', mode_ids: [],
+      definition: { role: 'transform', action: '', io: [] },
+    }))
+    return id
   }
 
   const removeFunction = (functionId: string) => {
     if (!selectedDefinition) return
     const instanceIds = new Set(model.instances.filter(item =>
       item.definition_id === selectedDefinition.id).map(item => item.id))
-    const referenced = model.interfaces.some(item =>
+    const referenced = selectedDefinition.failure_modes.some(item => item.function_id === functionId) || model.interfaces.some(item =>
       (item.source.instance_id && instanceIds.has(item.source.instance_id)
         && item.source_function_ids.includes(functionId))
       || (item.target.instance_id && instanceIds.has(item.target.instance_id)
@@ -673,7 +772,7 @@ export default function SystemDefinition() {
         (item.source && instanceIds.has(item.source.instance_id) && item.source.function_id === functionId)
         || (item.target && instanceIds.has(item.target.instance_id) && item.target.function_id === functionId))
     if (referenced) {
-      toast.error('Remove interface mappings, dependencies, and propagation rules before deleting this function.')
+      toast.error('Reassign failure modes, interface mappings, dependencies, and propagation rules before deleting this function.')
       return
     }
     updateDefinition(selectedDefinition.id, {
@@ -737,72 +836,26 @@ export default function SystemDefinition() {
     updateModel(current => ({ ...current, interfaces: current.interfaces.map(item =>
       item.id === interfaceId ? { ...item, ...patch } : item) }))
 
-  const setInterfaceEndpoint = (
-    interfaceId: string, side: 'source'|'target', value: string,
-  ) => updateModel(current => {
-    const [kind, id] = value.split(':', 2)
-    let definitions = current.definitions
-    let endpoint: SystemEndpoint
-    if (kind === 'external') {
-      endpoint = { external_id: id }
-    } else {
-      const instance = current.instances.find(item => item.id === id)
-      if (!instance) return current
-      const definition = definitions.find(item => item.id === instance.definition_id)
-      if (!definition) return current
-      const expectedDirection = side === 'source' ? 'output' : 'input'
-      let port = definition.ports.find(item =>
-        item.direction === expectedDirection || item.direction === 'bidirectional')
-      if (!port) {
-        port = {
-          id: uid('PORT'), name: typeLabel(expectedDirection), interface_type: 'information',
-          direction: expectedDirection, description: '', properties: {},
-        }
-        definitions = definitions.map(item => item.id === definition.id
-          ? { ...item, ports: [...item.ports, port!] } : item)
-      }
-      endpoint = { instance_id: instance.id, port_id: port.id }
-    }
-    return {
-      ...current, definitions,
-      interfaces: current.interfaces.map(item => item.id === interfaceId ? {
-        ...item, [side]: endpoint,
-        [side === 'source' ? 'source_function_ids' : 'target_function_ids']: [],
-      } : item),
-    }
-  })
+  const setInterfaceEndpoint = (interfaceId: string, side: 'source'|'target', value: string) => {
+    const edge = model.interfaces.find(item => item.id === interfaceId)
+    if (edge?.transfers?.length) { toast.error('Remove the resource pairings before changing a connected endpoint.'); return }
+    const split = value.indexOf(':'), kind = value.slice(0, split), id = value.slice(split + 1)
+    const endpoint: SystemEndpoint = kind === 'external' ? { external_id: id } : { instance_id: id }
+    updateInterface(interfaceId, { [side]: endpoint })
+  }
 
   const addInterface = () => {
-    if (!model.instances.length || (model.instances.length < 2 && !model.externals.length)) {
-      toast.info('Add a second block or an external actor before defining an interface.')
-      return
+    const source = visibleInterfaceInstances.find(item => item.id === selected?.id) ?? visibleInterfaceInstances[0]
+    const target = visibleInterfaceInstances.find(item => item.id !== source?.id && item.parent_instance_id === source?.parent_instance_id)
+      ?? visibleInterfaceInstances.find(item => item.id !== source?.id)
+    if (!source || !target && !model.externals.length) {
+      toast.info('Show two system blocks in the diagram, or define a typed external actor, before drawing an interface.'); return
     }
-    const source = selected ?? model.instances[0]
-    const target = model.instances.find(item => item.id !== source.id)
-    const sourceDefinition = model.definitions.find(item => item.id === source.definition_id)!
-    const targetDefinition = target
-      ? model.definitions.find(item => item.id === target.definition_id) : undefined
-    const ensurePort = (definitionValue: SystemBlockDefinition, direction: 'input'|'output') => {
-      const existing = definitionValue.ports.find(item => item.direction === direction || item.direction === 'bidirectional')
-      if (existing) return existing.id
-      const port = { id: uid('PORT'), name: typeLabel(direction), interface_type: 'information' as const, direction, description: '', properties: {} }
-      updateDefinition(definitionValue.id, { ports: [...definitionValue.ports, port] })
-      return port.id
-    }
-    const sourcePort = ensurePort(sourceDefinition, 'output')
-    const targetPort = targetDefinition ? ensurePort(targetDefinition, 'input') : undefined
     updateModel(current => ({ ...current, interfaces: [...current.interfaces, {
       id: uid('IF'), name: 'New interface', interface_type: 'information',
-      source: { instance_id: source.id, port_id: sourcePort },
-      target: target
-        ? { instance_id: target.id, port_id: targetPort }
-        : { external_id: model.externals[0].id },
-      directionality: 'directed', linkage: 'direct', interface_detail: '',
-      strength: 'unknown', nature: 'unknown', properties: {},
-      flow_description: '', operating_condition: '',
-      source_function_ids: sourceDefinition.functions.slice(0, 1).map(item => item.id),
-      target_function_ids: targetDefinition?.functions.slice(0, 1).map(item => item.id) ?? [],
-      mode_ids: [],
+      source: { instance_id: source.id }, target: target ? { instance_id: target.id } : { external_id: model.externals[0].id },
+      directionality: 'directed', linkage: 'direct', interface_detail: '', strength: 'unknown', nature: 'unknown', properties: {},
+      flow_description: '', operating_condition: '', source_function_ids: [], target_function_ids: [], mode_ids: [], transfers: [],
     }] }))
   }
 
@@ -812,7 +865,8 @@ export default function SystemDefinition() {
       return
     }
     updateModel(current => ({ ...current, function_links: [...current.function_links, {
-      id: uid('FL'), source: functionOptions[0].ref, target: functionOptions[1].ref,
+      id: uid('FL'), source: (functionOptions.find(item => item.ref.instance_id === selected?.id) ?? functionOptions[0]).ref,
+      target: (functionOptions.find(item => item.ref.instance_id !== selected?.id) ?? functionOptions[1]).ref,
       relationship: 'depends_on', rationale: '', mode_ids: [],
     }] }))
   }
@@ -820,7 +874,8 @@ export default function SystemDefinition() {
   const addPropagationRule = () => updateModel(current => ({
     ...current, propagation_rules: [...current.propagation_rules, {
       id: uid('RULE'), action: 'pass_through',
-      interface_id: current.interfaces[0]?.id,
+      interface_id: current.interfaces.find(edge => edge.source.instance_id === selected?.id || edge.target.instance_id === selected?.id)?.id,
+      source: functionOptions.find(item => item.ref.instance_id === selected?.id)?.ref,
       result_description: '', mode_ids: [], rationale: '',
     }],
   }))
@@ -914,129 +969,21 @@ export default function SystemDefinition() {
     const acceptedEdgeIds = new Set(acceptedPaths.flatMap(item => item.edge_ids))
     const edges = (state.propagation?.edges ?? []).filter(item => acceptedEdgeIds.has(item.id))
     const nodes = new Map((state.propagation?.nodes ?? []).map(item => [item.id, item]))
-    const sourceFingerprint = state.propagation?.fingerprint
-      ?? state.projectionPreview?.binding.source_fingerprint ?? model.revision
     setFmea((raw: unknown) => activeFolioUpdate(raw, current => {
       const analyses = Array.isArray(current.analyses)
-        ? structuredClone(current.analyses) as Record<string, unknown>[] : []
-      const activeId = String(current.activeId ?? '')
-      let analysis = analyses.find(item => String(item.id) === activeId) ?? analyses[0]
-      if (!analysis) {
-        analysis = createFmeaAnalysis('dfmea', 1) as unknown as Record<string, unknown>
-        analysis.name = `${model.name} — System FMEA`
-        analyses.push(analysis)
-      }
-      const structures = Array.isArray(analysis.structure_nodes)
-        ? analysis.structure_nodes as Record<string, unknown>[] : []
-      const functions = Array.isArray(analysis.functions)
-        ? analysis.functions as Record<string, unknown>[] : []
-      const functionLinks = Array.isArray(analysis.function_links)
-        ? analysis.function_links as Record<string, unknown>[] : []
-      const chains = Array.isArray(analysis.failure_chains)
-        ? analysis.failure_chains as Record<string, unknown>[] : []
-      const fmeaInterfaces = Array.isArray(analysis.interfaces)
-        ? analysis.interfaces as Record<string, unknown>[] : []
-      const blockDiagram = structuredClone((analysis.block_diagram ?? {
-        version: 2, density: 'comfortable',
-        boundary: { label: model.name, x: 80, y: 80, width: 900, height: 560 },
-        nodes: [], viewport: { x: 0, y: 0, zoom: 1 }, snap_to_grid: true,
-      }) as Record<string, unknown>)
-      const diagramNodes = Array.isArray(blockDiagram.nodes)
-        ? blockDiagram.nodes as Record<string, unknown>[] : []
-      const layouts = new Map((model.diagrams[0]?.nodes ?? []).map(item => [item.instance_id, item]))
-      for (const installed of model.instances) {
-        const definition = model.definitions.find(item => item.id === installed.definition_id)
-        const structureId = `SD-${installed.id}`
-        const entityType = definition?.classification === 'part' ? 'part'
-          : installed.parent_instance_id ? 'block' : 'system'
-        if (!structures.some(item => item.id === structureId)) structures.push({
-          id: structureId, name: instanceLabel(model, installed),
-          level: definition?.classification || 'system_definition',
-          parent_id: installed.parent_instance_id ? `SD-${installed.parent_instance_id}` : undefined,
-          description: definition?.description ?? '', interface: '',
-          element_type: 'canonical_instance',
-          source_ref: {
-            module: 'system_definition', analysis_id: model.id, analysis_name: model.name,
-            entity_type: entityType, entity_id: installed.id,
-            parent_entity_id: installed.parent_instance_id,
-            imported_at: new Date().toISOString(), source_checksum: sourceFingerprint,
-            source_name: instanceLabel(model, installed),
-            reference_designators: installed.reference_designators,
-            part_number: definition?.part_number || undefined,
-            quantity: installed.quantity, manufacturer: definition?.manufacturer || undefined,
-            category: definition?.category || undefined,
-          },
-        })
-        const layout = layouts.get(installed.id)
-        if (!diagramNodes.some(item => item.id === `SD-BLOCK-${installed.id}`)) diagramNodes.push({
-          id: `SD-BLOCK-${installed.id}`, kind: 'structure', structure_node_id: structureId,
-          container_parent_block_id: installed.parent_instance_id
-            ? `SD-BLOCK-${installed.parent_instance_id}` : undefined,
-          expanded: false, label: instanceLabel(model, installed),
-          x: layout?.x ?? 80, y: layout?.y ?? 80,
-          width: layout?.width ?? 180, height: layout?.height ?? 72,
-          inside_boundary: true,
-        })
-      }
-      for (const [index, external] of model.externals.entries()) {
-        if (!diagramNodes.some(item => item.id === `SD-EXT-${external.id}`)) diagramNodes.push({
-          id: `SD-EXT-${external.id}`, kind: 'external', label: external.name,
-          external_kind: external.kind, x: 1040, y: 80 + index * 100,
-          width: 180, height: 72, inside_boundary: false,
-        })
-      }
-      for (const installed of model.instances) {
-        const definition = model.definitions.find(item => item.id === installed.definition_id)
-        for (const fn of definition?.functions ?? []) {
-          const installedFunctionId = `SD-FN-${installed.id}-${fn.id}`
-          if (!functions.some(item => item.id === installedFunctionId)) functions.push({
-            id: installedFunctionId, structure_node_id: `SD-${installed.id}`,
-            description: fn.description, canonical_verb_id: fn.canonical_verb_id,
-            function_type: fn.function_type, operating_modes: fn.mode_ids,
-            owner: '', notes: '',
-            system_definition_ref: {
-              system_model_id: model.id, instance_id: installed.id,
-              definition_id: definition?.id, function_id: fn.id,
-              revision: model.revision,
-            },
-          })
-          for (const failure of definition?.failure_modes.filter(item =>
-            item.function_id === fn.id) ?? []) {
-            const chainId = `SD-FM-${installed.id}-${failure.id}`
-            if (chains.some(item => item.id === chainId)) continue
-            chains.push({
-              id: chainId, function_id: installedFunctionId,
-              effect: '', failure_mode: failure.description,
-              deviation_id: failure.deviation_id, cause: '',
-              effect_level: 'local function', effect_contexts: [],
-              severity: 5, occurrence: 5, detection: 5,
-              prevention_controls: '', detection_controls: '', severity_rationale: '',
-              occurrence_rationale: '', detection_rationale: '', frequency_rationale: '',
-              monitoring_rationale: '', actions: [], no_action_justification: '',
-              post_severity_rationale: '', linked_hazard_ids: [], linked_fracas_ids: [],
-              monitoring_system: '', system_response: '', safe_state: '', mitigated_effect: '',
-              management_review_status: '', management_review_evidence_ids: [],
-              remarks: 'Canonical failure mode from System Definition; complete local effects, causes, ratings, and controls in FMEA.',
-              system_definition_ref: {
-                system_model_id: model.id, instance_id: installed.id,
-                definition_id: definition?.id, function_id: fn.id,
-                failure_mode_id: failure.id, revision: model.revision,
-              },
-            })
-          }
-        }
-      }
-      for (const node of nodes.values()) {
-        const structureId = `SD-${node.function.instance_id}`
-        const functionId = `SD-FN-${node.function.instance_id}-${node.function.id}`
-        if (!functions.some(item => item.id === functionId)) functions.push({
-          id: functionId, structure_node_id: structureId,
-          description: node.function.description,
-          canonical_verb_id: node.function.canonical_verb_id,
-          function_type: node.function.function_type,
-          operating_modes: node.function.mode_ids, owner: '', notes: '',
-        })
-      }
+        ? current.analyses as AIAGVDAFMEAAnalysis[] : []
+      const existing = analyses.find(item => item.id === current.activeId && item.kind !== 'pfmea')
+        ?? analyses.find(item => item.kind === 'dfmea')
+      const created = existing ?? { ...createFmeaAnalysis('dfmea', analyses.length + 1),
+        name: `${model.name} — System FMEA` }
+      const analysis = bindFmeaAnalysis(model, created)
+      const functions = analysis.functions
+      const functionLinks = [...analysis.function_links]
+      const chains = [...analysis.failure_chains]
+      const functionFor = (instanceId: string, functionId: string) => functions.find(item =>
+        item.system_definition_ref?.instance_id === instanceId
+        && item.system_definition_ref?.function_id === functionId)?.id
+        ?? `SD-FN-${instanceId}-${functionId}`
       for (const edge of edges) {
         if (chains.some(item => item.system_definition_edge_id === edge.id)) continue
         const source = nodes.get(edge.source)
@@ -1044,15 +991,15 @@ export default function SystemDefinition() {
         if (!source || !target) continue
         if (!functionLinks.some(item => item.id === `SD-LINK-${edge.id}`)) functionLinks.push({
           id: `SD-LINK-${edge.id}`,
-          source_function_id: `SD-FN-${source.function.instance_id}-${source.function.id}`,
-          target_function_id: `SD-FN-${target.function.instance_id}-${target.function.id}`,
+          source_function_id: functionFor(source.function.instance_id, source.function.id),
+          target_function_id: functionFor(target.function.instance_id, target.function.id),
           relationship: edge.transition.kind === 'function_link'
-            ? edge.transition.relationship ?? 'depends_on' : 'provides_input',
-          label: edge.transition.id ?? '',
+            ? (edge.transition.relationship as 'depends_on') ?? 'depends_on' : 'provides_input',
+          label: String(edge.transition.id ?? ''),
           rationale: `Accepted System Definition propagation edge ${edge.id}`,
         })
         chains.push({
-          id: `SD-FC-${edge.id}`, function_id: `SD-FN-${source.function.instance_id}-${source.function.id}`,
+          id: `SD-FC-${edge.id}`, function_id: functionFor(source.function.instance_id, source.function.id),
           effect: target.description, failure_mode: source.description,
           deviation_id: source.deviation_id,
           cause: '', effect_level: 'downstream function', effect_contexts: [],
@@ -1067,48 +1014,14 @@ export default function SystemDefinition() {
           system_definition_edge_id: edge.id,
         })
       }
-      for (const item of model.interfaces) {
-        if (fmeaInterfaces.some(value => value.id === `SD-IF-${item.id}`)) continue
-        const sourceExternal = model.externals.find(value => value.id === item.source.external_id)
-        const targetExternal = model.externals.find(value => value.id === item.target.external_id)
-        fmeaInterfaces.push({
-          id: `SD-IF-${item.id}`, name: item.name, interface_type: item.interface_type,
-          source_block_id: item.source.instance_id ? `SD-BLOCK-${item.source.instance_id}`
-            : sourceExternal ? `SD-EXT-${sourceExternal.id}` : undefined,
-          target_block_id: item.target.instance_id ? `SD-BLOCK-${item.target.instance_id}`
-            : targetExternal ? `SD-EXT-${targetExternal.id}` : undefined,
-          linkage: item.linkage, directionality: item.directionality,
-          relationship_strength: item.strength === 'strong' || item.strength === 'weak'
-            ? item.strength : 'unspecified',
-          relationship_nature: 'unspecified',
-          interface_detail: item.interface_detail,
-          source_structure_node_id: item.source.instance_id ? `SD-${item.source.instance_id}` : undefined,
-          target_structure_node_id: item.target.instance_id ? `SD-${item.target.instance_id}` : undefined,
-          external_source: sourceExternal?.name ?? '', external_target: targetExternal?.name ?? '',
-          flow_description: item.flow_description, operating_condition: item.operating_condition,
-          function_ids: [
-            ...item.source_function_ids.map(id => item.source.instance_id
-              ? `SD-FN-${item.source.instance_id}-${id}` : ''),
-            ...item.target_function_ids.map(id => item.target.instance_id
-              ? `SD-FN-${item.target.instance_id}-${id}` : ''),
-          ].filter(Boolean),
-          requirement_ids: [],
-          system_definition_ref: {
-            system_model_id: model.id, interface_id: item.id, revision: model.revision,
-          },
-        })
-      }
-      blockDiagram.nodes = diagramNodes
-      Object.assign(analysis, {
-        structure_nodes: structures, functions, function_links: functionLinks,
-        interfaces: fmeaInterfaces, block_diagram: blockDiagram,
-        failure_chains: chains,
-      })
-      return { ...current, activeId: String(analysis.id), analyses, result: null }
+      const linked = { ...analysis, function_links: functionLinks, failure_chains: chains }
+      return { ...current, activeId: linked.id,
+        analyses: existing ? analyses.map(item => item.id === linked.id ? linked : item) : [...analyses, linked],
+        result: null }
     }))
     toast.success(acceptedPaths.length
-      ? 'Canonical model and accepted paths sent to FMEA. Review analysis-owned ratings and controls.'
-      : 'Canonical structure, functions, failures, and interfaces sent to FMEA for analysis.')
+      ? 'FMEA linked to the project System Model. Accepted propagation paths retained for review.'
+      : 'FMEA now uses the project System Model. Ratings and actions remain with the study.')
   }
 
   const applyProjectionPreview = () => {
@@ -1181,25 +1094,32 @@ export default function SystemDefinition() {
     {state.view === 'structure' && <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_340px]">
       <main className="overflow-auto p-4">
         <div className="mb-3 flex items-start justify-between gap-3">
-          <div><h2 className="text-sm font-semibold text-slate-800">Canonical system structure</h2>
-            <p className="mt-0.5 text-xs text-slate-500">Edit the same system here or in Prediction. Prediction model parameters remain scenario-specific.</p></div>
-          <div className="flex gap-2">
+          <div><h2 className="text-sm font-semibold text-slate-800">System structure</h2>
+            <p className="mt-0.5 text-xs text-slate-500">{editStructure
+              ? 'Move or reorder blocks. Children move with their parent.'
+              : 'Select Edit structure to move or reorder blocks.'}</p></div>
+          <div className="flex flex-wrap justify-end gap-2">
             <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={showPieceParts} onChange={event => setShowPieceParts(event.target.checked)} /> Show piece parts</label>
+            <button type="button" onClick={() => setEditStructure(value => !value)} aria-pressed={editStructure}
+              className={`${buttonClass} ${editStructure ? 'border-blue-400 bg-blue-50 text-blue-800' : ''}`}>
+              {editStructure ? <Check size={12} /> : <TableProperties size={12} />}
+              {editStructure ? 'Done editing structure' : 'Edit structure'}
+            </button>
             <button type="button" onClick={() => addBlock(undefined)} className={buttonClass}><Plus size={12} /> Root assembly</button>
             <button type="button" onClick={() => addBlock(selected)} disabled={!selected || selectedDefinition?.kind === 'piece_part'} className={buttonClass}><Plus size={12} /> Child</button>
             <button type="button" onClick={removeSelected} disabled={!selected} aria-label="Delete selected system element" className={buttonClass}><Trash2 size={12} /></button>
           </div>
         </div>
-        <StructureTable model={model} showPieceParts={showPieceParts} selectedId={selected?.id ?? ''}
-          collapsedIds={collapsedInstanceIds}
+        <StructureTable model={model} showPieceParts={showPieceParts} editing={editStructure} selectedId={selected?.id ?? ''}
+          collapsedIds={structureCollapsedIds}
           onSelect={selectedInstanceId => setState(current => ({ ...current, selectedInstanceId }))}
           onToggle={instanceId => setState(current => ({
             ...current,
-            collapsedInstanceIds: (current.collapsedInstanceIds ?? []).includes(instanceId)
-              ? current.collapsedInstanceIds.filter(id => id !== instanceId)
-              : [...(current.collapsedInstanceIds ?? []), instanceId],
+            structureCollapsedIds: (current.structureCollapsedIds ?? []).includes(instanceId)
+              ? current.structureCollapsedIds.filter(id => id !== instanceId)
+              : [...(current.structureCollapsedIds ?? []), instanceId],
           }))}
-          onChangeParent={changeParent} />
+          onChangeParent={changeParent} onMove={moveSibling} />
       </main>
       <aside className="overflow-auto border-l p-4">
         <h3 className="text-xs font-semibold text-slate-700">Definition & analysis data</h3>
@@ -1280,7 +1200,7 @@ export default function SystemDefinition() {
                   <span className="truncate pt-1.5 text-[9px] text-slate-500">{typeLabel(key)}</span>
                   {value.kind === 'choice' && value.option_ids.length
                     ? <select value={value.value} onChange={event => updateProfileParameter(profile, key, event.target.value)} className={fieldClass}>
-                      {value.option_ids.map(option => <option key={option} value={option}>{typeLabel(option)}</option>)}
+                      {value.option_ids.map(option => <option key={option} value={option}>{key === 'distribution' ? distributionLabel(option) : typeLabel(option)}</option>)}
                     </select>
                     : <input type={value.kind === 'number' ? 'number' : 'text'} value={String(value.value)}
                       onChange={event => updateProfileParameter(profile, key, event.target.value)} className={fieldClass} />}
@@ -1305,25 +1225,84 @@ export default function SystemDefinition() {
                 className={`mt-1 ${buttonClass}`}><Check size={11} /> Apply reviewed plan</button>
             </div>}
           </section>
-        </div> : <p className="mt-3 text-xs text-slate-400">Select a block to edit its canonical definition.</p>}
+        </div> : <p className="mt-3 text-xs text-slate-400">Select a block to edit.</p>}
       </aside>
     </div>}
 
-    {state.view === 'architecture' && <div className="grid min-h-0 flex-1 grid-cols-[260px_minmax(0,1fr)_380px]">
-      <aside className="overflow-auto border-r p-2">
-        <div className="mb-2 flex items-center justify-between">
-          <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Installed hierarchy</span>
-          <button type="button" onClick={() => addBlock(undefined)} title="Add root block" className="text-blue-600"><Plus size={14} /></button>
-        </div>
-        <HierarchyTree model={model} selectedId={selected?.id ?? ''}
-          onSelect={selectedInstanceId => setState(current => ({ ...current, selectedInstanceId }))} />
+    {state.view === 'architecture' && <div className="relative flex min-h-0 flex-1 flex-col p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <p className="text-xs text-slate-500">Select a block or connection to inspect it.</p>
+        <button id="system-model-tools-toggle" type="button" className={buttonClass}
+          aria-expanded={modelToolsOpen} aria-controls="system-model-tools"
+          onClick={() => setModelToolsOpen(value => !value)}>
+          {modelToolsOpen ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />}
+          {modelToolsOpen ? 'Close model tools' : 'Edit system model'}
+        </button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-hidden"><SystemBlockDiagramCanvas model={model} selectedInstanceId={selected?.id}
+        interfaceSelectionRequest={interfaceSelectionRequest}
+        selectionRequest={diagramSelectionRequest?.instanceId === selected?.id ? diagramSelectionRequest : undefined}
+        onSelectInstance={selectedInstanceId => setState(current => ({ ...current, selectedInstanceId }))}
+        libraryContent={<div className="mb-3 border-b pb-3">
+          <div className="mb-2 text-xs font-semibold text-slate-700">Installed hierarchy</div>
+          <div className="mb-2 flex flex-wrap gap-1" role="group" aria-label="Hierarchy visibility">
+            {([['show', 'Show all'], ['hide', 'Hide all'], ['invert', 'Invert']] as const).map(([action, label]) =>
+              <button key={action} type="button" className={buttonClass}
+                onClick={() => updateModel(current => setDiagramVisibility(current, action))}>{label}</button>)}
+          </div>
+          <HierarchyTree model={model} selectedId={selected?.id ?? ''} hidePieceParts label="Installed hierarchy"
+            onVisibilityChange={(id, visible) => updateModel(current => setDiagramBranchVisibility(current, id, visible))}
+            onSelect={selectedInstanceId => {
+              setState(current => ({ ...current,selectedInstanceId }))
+              setDiagramSelectionRequest(current => ({ instanceId:selectedInstanceId,requestId:(current?.requestId ?? 0)+1 }))
+            }} />
+        </div>}
+        structureInspector={instanceId => {
+          const instance = model.instances.find(item => item.id === instanceId)
+          const definition = model.definitions.find(item => item.id === instance?.definition_id)
+          return instance && definition ? <div className="space-y-2">
+            <label className="block text-xs text-slate-600">Installed name<input value={instance.name}
+              onChange={event => updateModel(current => ({ ...current, instances: current.instances.map(item =>
+                item.id === instanceId ? { ...item, name: event.target.value } : item) }))}
+              className={`mt-1 ${fieldClass}`} /></label>
+            <p className="text-xs text-slate-500">{definition.name} · {typeLabel(definition.kind ?? definition.classification)}</p>
+            <div className="space-y-1 border-t pt-2"><h3 className="text-xs font-semibold">Boundary interfaces</h3>
+              {model.interfaces.filter(edge => (edge.source.instance_id === instanceId || edge.target.instance_id === instanceId || interfaceBoundaryInstances(model.instances, edge.source.instance_id, edge.target.instance_id).has(instanceId))).map(edge =>
+                <div key={edge.id} className="rounded border p-2 text-xs"><strong>{edge.flow_description || edge.name || typeLabel(edge.interface_type)}</strong>
+                  <p className="text-slate-500">{model.instances.find(item => item.id === edge.source.instance_id)?.name || model.externals.find(item => item.id === edge.source.external_id)?.name || 'Unspecified'} → {model.instances.find(item => item.id === edge.target.instance_id)?.name || model.externals.find(item => item.id === edge.target.external_id)?.name || 'Unspecified'}</p>
+                  {edge.source.instance_id !== instanceId && edge.target.instance_id !== instanceId && <span className="text-blue-700">Inherited from a child endpoint</span>}
+                </div>)}
+            </div>
+            <button type="button" className={buttonClass} onClick={() => {
+              setState(current => ({ ...current, selectedInstanceId: instanceId })); setModelToolsOpen(true)
+            }}>Edit definition and ports</button>
+            <button type="button" className={buttonClass} onClick={() => setState(current => ({ ...current, view: 'functions', selectedInstanceId: instanceId }))}>Define functions and parent support</button>
+          </div> : null
+        }}
+        interfaceInspector={interfaceId => <SystemInterfaceTransferEditor model={model} interfaceId={interfaceId}
+          onChange={next => updateModel(() => next)} />}
+        onChange={nextModel => updateModel(() => nextModel)} /></div>
+      {modelToolsOpen && <div className="absolute inset-0 z-30 flex justify-end bg-slate-900/15"
+        onPointerDown={event => { if (event.target === event.currentTarget) setModelToolsOpen(false) }}>
+        <section id="system-model-tools" role="dialog" aria-label="System model tools"
+          onKeyDown={event => { if (event.key === 'Escape') {
+            setModelToolsOpen(false); document.getElementById('system-model-tools-toggle')?.focus()
+          } }} className="flex h-full w-[min(760px,100%)] flex-col border-l bg-white shadow-xl">
+          <div className="flex items-center justify-between border-b px-3 py-2">
+            <div><h3 className="text-sm font-semibold">Edit shared system model</h3>
+              <p className="text-xs text-slate-500">Changes apply to all instances and linked analyses.</p></div>
+            <button type="button" autoFocus aria-label="Close model tools" className={buttonClass}
+              onClick={() => { setModelToolsOpen(false); document.getElementById('system-model-tools-toggle')?.focus() }}><X size={16} /></button>
+          </div>
+          <div className="grid min-h-0 flex-1 grid-cols-[minmax(180px,1fr)_minmax(260px,1.5fr)]">
+            <aside className="overflow-auto border-r p-2">
         <div className="mt-3 flex gap-1">
-          <button type="button" onClick={() => addBlock(selected)} disabled={!selected || selectedDefinition?.kind === 'piece_part'} className={buttonClass}><Plus size={12} /> Child</button>
+          <button type="button" onClick={() => addBlock(selected)} disabled={selectedDefinition?.kind === 'piece_part'} className={buttonClass}><Plus size={12} /> {selected ? 'Add child' : 'Add block'}</button>
           <button type="button" onClick={removeSelected} disabled={!selected} aria-label="Delete selected system element" className={buttonClass}><Trash2 size={12} /></button>
         </div>
         <div className="mt-5 border-t pt-3">
           <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">Reusable type library</div>
-          <p className="mb-2 text-[10px] text-slate-400">Install another instance under the selected block. Definition changes are inherited by every instance.</p>
+          <p className="mb-2 text-[10px] text-slate-400">Add an instance under the selected block.</p>
           <div className="space-y-1">
             {model.definitions.map(definition => <div key={definition.id} className="flex items-center gap-1 rounded border px-2 py-1">
               <div className="min-w-0 flex-1"><div className="truncate text-[10px] font-medium">{definition.name}</div>
@@ -1355,13 +1334,7 @@ export default function SystemDefinition() {
           </div>)}
         </div>
       </aside>
-      <main className="min-h-0 overflow-auto p-3"><SystemBlockDiagramCanvas model={model}
-        collapsedInstanceIds={collapsedInstanceIds}
-        onChange={(nextModel, nextCollapsedIds) => setState(current => ({
-          ...current, model: nextModel, collapsedInstanceIds: nextCollapsedIds,
-          propagation: null,
-        }))} /></main>
-      <aside className="overflow-auto border-l p-3">
+<aside id="system-block-inspector" aria-label="Block inspector" className="min-w-0 overflow-auto border-l p-3">
         <h3 className="mb-3 text-xs font-semibold text-slate-700">Block inspector</h3>
         {selected && selectedDefinition ? <div className="space-y-3">
           <label className="block text-[10px] text-slate-500">Installed name<input
@@ -1424,58 +1397,50 @@ export default function SystemDefinition() {
             className={buttonClass}><Link2 size={12} /> Add interface</button>
         </div> : <p className="text-xs text-slate-400">Select or add a block.</p>}
         <div className="mt-5 border-t pt-3">
-          <div className="mb-2 text-[10px] font-semibold uppercase text-slate-500">Interfaces</div>
-          {model.interfaces.map(item => {
+          <div className="mb-2 text-[10px] font-semibold uppercase text-slate-500">Selected block interfaces</div>
+          {!selected && <p className="text-xs text-slate-400">Select a block to inspect its interfaces.</p>}
+          {selected && !model.interfaces.some(item => (item.source.instance_id === selected.id || item.target.instance_id === selected.id || interfaceBoundaryInstances(model.instances, item.source.instance_id, item.target.instance_id).has(selected.id)))
+            && <p className="text-xs text-slate-400">This block has no interfaces.</p>}
+          {model.interfaces.filter(item => selected && (item.source.instance_id === selected.id || item.target.instance_id === selected.id || interfaceBoundaryInstances(model.instances, item.source.instance_id, item.target.instance_id).has(selected.id))).map(item => {
             const sourceInstance = model.instances.find(value => value.id === item.source.instance_id)
             const targetInstance = model.instances.find(value => value.id === item.target.instance_id)
             const sourceDefinition = model.definitions.find(value => value.id === sourceInstance?.definition_id)
             const targetDefinition = model.definitions.find(value => value.id === targetInstance?.definition_id)
             return <div key={item.id} className="mb-3 space-y-2 rounded border p-2 text-[10px]">
-              <div className="flex gap-1"><input value={item.name} onChange={event => updateInterface(item.id, { name: event.target.value })}
+              {selected && item.source.instance_id !== selected.id && item.target.instance_id !== selected.id && <p className="text-xs text-blue-700">Inherited boundary interface · {sourceInstance?.name || 'External'} → {targetInstance?.name || 'External'}</p>}
+              <div className="flex gap-1"><input aria-label="Interface name" value={item.name} onChange={event => updateInterface(item.id, { name: event.target.value })}
                 className={fieldClass} />
-                <button type="button" title="Delete interface" onClick={() => updateModel(current => ({ ...current,
-                  interfaces: current.interfaces.filter(value => value.id !== item.id),
+                <button type="button" title="Delete interface" onClick={() => updateModel(current => ({ ...disconnectInterface(current, item.id),
                   propagation_rules: current.propagation_rules.map(rule => rule.interface_id === item.id
                     ? { ...rule, interface_id: undefined } : rule),
                 }))}><X size={12} /></button></div>
               <div className="grid grid-cols-2 gap-1">
-                <label className="text-[9px] text-slate-500">Source<select value={endpointKey(item.source)}
+                <label className="text-[9px] text-slate-500">Source<select disabled={Boolean(item.transfers?.length)} value={endpointKey(item.source)}
                   onChange={event => setInterfaceEndpoint(item.id, 'source', event.target.value)} className={`mt-0.5 ${fieldClass}`}>
-                  {model.instances.map(value => <option key={`si-${value.id}`} value={`instance:${value.id}`}>{instanceLabel(model, value)}</option>)}
+                  {model.instances.filter(value => value.id === item.source.instance_id || visibleInterfaceInstances.some(candidate => candidate.id === value.id)).map(value => <option key={`si-${value.id}`} value={`instance:${value.id}`}>{instanceLabel(model, value)}</option>)}
                   {model.externals.map(value => <option key={`se-${value.id}`} value={`external:${value.id}`}>External: {value.name}</option>)}
                 </select></label>
-                <label className="text-[9px] text-slate-500">Target<select value={endpointKey(item.target)}
+                <label className="text-[9px] text-slate-500">Target<select disabled={Boolean(item.transfers?.length)} value={endpointKey(item.target)}
                   onChange={event => setInterfaceEndpoint(item.id, 'target', event.target.value)} className={`mt-0.5 ${fieldClass}`}>
-                  {model.instances.map(value => <option key={`ti-${value.id}`} value={`instance:${value.id}`}>{instanceLabel(model, value)}</option>)}
+                  {model.instances.filter(value => value.id === item.target.instance_id || visibleInterfaceInstances.some(candidate => candidate.id === value.id)).map(value => <option key={`ti-${value.id}`} value={`instance:${value.id}`}>{instanceLabel(model, value)}</option>)}
                   {model.externals.map(value => <option key={`te-${value.id}`} value={`external:${value.id}`}>External: {value.name}</option>)}
                 </select></label>
               </div>
               {(sourceDefinition || targetDefinition) && <div className="grid grid-cols-2 gap-1">
-                <label className="text-[9px] text-slate-500">Source port<select disabled={!sourceDefinition}
+                <label className="text-[9px] text-slate-500">Source port<select disabled={!sourceDefinition || Boolean(item.transfers?.length)}
                   value={item.source.port_id ?? ''} onChange={event => updateInterface(item.id, {
                     source: { ...item.source, port_id: event.target.value },
                   })} className={`mt-0.5 ${fieldClass}`}>
                   {sourceDefinition?.ports.map(port => <option key={port.id} value={port.id}>{port.name}</option>)}
                 </select></label>
-                <label className="text-[9px] text-slate-500">Target port<select disabled={!targetDefinition}
+                <label className="text-[9px] text-slate-500">Target port<select disabled={!targetDefinition || Boolean(item.transfers?.length)}
                   value={item.target.port_id ?? ''} onChange={event => updateInterface(item.id, {
                     target: { ...item.target, port_id: event.target.value },
                   })} className={`mt-0.5 ${fieldClass}`}>
                   {targetDefinition?.ports.map(port => <option key={port.id} value={port.id}>{port.name}</option>)}
                 </select></label>
               </div>}
-              <div className="grid grid-cols-3 gap-1">
-                <select value={item.interface_type} onChange={event => updateInterface(item.id, {
-                  interface_type: event.target.value as SystemInterfaceType,
-                })} className={fieldClass}>
-                  {['physical', 'energy', 'information', 'material', 'human_machine', 'clearance'].map(value =>
-                    <option key={value} value={value}>{typeLabel(value)}</option>)}
-                </select>
-                <select value={item.directionality} onChange={event => updateInterface(item.id, {
-                  directionality: event.target.value as SystemInterface['directionality'],
-                })} className={fieldClass}>
-                  {['directed', 'bidirectional', 'undirected'].map(value => <option key={value}>{typeLabel(value)}</option>)}
-                </select>
+              <div>
                 <select value={item.linkage} onChange={event => updateInterface(item.id, {
                   linkage: event.target.value as SystemInterface['linkage'],
                 })} className={fieldClass}><option value="direct">Direct</option><option value="indirect">Indirect</option></select>
@@ -1492,27 +1457,15 @@ export default function SystemDefinition() {
                   {['required', 'incidental', 'conditional', 'unknown'].map(value => <option key={value} value={value}>Nature: {typeLabel(value)}</option>)}
                 </select>
               </div>
-              <input value={item.flow_description} onChange={event => updateInterface(item.id, { flow_description: event.target.value })}
-                placeholder="Flow or exchanged item" className={fieldClass} />
-              <div className="grid grid-cols-2 gap-1">
-                <label className="text-[9px] text-slate-500">Source functions<select multiple disabled={!sourceDefinition}
-                  value={item.source_function_ids} onChange={event => updateInterface(item.id, {
-                    source_function_ids: Array.from(event.currentTarget.selectedOptions, option => option.value),
-                  })} className={`mt-0.5 min-h-14 ${fieldClass}`}>
-                  {sourceDefinition?.functions.map(fn => <option key={fn.id} value={fn.id}>{fn.description}</option>)}
-                </select></label>
-                <label className="text-[9px] text-slate-500">Target functions<select multiple disabled={!targetDefinition}
-                  value={item.target_function_ids} onChange={event => updateInterface(item.id, {
-                    target_function_ids: Array.from(event.currentTarget.selectedOptions, option => option.value),
-                  })} className={`mt-0.5 min-h-14 ${fieldClass}`}>
-                  {targetDefinition?.functions.map(fn => <option key={fn.id} value={fn.id}>{fn.description}</option>)}
-                </select></label>
-              </div>
+              <SystemInterfaceTransferEditor model={model} interfaceId={item.id} onChange={next => updateModel(() => next)} />
               <ModePicker model={model} value={item.mode_ids} onChange={mode_ids => updateInterface(item.id, { mode_ids })} />
             </div>
           })}
         </div>
       </aside>
+          </div>
+        </section>
+      </div>}
     </div>}
 
     {state.view === 'functions' && <div className="grid min-h-0 flex-1 grid-cols-[260px_1fr]">
@@ -1520,56 +1473,30 @@ export default function SystemDefinition() {
         selectedId={selected?.id ?? ''} onSelect={selectedInstanceId =>
           setState(current => ({ ...current, selectedInstanceId }))} /></aside>
       <main className="overflow-auto p-5">
-        <div className="mb-4 flex items-center justify-between">
-          <div><h2 className="text-sm font-semibold">{selected ? instanceLabel(model, selected) : 'Select a block'}</h2>
-            <p className="text-xs text-slate-500">Functions and failure modes are inherited by every instance of this definition.</p></div>
-          <div className="flex gap-2"><button onClick={addFunction} disabled={!selectedDefinition} className={buttonClass}><Plus size={12} /> Function</button>
-            <button onClick={addFailureMode} disabled={!selectedDefinition} className={buttonClass}><ShieldAlert size={12} /> Failure mode</button></div>
-        </div>
-        {selectedDefinition?.functions.map(fn => <div key={fn.id} className="mb-3 rounded-lg border p-3">
-          <div className="grid gap-2 md:grid-cols-[1fr_180px_28px]">
-            <input value={fn.description} onChange={event => updateDefinition(selectedDefinition.id, {
-              functions: selectedDefinition.functions.map(item => item.id === fn.id ? { ...item, description: event.target.value } : item),
-            })} className={fieldClass} />
-            <select value={fn.function_type} onChange={event => updateDefinition(selectedDefinition.id, {
-              functions: selectedDefinition.functions.map(item => item.id === fn.id ? {
-                ...item, function_type: event.target.value as typeof fn.function_type,
-              } : item),
-            })} className={fieldClass}>{['primary', 'supporting', 'interface', 'monitoring', 'system_response'].map(value => <option key={value}>{value}</option>)}</select>
-            <button onClick={() => removeFunction(fn.id)}><Trash2 size={13} className="text-slate-400" /></button>
-          </div>
-          <div className="mt-2 flex items-center justify-between gap-3">
-            <ModePicker model={model} value={fn.mode_ids} onChange={mode_ids => updateDefinition(selectedDefinition.id, {
-              functions: selectedDefinition.functions.map(item => item.id === fn.id ? { ...item, mode_ids } : item),
-            })} />
-            <button type="button" onClick={() => addFailureModeFor(fn.id)} className={buttonClass}><Plus size={11} /> Failure</button>
-          </div>
-          <div className="mt-2 space-y-2 pl-4">
-            {selectedDefinition.failure_modes.filter(item => item.function_id === fn.id).map(mode => <div key={mode.id}
-              className="border-l-2 border-amber-300 pl-3">
-              <div className="grid gap-2 md:grid-cols-[1fr_170px_28px]">
-                <input value={mode.description} onChange={event => updateDefinition(selectedDefinition.id, {
-                  failure_modes: selectedDefinition.failure_modes.map(item => item.id === mode.id ? { ...item, description: event.target.value } : item),
-                })} className={fieldClass} />
-                <input value={mode.deviation_id} onChange={event => updateDefinition(selectedDefinition.id, {
-                  failure_modes: selectedDefinition.failure_modes.map(item => item.id === mode.id ? { ...item, deviation_id: event.target.value } : item),
-                })} placeholder="Deviation ID" className={fieldClass} />
-                <button onClick={() => updateDefinition(selectedDefinition.id, {
-                  failure_modes: selectedDefinition.failure_modes.filter(item => item.id !== mode.id),
-                })}><Trash2 size={13} className="text-slate-400" /></button>
-              </div>
-              <div className="mt-1"><ModePicker model={model} value={mode.mode_ids} onChange={mode_ids => updateDefinition(selectedDefinition.id, {
-                failure_modes: selectedDefinition.failure_modes.map(item => item.id === mode.id ? { ...item, mode_ids } : item),
-              })} /></div>
-            </div>)}
-          </div>
-        </div>)}
-        <section className="mt-7 border-t pt-5">
-          <div className="mb-3 flex items-center justify-between"><div><h3 className="text-xs font-semibold text-slate-700">Functional dependencies</h3>
-            <p className="text-[10px] text-slate-500">Link internal or cross-block functions that depend on one another outside an interface mapping.</p></div>
+        {selected && selectedDefinition ? <SystemFunctionsEditor key={selected.id} instance={selected} definition={selectedDefinition}
+          model={model} onModelChange={next => updateModel(() => next)}
+          modeId={state.selectedModeId || undefined} focusRequest={functionFocusRequest}
+          onNavigateFunction={navigateFunction} onNavigateInterface={navigateInterface}
+          onDefineInterface={instanceId => {
+            setState(current => ({ ...current, view: 'architecture', selectedInstanceId: instanceId,
+              model: setDiagramBranchVisibility(current.model, instanceId, true) }))
+            setDiagramSelectionRequest(current => ({ instanceId, requestId: (current?.requestId ?? 0) + 1 }))
+            setModelToolsOpen(false)
+            toast.info('Draw a connection from the selected block, then pair its resource with a complementary function.')
+          }}
+          updateInstance={patch => updateModel(current => ({ ...current, instances: current.instances.map(item =>
+            item.id === selected.id ? { ...item, ...patch } : item) }))}
+          updateDefinition={patch => updateDefinition(selectedDefinition.id, patch)}
+          addFunction={addFunction} removeFunction={removeFunction} addFailure={addFailureMode} addFailureFor={addFailureModeFor}
+          renderModes={(value, onChange) => <ModePicker model={model} value={value} onChange={onChange} />} />
+          : <p className="text-xs text-slate-500">Select a block to edit functions and failures.</p>}
+        <details className="mt-7 border-t pt-4 text-xs text-slate-600"><summary className="cursor-pointer font-medium">Advanced connections and propagation</summary>
+        <section className="mt-4">
+          <div className="mb-3 flex items-center justify-between"><div><h3 className="text-xs font-semibold text-slate-700">Additional dependencies for {selected?.name || 'selected block'}</h3>
+            <p className="text-[10px] text-slate-500">Link dependencies not covered by interfaces.</p></div>
             <button type="button" onClick={addFunctionLink} className={buttonClass}><Plus size={12} /> Link</button></div>
           <div className="space-y-2">
-            {model.function_links.map(link => <div key={link.id} className="rounded border bg-slate-50 p-2">
+            {model.function_links.filter(link => !link.generated && link.relationship !== 'decomposes_to' && (link.source.instance_id === selected?.id || link.target.instance_id === selected?.id)).map(link => <div key={link.id} className="rounded border bg-slate-50 p-2">
               <div className="grid gap-2 md:grid-cols-[1fr_150px_1fr_28px]">
                 <select value={functionRefKey(link.source)} onChange={event => {
                   const option = functionOptions.find(item => item.key === event.target.value)
@@ -1579,7 +1506,7 @@ export default function SystemDefinition() {
                 <select value={link.relationship} onChange={event => updateModel(current => ({ ...current,
                   function_links: current.function_links.map(item => item.id === link.id
                     ? { ...item, relationship: event.target.value as typeof link.relationship } : item),
-                }))} className={fieldClass}>{['decomposes_to', 'depends_on', 'provides_input', 'enables', 'monitors', 'responds_to'].map(value =>
+                }))} className={fieldClass}>{['depends_on', 'provides_input', 'enables', 'monitors', 'responds_to'].map(value =>
                   <option key={value} value={value}>{typeLabel(value)}</option>)}</select>
                 <select value={functionRefKey(link.target)} onChange={event => {
                   const option = functionOptions.find(item => item.key === event.target.value)
@@ -1601,10 +1528,11 @@ export default function SystemDefinition() {
         </section>
         <section className="mt-7 border-t pt-5">
           <div className="mb-3 flex items-center justify-between"><div><h3 className="text-xs font-semibold text-slate-700">Propagation rules</h3>
-            <p className="text-[10px] text-slate-500">Override pass-through behavior for a typed interface and deviation. Rules stay qualitative and reviewable.</p></div>
+            <p className="text-[10px] text-slate-500">Override qualitative propagation for an interface and deviation.</p></div>
             <button type="button" onClick={addPropagationRule} className={buttonClass}><Plus size={12} /> Rule</button></div>
           <div className="space-y-2">
-            {model.propagation_rules.map(rule => <div key={rule.id} className="rounded border border-blue-100 bg-blue-50/40 p-3">
+            {model.propagation_rules.filter(rule => rule.source?.instance_id === selected?.id || rule.target?.instance_id === selected?.id
+              || model.interfaces.some(edge => edge.id === rule.interface_id && (edge.source.instance_id === selected?.id || edge.target.instance_id === selected?.id))).map(rule => <div key={rule.id} className="rounded border border-blue-100 bg-blue-50/40 p-3">
               <div className="grid gap-2 md:grid-cols-[170px_1fr_160px_28px]">
                 <select value={rule.action} onChange={event => updateModel(current => ({ ...current,
                   propagation_rules: current.propagation_rules.map(item => item.id === rule.id
@@ -1645,6 +1573,7 @@ export default function SystemDefinition() {
             </div>)}
           </div>
         </section>
+        </details>
       </main>
     </div>}
 
@@ -1724,7 +1653,7 @@ export default function SystemDefinition() {
 
     {state.view === 'integrations' && <div className="min-h-0 flex-1 overflow-auto p-6">
       <h2 className="text-sm font-semibold text-slate-800">Linked analyses & change impact</h2>
-      <p className="mt-1 max-w-3xl text-xs text-slate-500">Preview an explicit diff before creating or refreshing an analysis. Structure, identity, functions, failures, and interfaces remain canonical here; ratings, topology decisions, controls, and numerical overrides remain analysis-owned.</p>
+      <p className="mt-1 max-w-3xl text-xs text-slate-500">Preview changes before creating or updating linked analyses.</p>
       <div className="mt-3 flex items-center gap-2 text-[10px] text-slate-500">
         Scope
         <select value={projectionScopeId} onChange={event => setProjectionScopeId(event.target.value)}
@@ -1743,12 +1672,12 @@ export default function SystemDefinition() {
       <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
         <div
           className="rounded-lg border p-4 text-left hover:border-blue-400 disabled:opacity-40"><div className="font-medium">Prediction</div>
-          <div className="mt-1 text-xs text-slate-500">Every scenario uses this complete hierarchy automatically. Select the standard, part model profiles and overrides in Prediction.</div></div>
-        <button onClick={() => previewProjection('fmea')} disabled={!model.instances.length || busy} className="rounded-lg border p-4 text-left hover:border-blue-400 disabled:opacity-40"><div className="font-medium">FMEA</div><div className="mt-1 text-xs text-slate-500">Project linked structure, functions, failures, interfaces, and accepted paths.</div></button>
+          <div className="mt-1 text-xs text-slate-500">Uses this hierarchy. Set standards and part models in Prediction.</div></div>
+        <button onClick={() => previewProjection('fmea')} disabled={!model.instances.length || busy} className="rounded-lg border p-4 text-left hover:border-blue-400 disabled:opacity-40"><div className="font-medium">FMEA</div><div className="mt-1 text-xs text-slate-500">Use this system’s functions, failures, and interfaces.</div></button>
         {(['rbd', 'fta', 'markov'] as const).map(target => <button key={target}
           onClick={() => previewProjection(target)} disabled={(target !== 'rbd' && !acceptedPaths.length) || busy}
           className="rounded-lg border p-4 text-left hover:border-blue-400 disabled:opacity-40">
-          <div className="font-medium">{target.toUpperCase()}</div><div className="mt-1 text-xs text-slate-500">Build a traceable candidate topology for review in {target.toUpperCase()}.</div>
+          <div className="font-medium">{target.toUpperCase()}</div><div className="mt-1 text-xs text-slate-500">Create a draft {target.toUpperCase()} from this system.</div>
         </button>)}
       </div>
       {message && <div className="mt-4 text-xs text-slate-600">{message}</div>}
@@ -1789,11 +1718,7 @@ export default function SystemDefinition() {
           {!(state.analysisBindings ?? []).length && <div className="p-4 text-xs text-slate-400">No linked analyses yet.</div>}
         </div>
       </section>
-      <div className="mt-6 rounded border bg-slate-50 p-4 text-xs text-slate-600">
-        <div className="font-medium">Migration and traceability</div>
-        <div className="mt-1">Sources: {state.migration.source_modules.join(', ') || 'new model'} · migrated {state.migration.migrated_at || 'not applicable'}</div>
-        {state.migration.issues.map((item, index) => <div key={`${item.code}-${index}`} className="mt-2 flex gap-2 text-amber-700"><CircleAlert size={13} /> {item.message}</div>)}
-      </div>
+
     </div>}
   </div>
 }

@@ -2,7 +2,7 @@
   "app": "Perdura",
   "subtitle": "Reliability Engineering and Statistics Suite",
   "website": "https://perdurareliability.com",
-  "schemaVersion": 6,
+  "schemaVersion": 11,
   "createdWith": {
     "version": "0.7.0",
     "commit": "dev",
@@ -436,7 +436,7 @@
                 "units": {
                   "stress": "MPa",
                   "life": "cycles",
-                  "A": "MPa·cycles^(-b)",
+                  "A": "MPa\u00b7cycles^(-b)",
                   "b": "dimensionless"
                 },
                 "validity": {

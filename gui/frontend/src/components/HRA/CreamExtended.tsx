@@ -174,7 +174,6 @@ export default function CreamExtended() {
 
   return (
     <ToolLayout
-      intro="Extended CREAM — break the task into steps, classify each step's cognitive activity and credible failure type, and rate the common performance conditions. Each step's nominal Cognitive Failure Probability is weighted by the CPC factors for its cognitive function; the task HEP combines the steps."
       controls={controls} err={error} loading={loading} onRun={run} runLabel="Quantify" results={results} />
   )
 }

@@ -1,5 +1,6 @@
 import { useRef, useState, useEffect } from 'react'
 import { FolderPlus, FolderOpen, Save, Upload, Download, ChevronDown, Trash2, AlertTriangle, Undo2, Redo2, Database, ShieldCheck } from 'lucide-react'
+import { useDismissiblePopover } from './useDismissiblePopover'
 import {
   useProjectName, downloadExport, importPayload, newProject,
   readJSONFile, MODULE_LABELS, moduleSlices,
@@ -42,6 +43,7 @@ export default function ProjectBar({ activeModule }: Props) {
   const historyCounts = useUndoRedoCounts()
   const history = useUndoRedoHistory(menu === 'undo' || menu === 'redo')
   const [saved, setSaved] = useState<{ name: string; savedAt: string }[]>([])
+  const [savedLoading, setSavedLoading] = useState(false)
   const [recent, setRecent] = useState<{ name: string; savedAt: string; openedAt: string }[]>([])
   const [pending, setPending] = useState<PendingOverwrite | null>(null)
   const [catalogOpen, setCatalogOpen] = useState(false)
@@ -54,19 +56,9 @@ export default function ProjectBar({ activeModule }: Props) {
   const pendingRef = useRef<HTMLDivElement>(null)
   useFocusTrap(pendingRef, pending != null, () => setPending(null))
 
-  useEffect(() => {
-    const close = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setMenu(null)
-    }
-    // Escape closes any open dropdown menu.
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenu(null) }
-    document.addEventListener('mousedown', close)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', close)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [])
+  const menuTrigger = () => wrapRef.current?.querySelector<HTMLElement>('[aria-haspopup="menu"][aria-expanded="true"]')
+  useDismissiblePopover({ open: menu != null, onDismiss: () => setMenu(null),
+    elements: () => [menuTrigger()?.parentElement], trigger: menuTrigger })
 
   useEffect(() => {
     if (menu === 'undo' && historyCounts.undo <= 1) setMenu(null)
@@ -109,13 +101,20 @@ export default function ProjectBar({ activeModule }: Props) {
   const handleSave = saveProjectFlow
 
   const openMenu = async () => {
-    try { await refreshSavedProjects() } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Could not read saved projects.')
-      return
-    }
+    if (menu === 'open') { setMenu(null); return }
     setSaved(listSavedProjects())
     setRecent(listRecentProjects())
-    setMenu(menu === 'open' ? null : 'open')
+    setMenu('open')
+    setSavedLoading(true)
+    try {
+      await refreshSavedProjects()
+      setSaved(listSavedProjects())
+      setRecent(listRecentProjects())
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not read saved projects.')
+    } finally {
+      setSavedLoading(false)
+    }
   }
 
   /** Does the current project hold any data worth warning about losing? */
@@ -386,7 +385,9 @@ export default function ProjectBar({ activeModule }: Props) {
             </div>
             <div className="my-1 border-t border-gray-100" />
             <p className="px-3 pt-0.5 pb-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400">Saved projects</p>
-            {saved.length === 0 ? (
+            {savedLoading && saved.length === 0 ? (
+              <p role="status" className="px-3 py-2 text-xs text-gray-400">Loading saved projects…</p>
+            ) : saved.length === 0 ? (
               <p className="px-3 py-2 text-xs text-gray-400">No saved projects yet. Use “Save” to store one.</p>
             ) : (
               saved.map(p => (

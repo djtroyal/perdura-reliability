@@ -259,7 +259,7 @@ export default function BomImportWizard(props: Props) {
         <div className="flex items-center justify-between border-b border-gray-200 px-5 py-3">
           <div>
             <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-900"><FileSpreadsheet size={17} className="text-blue-600" /> Import Electronic BOM</h2>
-            <p className="mt-0.5 text-[11px] text-gray-500">Local parsing · {props.standard} target · automatic model mapping is optional</p>
+            <p className="mt-0.5 text-[11px] text-gray-500">{props.standard}</p>
           </div>
           <button onClick={props.onClose} className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700"><X size={17} /></button>
         </div>
@@ -279,7 +279,7 @@ export default function BomImportWizard(props: Props) {
             <div className="mx-auto max-w-xl py-10 text-center">
               <FileSpreadsheet size={40} className="mx-auto text-blue-300" />
               <h3 className="mt-3 text-base font-semibold text-gray-800">Choose an exported electronic BOM</h3>
-              <p className="mt-1 text-xs leading-relaxed text-gray-500">CSV, TSV, TXT, or XLSX up to 25 MiB. Files remain on this device and formulas or macros are never executed.</p>
+              <p className="mt-1 text-xs leading-relaxed text-gray-500">CSV, TSV, TXT, or XLSX · up to 25 MiB · processed on this device</p>
               <button onClick={() => inputRef.current?.click()} disabled={busy}
                 className="mt-5 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
                 {busy ? 'Reading…' : 'Choose BOM file'}
@@ -318,7 +318,7 @@ export default function BomImportWizard(props: Props) {
 
               <div>
                 <h3 className="text-sm font-semibold text-gray-800">Essential field mapping</h3>
-                <p className="mb-3 text-[11px] text-gray-500">Perdura proposed mappings from the headers. Change any field that was not detected correctly.</p>
+                <p className="mb-3 text-[11px] text-gray-500">Review the detected column mappings.</p>
                 {duplicateColumnMappings.length > 0 && (
                   <p className="mb-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-[10px] text-amber-800">
                     Each source column can map to only one field. Reassign: {duplicateColumnMappings.join(', ')}.
@@ -396,7 +396,7 @@ export default function BomImportWizard(props: Props) {
                       <button onClick={() => { setDraftProfile(null); setShowRules(false) }} className="rounded border border-indigo-200 bg-white px-2 py-1 text-[10px]">Cancel</button>
                     </div>
                   </div>
-                  <p className="mb-2 text-[10px] text-indigo-700">RE2 syntax is used for bounded matching; lookarounds and backreferences are intentionally unsupported.</p>
+                  <p className="mb-2 text-[10px] text-indigo-700">RE2 syntax: no lookarounds or backreferences.</p>
                   {ruleErrors.length > 0 && <div className="mb-2 rounded border border-red-200 bg-red-50 p-2 text-[10px] text-red-700">{ruleErrors.slice(0, 8).map(item => <div key={item}>{item}</div>)}</div>}
                   <div className="max-h-72 space-y-1.5 overflow-y-auto pr-1">
                     {draftProfile.rules.map((rule, index) => (
@@ -416,7 +416,7 @@ export default function BomImportWizard(props: Props) {
                                 ? { category: value, family: undefined }
                                 : { family: value as typeof FAMILIES[number], category: undefined })
                             }} className="rounded border px-1 py-0.5">
-                            <optgroup label="Canonical family">{FAMILIES.map(family => <option key={family} value={`family:${family}`}>{family}</option>)}</optgroup>
+                            <optgroup label="Part family">{FAMILIES.map(family => <option key={family} value={`family:${family}`}>{family}</option>)}</optgroup>
                             <optgroup label={`${props.standard} exact category`}>{Object.entries(props.categoryLabels).map(([key, label]) => <option key={key} value={`category:${key}`}>{label}</option>)}</optgroup>
                           </select>
                         )}

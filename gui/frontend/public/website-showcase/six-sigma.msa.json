@@ -2,7 +2,7 @@
   "app": "Perdura",
   "subtitle": "Reliability Engineering and Statistics Suite",
   "website": "https://perdurareliability.com",
-  "schemaVersion": 6,
+  "schemaVersion": 11,
   "createdWith": {
     "version": "0.7.0",
     "commit": "dev",
@@ -82,8 +82,8 @@
         "buildStatus": "development"
       },
       "runId": "run-1bf0fd76-98a6-4578-aa77-970b172653c6",
-      "moduleLabel": "Six Sigma — Measurement Systems Analysis",
-      "analysisName": "Six Sigma — Measurement Systems Analysis",
+      "moduleLabel": "Six Sigma \u2014 Measurement Systems Analysis",
+      "analysisName": "Six Sigma \u2014 Measurement Systems Analysis",
       "method": "anova",
       "fingerprintSha256": "16a79633f1d1656b70e890c52022239c8d70c46dac068a7cc3e8bbf17d50cdab"
     }
@@ -112,7 +112,7 @@
             "df": 2,
             "MS": 3.965651666666669,
             "F": 22.95800889609326,
-            "p": 0.000011142051594470459
+            "p": 1.1142051594470459e-05
           },
           {
             "source": "Part*Operator",
@@ -154,7 +154,7 @@
             "df": 2,
             "MS": 3.965651666666669,
             "F": 22.95800889609326,
-            "p": 0.000011142051594470459
+            "p": 1.1142051594470459e-05
           },
           {
             "source": "Part*Operator",

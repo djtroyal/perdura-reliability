@@ -2,7 +2,7 @@
   "app": "Perdura",
   "subtitle": "Reliability Engineering and Statistics Suite",
   "website": "https://perdurareliability.com",
-  "schemaVersion": 6,
+  "schemaVersion": 11,
   "createdWith": {
     "version": "0.7.0",
     "commit": "dev",
@@ -189,7 +189,7 @@
             "Oxygen"
           ],
           "coding": "coded_numeric",
-          "design_type": "NIST 2^3 full factorial — chip underetch",
+          "design_type": "NIST 2^3 full factorial \u2014 chip underetch",
           "generator_key": "full_factorial_2level",
           "design_class": "screening",
           "analysis_model": "factorial_main_plus_2fi",
@@ -266,7 +266,7 @@
             "term": "Power:Oxygen",
             "effect": -0.002749999999999999,
             "coefficient": -0.0013749999999999995,
-            "ss": 0.000015125000000000381,
+            "ss": 1.5125000000000381e-05,
             "pct_contribution": 0.08516868326400397,
             "p_value": 0.8697209776092767,
             "significant_lenth": false

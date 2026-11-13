@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ClipboardCheck, Info, Play, Plus, Trash2 } from 'lucide-react'
+import { ClipboardCheck, Play, Plus, Trash2 } from 'lucide-react'
 
 import {
   analyzeReliabilityProgram,
@@ -10,8 +10,9 @@ import {
   type ReliabilityProgramRequest,
   type ReliabilityProgramResponse,
 } from '../../api/reliabilityProgram'
-import { useFolioState, useModuleFolios } from '../../store/project'
+import { useModuleFolios } from '../../store/project'
 import { useBookmarkNavigationTarget } from '../../store/bookmarks'
+import { setUiPreference } from '../../store/uiPreferences'
 import FolioBar from '../shared/FolioBar'
 import Plot from '../shared/ExportablePlot'
 import ExportResultsButton from '../shared/ExportResultsButton'
@@ -19,6 +20,9 @@ import ConfidenceInput from '../shared/ConfidenceInput'
 import { Card } from '../shared/ui'
 import { useHelpTopic } from '../help/context'
 import AiagVdaWorkspace from './AiagVdaWorkspace'
+import { useSharedFmeaState } from '../../store/useSharedFmeaState'
+import { currentProjectSystem, useSharedSystemDefinition } from '../../store/sharedSystem'
+import { fmeaEngineeringFingerprint, fmeaSemanticFingerprint, inspectFmeaBinding } from '../../store/sharedFmeaModel'
 import {
   addClassicRowsToAiag,
   aiagClassicChainIds,
@@ -71,6 +75,8 @@ interface ReliabilityProgramState {
   customRatingProfiles: FMEARatingProfile[]
   fmeaVocabularyProfile: FMEAVocabularyProfile
   result?: ReliabilityProgramResponse | null
+  canonicalDependencies?: unknown
+  sourceSystemFingerprint?: string
 }
 
 const VIEWS: { id: View; label: string; prefix: string }[] = [
@@ -196,7 +202,8 @@ export default function ReliabilityProgram({
     pieceKey?: string
   }) => void
 }) {
-  const [state, setState, folios] = useFolioState<ReliabilityProgramState>('reliabilityProgram', INITIAL_STATE)
+  const [state, setState, folios, startRequest] = useSharedFmeaState<ReliabilityProgramState>('reliabilityProgram', INITIAL_STATE, 'aiagAnalyses')
+  const [sharedSystem] = useSharedSystemDefinition()
   const predictionFolios = useModuleFolios<PredictionStructureState>('prediction')
   const predictionSources = useMemo(() =>
     predictionFolios.map((folio): PredictionAnalysisSource => ({
@@ -232,14 +239,19 @@ export default function ReliabilityProgram({
     () => (state.aiagAnalyses ?? []).map(normalizeFmeaAnalysis),
     [state.aiagAnalyses],
   )
+  const stale = Boolean(folios.folios.find(item => item.id === folios.activeId)?.dirty || state.canonicalDependencies)
+    || Boolean(state.sourceSystemFingerprint && state.sourceSystemFingerprint !== fmeaSemanticFingerprint(sharedSystem.model, normalizedAnalyses))
+  const displayedResult = stale ? undefined : state.result
   useEffect(() => {
     if (reconciledFolio.current === folios.activeId) return
     reconciledFolio.current = folios.activeId
+    if (!state.rows.fmea && normalizedAnalyses.length === 0) return
+    const classicRows = state.rows.fmea ?? []
     const aiagAnalyses = addClassicRowsToAiag(
-      state.rows.fmea,
+      classicRows,
       normalizedAnalyses,
     )
-    const fmea = classicRowsFromAiag(aiagAnalyses, state.rows.fmea)
+    const fmea = classicRowsFromAiag(aiagAnalyses, classicRows)
     if (
       JSON.stringify(aiagAnalyses) === JSON.stringify(state.aiagAnalyses ?? [])
       && JSON.stringify(fmea) === JSON.stringify(state.rows.fmea)
@@ -375,13 +387,15 @@ export default function ReliabilityProgram({
       standaloneRows,
       nextAnalyses.map(normalizeFmeaAnalysis),
     )
-    patch({
+    setState(previous => ({
+      ...previous,
+      result: fmeaEngineeringFingerprint(previous.aiagAnalyses ?? []) === fmeaEngineeringFingerprint(aiagAnalyses) ? previous.result : null,
       aiagAnalyses,
       rows: {
         ...state.rows,
         fmea: classicRowsFromAiag(aiagAnalyses, state.rows.fmea),
       },
-    })
+    }))
   }
   const referenceOptions = useMemo((): Record<
     'hazards'|'fracas', ProgramRecordLinkOption[]
@@ -425,10 +439,13 @@ export default function ReliabilityProgram({
         && bookmarkTarget.source.analysisId !== folios.activeId) return
     const target = bookmarkTarget.source.view
     if (!target?.startsWith('fmea:')) return
-    const [, encodedId, section, visual, encodedDiagram] = target.split(':')
+    const [, encodedId, section, visual, encodedDiagram, encodedFocus] = target.split(':')
     const analysisId = decodeURIComponent(encodedId ?? '')
     if (!normalizedAnalyses.some(item => item.id === analysisId)) return
     appliedBookmark.current = bookmarkTarget.nonce
+    if (['structure', 'function', 'equipment'].includes(section) && encodedDiagram === 'focus') {
+      setUiPreference(`fmea.${section === 'equipment' ? 'equipment' : 'focus'}:${sharedSystem.model.id}:${analysisId}`, decodeURIComponent(encodedFocus ?? ''))
+    }
     setState(previous => ({
       ...previous,
       view: 'fmea',
@@ -439,7 +456,7 @@ export default function ReliabilityProgram({
         : section === 'control_plan' ? 'control_plan'
         : 'guided',
       fmeaStep: section === 'documentation' ? 7
-        : section === 'structure' ? 2
+        : section === 'structure' || section === 'equipment' ? 2
         : section === 'function' ? 3 : previous.fmeaStep,
       fmeaStructureView: section === 'structure' && visual === 'block_diagram'
         ? 'diagram' : previous.fmeaStructureView,
@@ -450,7 +467,7 @@ export default function ReliabilityProgram({
       fmeaPDiagramId: encodedDiagram
         ? decodeURIComponent(encodedDiagram) : '',
     }))
-  }, [bookmarkTarget, folios.activeId, normalizedAnalyses, setState])
+  }, [bookmarkTarget, folios.activeId, normalizedAnalyses, setState, sharedSystem.model.id])
   const programRequirements = useMemo(
     () => state.rows.requirements.map(row => ({
       id: String(row.id), statement: String(row.statement),
@@ -491,10 +508,16 @@ export default function ReliabilityProgram({
     isolation_threshold: Number(state.isolationThreshold),
   }), [normalizedAnalyses, programRequirements, state])
   const run = async () => {
+    const issues = normalizedAnalyses.flatMap(analysis => inspectFmeaBinding(sharedSystem.model, analysis)).filter(issue => issue.code !== 'unbound_structure')
+    if (issues.length) { setError(issues[0].message); return }
+    const pending = startRequest()
     setLoading(true); setError(null)
-    try { const result = await analyzeReliabilityProgram(request); setState(previous => ({ ...previous, result })) }
-    catch (caught: unknown) { setError((caught as { response?: { data?: { detail?: string } } })?.response?.data?.detail || (caught instanceof Error ? caught.message : 'Program analysis failed.')) }
-    finally { setLoading(false) }
+    try { const result = await analyzeReliabilityProgram(request); pending.commit(previous => ({ ...previous, result,
+      canonicalDependencies: undefined,
+      sourceSystemFingerprint: fmeaSemanticFingerprint(currentProjectSystem().model, previous.aiagAnalyses ?? []),
+    })) }
+    catch (caught: unknown) { if (pending.isCurrent()) setError((caught as { response?: { data?: { detail?: string } } })?.response?.data?.detail || (caught instanceof Error ? caught.message : 'Program analysis failed.')) }
+    finally { if (pending.isActive()) setLoading(false); pending.finish() }
   }
   const structureDiagramActive = state.view === 'fmea'
     && state.fmeaMode !== 'classic'
@@ -506,7 +529,6 @@ export default function ReliabilityProgram({
     <div className="flex flex-1 overflow-hidden">
       <aside className={`${structureDiagramActive ? 'w-48' : 'w-64'} shrink-0 border-r border-gray-200 bg-white flex flex-col transition-[width] duration-150`}>
         <div className="flex-1 overflow-y-auto p-3 space-y-1">
-          <div className="mb-3 rounded border border-blue-100 bg-blue-50 p-2 text-[11px] leading-snug text-blue-800">Closed-loop records share IDs and explicit links. Scores set review priority; linked evidence carries the technical basis.</div>
           {VIEWS.map(view => <button key={view.id} onClick={() => {
             setLinkedRecordTarget(null)
             setState(previous => ({ ...previous, view: view.id }))
@@ -524,8 +546,7 @@ export default function ReliabilityProgram({
               Classic
             </button>
             <p className="px-1 pt-1.5 text-[10px] leading-snug text-slate-400">
-              Shared DFMEA/PFMEA content synchronizes automatically. Classic
-              retains RPN and FMECA inputs; FMEA-MSR remains AIAG–VDA-only.
+              Classic: RPN and FMECA. AIAG–VDA: Action Priority and FMEA-MSR.
             </p>
           </div>}
           <div className="mt-4 border-t border-gray-200 pt-3 space-y-2">
@@ -541,6 +562,7 @@ export default function ReliabilityProgram({
         {state.view === 'fmea' && state.fmeaMode !== 'classic'
           ? <AiagVdaWorkspace
               analyses={normalizedAnalyses}
+              systemModel={sharedSystem.model}
               predictionSources={predictionSources}
               programRequirements={programRequirements}
               customProfiles={state.customRatingProfiles ?? []}
@@ -549,7 +571,7 @@ export default function ReliabilityProgram({
               hazardOptions={referenceOptions.hazards}
               fracasOptions={referenceOptions.fracas}
               builtInProfiles={builtInProfiles}
-              result={state.result?.aiag_vda_fmea}
+              result={displayedResult?.aiag_vda_fmea}
               activeId={state.activeFmeaId ?? ''}
               onActiveId={activeFmeaId =>
                 setState(previous => ({ ...previous, activeFmeaId }))}
@@ -575,15 +597,15 @@ export default function ReliabilityProgram({
               onNavigatePrediction={onNavigatePrediction}
             />
           : <>
-            <div className="sticky top-0 z-20 flex items-center justify-between border-b border-gray-200 bg-white px-4 py-2"><div><h2 className="text-sm font-semibold text-gray-800">{state.view === 'fmea' ? 'Classic FMEA / FMECA' : VIEWS.find(view => view.id === state.view)?.label}</h2><p className="text-[10px] text-gray-400">{state.view === 'fmea' ? 'Shared fields synchronize with DFMEA/PFMEA; FMECA rate inputs remain Classic-only.' : 'Double-entry is avoided through linked record IDs.'}</p></div><div className="flex gap-2"><button onClick={addRow} className="flex items-center gap-1 rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-600 hover:border-blue-400 hover:text-blue-600"><Plus size={12} /> Add record</button>{state.result && <ExportResultsButton getElement={() => resultsRef.current} baseName="reliability_program" title="Reliability Program" />}</div></div>
+            <div className="sticky top-0 z-20 flex items-center justify-between border-b border-gray-200 bg-white px-4 py-2"><div><h2 className="text-sm font-semibold text-gray-800">{state.view === 'fmea' ? 'Classic FMEA / FMECA' : VIEWS.find(view => view.id === state.view)?.label}</h2>{state.view === 'fmea' && <p className="text-[10px] text-gray-400">Shared fields sync with DFMEA/PFMEA. Rate inputs stay in Classic.</p>}</div><div className="flex gap-2"><button onClick={addRow} className="flex items-center gap-1 rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-600 hover:border-blue-400 hover:text-blue-600"><Plus size={12} /> Add record</button>{displayedResult && <ExportResultsButton getElement={() => resultsRef.current} baseName="reliability_program" title="Reliability Program" />}</div></div>
             <EditableTable columns={COLUMNS[state.view]} rows={currentRows}
               updateRow={updateRow} referenceOptions={referenceOptions}
               linkedRecordTarget={linkedRecordTarget}
               onNavigateReference={navigateToReference}
               removeRow={removeRow} />
-            {state.result && state.result.traceability.summary.issues > 0 && <div className="mx-4 mt-4 rounded border border-red-200 bg-red-50 p-3 text-xs text-red-800"><strong>Traceability needs review:</strong> {state.result.traceability.summary.unknown_references} unknown reference(s) and {state.result.traceability.summary.missing_reciprocal_links} missing reciprocal link(s).<ul className="mt-1 list-disc pl-5">{state.result.traceability.issues.slice(0, 8).map((issue, index) => <li key={`${issue.code}-${issue.source_id}-${issue.target_id}-${index}`}>{issue.source_id} → {issue.target_id}: {issue.code.replace(/_/g, ' ')}</li>)}</ul></div>}
-            {state.result && <ProgramResults view={state.view} result={state.result} />}
-            {!state.result && currentRows.length === 0 && <div className="flex h-64 items-center justify-center text-sm text-gray-400"><ClipboardCheck size={18} className="mr-2" />Add the first {VIEWS.find(view => view.id === state.view)?.label} record.</div>}
+            {displayedResult && displayedResult.traceability.summary.issues > 0 && <div className="mx-4 mt-4 rounded border border-red-200 bg-red-50 p-3 text-xs text-red-800"><strong>Traceability needs review:</strong> {displayedResult.traceability.summary.unknown_references} unknown reference(s) and {displayedResult.traceability.summary.missing_reciprocal_links} missing reciprocal link(s).<ul className="mt-1 list-disc pl-5">{displayedResult.traceability.issues.slice(0, 8).map((issue, index) => <li key={`${issue.code}-${issue.source_id}-${issue.target_id}-${index}`}>{issue.source_id} → {issue.target_id}: {issue.code.replace(/_/g, ' ')}</li>)}</ul></div>}
+            {displayedResult && <ProgramResults view={state.view} result={displayedResult} />}
+            {!displayedResult && currentRows.length === 0 && <div className="flex h-64 items-center justify-center text-sm text-gray-400"><ClipboardCheck size={18} className="mr-2" />Add the first {VIEWS.find(view => view.id === state.view)?.label} record.</div>}
           </>}
       </main>
     </div>
@@ -632,11 +654,13 @@ function EditableTable({
             {column.type === 'boolean'
               ? <label className="flex justify-center">
                   <input type="checkbox" checked={Boolean(row[column.key])}
+                    aria-label={`${column.label}, row ${index + 1}`}
                     onChange={event =>
                       updateRow(index, column.key, event.target.checked)} />
                 </label>
               : column.type === 'select'
                 ? <select value={String(row[column.key] ?? '')}
+                    aria-label={`${column.label}, row ${index + 1}`}
                     onChange={event =>
                       updateRow(index, column.key, event.target.value)}
                     className="w-full rounded border border-transparent bg-transparent px-1 py-1 outline-hidden hover:border-gray-200 focus:border-blue-400">
@@ -655,6 +679,7 @@ function EditableTable({
                         onNavigateReference(column.referenceView!, id)}
                       compact />
                   : <input type={column.type === 'number' ? 'number' : 'text'}
+                      aria-label={`${column.label}, row ${index + 1}`}
                       value={String(row[column.key] ?? '')}
                       onChange={event =>
                         updateRow(index, column.key, event.target.value)}
@@ -729,5 +754,12 @@ function ProgramResults({ view, result }: { view: View; result: ReliabilityProgr
   </ResultSection>
 }
 
-function ResultSection({ warning, cards, children }: { warning: string; cards: [string, string | number][]; children: React.ReactNode }) { return <section className="m-4 space-y-3 rounded-lg border border-gray-200 bg-white p-4"><div className="flex gap-2 rounded border border-slate-200 bg-slate-50 p-2 text-xs text-slate-600"><Info size={14} className="mt-0.5 shrink-0 text-slate-400" /><span><span className="font-medium text-slate-700">Interpretation:</span> {warning}</span></div><div className="grid grid-cols-2 gap-2 lg:grid-cols-4">{cards.map(([label, value]) => <Card key={label} label={label} value={String(value)} />)}</div><div className="overflow-x-auto rounded border border-gray-200">{children}</div></section> }
+function ResultSection({ warning, cards, children }: { warning: string; cards: [string, string | number][]; children: React.ReactNode }) {
+  return <section className="m-4 space-y-3 rounded-lg border border-gray-200 bg-white p-4">
+    <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">{cards.map(([label, value]) =>
+      <Card key={label} label={label} value={String(value)} />)}</div>
+    <p className="text-xs text-slate-600">{warning}</p>
+    <div className="overflow-x-auto rounded border border-gray-200">{children}</div>
+  </section>
+}
 function Breakdown({ title, values }: { title: string; values: Record<string, number> }) { return <div className="p-3"><h4 className="mb-2 text-xs font-semibold text-gray-700">{title}</h4>{Object.entries(values).map(([key,value]) => <div key={key} className="flex justify-between border-t border-gray-100 py-1 text-xs"><span>{key}</span><span className="font-mono">{value}</span></div>)}</div> }

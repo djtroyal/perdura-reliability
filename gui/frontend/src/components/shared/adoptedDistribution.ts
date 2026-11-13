@@ -1,3 +1,4 @@
+import { distributionLabel } from './distributionLabels.ts'
 import { sha256FtaText } from '../FaultTree/libraryModel.ts'
 import { quantityConversionFactor, quantityFromProjectUnit, validateDatasetQuantity, type DatasetQuantity } from './datasetUnits.ts'
 
@@ -157,14 +158,14 @@ export function createFitProvenance(f: LifeDataModelFolio, options: SourceOption
 }
 export function validateDistributionParameters(distribution: string, values: Record<string, unknown>): Record<string, number> {
   const fields = DISTRIBUTION_PARAMETERS[distribution]
-  if (!fields) throw new Error(`Unsupported distribution: ${distribution}.`)
+  if (!fields) throw new Error(`Unsupported distribution: ${distributionLabel(distribution)}.`)
   return Object.fromEntries(fields.map(field=>{
     const raw = values[field] ?? (field === 'eta' ? values.alpha : undefined)
-    if (raw == null || (typeof raw === 'string' && !raw.trim())) throw new Error(`Missing ${distribution} parameter ${field}.`)
-    if (typeof raw !== 'number' && typeof raw !== 'string') throw new Error(`Invalid ${distribution} parameter ${field}.`)
+    if (raw == null || (typeof raw === 'string' && !raw.trim())) throw new Error(`Missing ${distributionLabel(distribution)} parameter ${field}.`)
+    if (typeof raw !== 'number' && typeof raw !== 'string') throw new Error(`Invalid ${distributionLabel(distribution)} parameter ${field}.`)
     const value = Number(raw)
     if (!Number.isFinite(value) || (!['mu','gamma'].includes(field) && value <= 0)
-      || (field==='gamma' && value<0)) throw new Error(`Invalid ${distribution} parameter ${field}.`)
+      || (field==='gamma' && value<0)) throw new Error(`Invalid ${distributionLabel(distribution)} parameter ${field}.`)
     return [field,value]
   }))
 }

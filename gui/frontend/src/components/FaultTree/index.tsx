@@ -1,3 +1,5 @@
+import DropdownDetails from '../shared/DropdownDetails'
+import { distributionLabel } from '../shared/distributionLabels'
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import {
@@ -51,6 +53,7 @@ import ExportDiagramButton from '../shared/ExportDiagramButton'
 import CanvasAssetControls from '../shared/CanvasAssetControls'
 import DiagramLayoutMenu from '../shared/DiagramLayoutMenu'
 import { useMeasuredDiagramLayout } from '../shared/useMeasuredDiagramLayout'
+import { DiagramFullscreenButton, useDiagramFullscreen } from '../shared/useDiagramFullscreen'
 import { normalizeLayoutOptions, layoutDensity, type DiagramLayoutOptions } from '../shared/adaptiveDiagramLayout.mjs'
 import { fitReactFlowForExport } from '../shared/exportDiagram'
 import ExportResultsButton from '../shared/ExportResultsButton'
@@ -218,11 +221,11 @@ export function computeCDF(dist: string, params: Record<string, number>, t: numb
 export const DIST_OPTIONS = [
   { value: '', label: 'Manual (direct probability)' },
   { value: 'exponential', label: 'Exponential' },
-  { value: 'weibull', label: 'Weibull (2P)' },
+  { value: 'weibull', label: distributionLabel('Weibull_2P') },
   { value: 'normal', label: 'Normal' },
-  { value: 'lognormal', label: 'Lognormal (2P)' },
+  { value: 'lognormal', label: distributionLabel('Lognormal_2P') },
   { value: 'gamma', label: 'Gamma' },
-  { value: 'loglogistic', label: 'Loglogistic' },
+  { value: 'loglogistic', label: distributionLabel('loglogistic') },
   { value: 'gumbel', label: 'Gumbel' },
   { value: 'beta', label: 'Beta' },
 ]
@@ -1137,6 +1140,7 @@ export function FaultTreeEditor({ onNavigate, onLibrary }: {
   const openPSAInputRef = useRef<HTMLInputElement>(null)
   const flowWrapperRef = useRef<HTMLDivElement>(null)
   const flowInstanceRef = useRef<ReactFlowInstance<Node, Edge> | null>(null)
+  const fullscreen = useDiagramFullscreen('Fault tree diagram', () => flowInstanceRef.current)
   const resultsRef = useRef<HTMLDivElement>(null)
   const insertionSequenceRef = useRef(0)
 
@@ -2891,7 +2895,7 @@ export function FaultTreeEditor({ onNavigate, onLibrary }: {
               && (eventOccurrenceCounts.get(String(selectedNode.data.eventKey ?? selectedNode.id)) ?? 1) > 1 && (
               <div className="rounded-lg border border-violet-200 bg-violet-50 p-2.5 text-[10px] text-violet-800">
                 <p className="font-semibold">Mirrored logical event · {eventOccurrenceCounts.get(String(selectedNode.data.eventKey ?? selectedNode.id))} occurrences</p>
-                <p className="mt-1 leading-4">Every occurrence shares one event identity, probability/time model, and dependency definition. This preserves repeated-event dependence in exact evaluation and cut sets.</p>
+                <p className="mt-1 leading-4">Occurrences share one event, probability model, and dependencies. Edits apply to all occurrences.</p>
                 <button onClick={detachRepeatedEvent}
                   className="mt-2 rounded border border-violet-300 bg-white px-2 py-1 text-[10px] font-medium text-violet-700 hover:bg-violet-100">
                   Detach this occurrence
@@ -3536,6 +3540,7 @@ export function FaultTreeEditor({ onNavigate, onLibrary }: {
       </div>
 
       {/* Canvas */}
+      <div {...fullscreen.containerProps}>
       <CanvasErrorBoundary onReset={autoLayout} resetKey={folios.activeId}>
         <div className="flex-1 relative focus:outline-hidden" ref={flowWrapperRef} tabIndex={0}
           onPointerDown={event => {
@@ -3576,7 +3581,7 @@ export function FaultTreeEditor({ onNavigate, onLibrary }: {
               title="Add a repeated reference to the same logical event">
               <GitFork size={12} /> Mirror
             </button>
-            <details className="group relative">
+            <DropdownDetails className="group relative">
               <summary className="flex h-8 cursor-pointer list-none items-center gap-1 rounded border border-amber-300 bg-white px-2 text-[10px] font-medium text-amber-800 hover:bg-amber-50 marker:hidden"
                 title="Add a diagram note or a callout attached to the selected item">
                 <MessageSquarePlus size={12} /> Annotate
@@ -3602,7 +3607,7 @@ export function FaultTreeEditor({ onNavigate, onLibrary }: {
                   <Pencil size={11} /> Pencil
                 </button>
               </div>
-            </details>
+            </DropdownDetails>
             <label className="flex h-8 items-center gap-1 rounded border border-slate-300 bg-white px-2 text-[10px] text-slate-500" title="Connection line style">
               Connectors
               <select value={connectorStyle}
@@ -3649,6 +3654,7 @@ export function FaultTreeEditor({ onNavigate, onLibrary }: {
             <ExportDiagramButton getElement={() => flowWrapperRef.current} baseName="fault-tree"
               prepareExport={() => fitReactFlowForExport(flowInstanceRef.current)}
               buttonClassName="flex h-8 items-center gap-1 rounded border border-slate-300 bg-white px-2 text-[10px] font-medium text-slate-700 hover:bg-slate-50" />
+            <DiagramFullscreenButton controls={fullscreen} />
           </div>
           {openPSANotices.length > 0 && (
             <details className="absolute right-3 top-14 z-10 max-w-sm rounded border border-amber-200 bg-amber-50/95 text-[10px] text-amber-800 shadow-xs backdrop-blur" data-export-ignore>
@@ -4008,7 +4014,7 @@ export function FaultTreeEditor({ onNavigate, onLibrary }: {
 
             {resultTab === 'nodes' && (
               <div className="space-y-1">
-                <p className="mb-1 text-[10px] text-slate-400">Select a row to highlight and frame the corresponding diagram node. Repeated event references highlight together.</p>
+                <p className="mb-1 text-[10px] text-slate-400">Select a row to locate the event and all its occurrences.</p>
                 {(result.node_results ?? []).sort((a, b) => b.probability - a.probability).map(row => (
                   <button key={row.node_id} aria-pressed={resultNodeSelection?.source === 'nodes' && resultNodeSelection.rowKey === row.node_id}
                     onClick={() => toggleResultNodeHighlight(
@@ -4118,7 +4124,7 @@ export function FaultTreeEditor({ onNavigate, onLibrary }: {
             {resultTab === 'importance' && (
               <div>
                 {result.importance_eligibility?.reason && <p className="mb-2 rounded border border-amber-200 bg-amber-50 p-2 text-[10px] text-amber-800">{result.importance_eligibility.reason}</p>}
-                {result.importance.length > 0 && <p className="mb-2 text-[10px] text-slate-400">Select an importance row to highlight and frame every occurrence of that event in the diagram.</p>}
+                {result.importance.length > 0 && <p className="mb-2 text-[10px] text-slate-400">Select a row to locate all occurrences of the event.</p>}
                 {result.importance.length > 0 ? <ResultsTable
                   columns={importanceCols}
                   rows={result.importance.map(row => ({
@@ -4155,6 +4161,7 @@ export function FaultTreeEditor({ onNavigate, onLibrary }: {
           </>}
         </div>
       )}
+      </div>
       </div>
     </div>
     <SystemConversionDialog

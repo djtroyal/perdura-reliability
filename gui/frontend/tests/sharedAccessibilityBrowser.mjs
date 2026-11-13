@@ -69,7 +69,7 @@ function Fixture() {
       <button onClick={() => setOpen(false)}>Close dialog</button>
     </div>}
     {nested && <div ref={child} role="dialog" aria-modal="true" aria-label="Inner" className="fixed inset-24 z-[60] bg-white p-4"><button onClick={() => setNested(false)}>Close nested dialog</button></div>}
-    <section aria-label="Structure"><StructureTable model={model} selectedId={element} collapsedIds={collapsed} onSelect={selectElement} onToggle={id => collapse(v => v.includes(id) ? v.filter(i => i !== id) : [...v,id])} onChangeParent={()=>{}}/></section>
+    <section aria-label="Structure"><StructureTable model={model} selectedId={element} collapsedIds={collapsed} editing onSelect={selectElement} onToggle={id => collapse(v => v.includes(id) ? v.filter(i => i !== id) : [...v,id])} onChangeParent={()=>{}} onMove={()=>{}}/></section>
     <div style={{ width:600,maxWidth:"100%" }}><ExportablePlot data={[{ type:'scatter',name:'Reliability',x:Array.from({length:61},(_,i)=>i),y:Array.from({length:61},(_,i)=>1-i/100),error_y:{type:'data',array:new Float64Array(61).fill(.1),arrayminus:new Float64Array(61).fill(.05),symmetric:false},error_x:{type:'constant',value:.25} }]} layout={{ title:{text:'Reliability over time'}, xaxis:{title:{text:'Time (hours)'}}, yaxis:{title:{text:'Reliability'}} }} style={{width:'100%',height:280}} config={{displayModeBar:false}} accessibleDescription="Reliability decreases from 1 to 0.4 over 60 hours."/></div>
     <PlotDataView label="Uncertainty examples" layout={{xaxis:{title:{text:"Calendar (days)"}},scene:{xaxis:{title:{text:"Temperature (K)"}}}}} data={[{name:'Percent uncertainty',type:'scatter3d',x:[1],y:[2],z:[3],error_z:{type:'percent',value:5,valueminus:2,symmetric:false}},{name:'Cartesian with hidden defaults',type:'scatter',x:[1],y:[2],error_y:{}},{name:'Unsupported DataView',type:'scatter',y:new DataView(new ArrayBuffer(8))}]}/>
   </div>
@@ -270,28 +270,53 @@ try {
   await expect(page.getByRole('tabpanel',{name:'Life Data Analysis',exact:true})).toBeVisible()
   const observations=page.getByRole('table',{name:/^Life Data observations/})
   await observations.waitFor({timeout:60000})
-  for (let count=await observations.locator('tbody tr').count(); count>3; count--) {
-    await observations.getByRole('button',{name:'Delete row '+count,exact:true}).click()
-    await expect(observations.locator('tbody tr')).toHaveCount(count-1)
-  }
+  const newObservation = observations.locator('tbody tr[data-placeholder="true"]')
+  await expect(observations.locator('tbody tr')).toHaveCount(1)
   for (const [row,id,time] of [[1,'z','2'],[2,'a','1'],[3,'m','3']]) {
-    await observations.getByRole('textbox',{name:'ID, row '+row,exact:true}).fill(id)
+    await newObservation.getByRole('textbox',{name:'ID, new row',exact:true}).fill(id)
     await observations.getByRole('textbox',{name:new RegExp('^Time.*row '+row+'$')}).fill(time)
   }
+  await expect(observations.locator('tbody tr')).toHaveCount(4)
+  await expect(newObservation).toHaveCount(1)
   await observations.getByRole('button',{name:'Sort by ID',exact:true}).focus()
   await page.keyboard.press('Enter')
   await expect(observations.locator('tbody tr').first().getByRole('textbox',{name:/^ID/})).toHaveValue('a')
   await observations.getByRole('button',{name:/^Row 1: Fail/}).focus()
   await page.keyboard.press('Enter')
   await expect(observations.getByRole('button',{name:/^Row 1: Susp/})).toBeFocused()
+  const readObservationRows = () => page.evaluate(async () => {
+    const { getProjectState } = await import('/src/store/project.ts')
+    const module = getProjectState().modules.lifeData
+    return module.folios.find(folio => folio.id === module.activeId).rows
+  })
+  const rowsBeforeNavigation = await readObservationRows()
+  await observations.getByRole('textbox',{name:/^Time.*row 2$/}).focus()
+  await page.keyboard.press('Enter')
+  await expect(observations.getByRole('textbox',{name:/^Time.*row 3$/})).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(observations.getByRole('textbox',{name:/^Time.*row 1$/})).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(newObservation.getByRole('textbox',{name:/^Time.*new row$/})).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(newObservation.getByRole('textbox',{name:/^Time.*new row$/})).toBeFocused()
   await observations.getByRole('textbox',{name:/^Time.*row 1$/}).focus()
   await page.keyboard.press('Tab')
   await expect(observations.getByRole('button',{name:/^Row 1: Susp/})).toBeFocused()
   await page.keyboard.press('Tab')
   await expect(observations.getByRole('button',{name:'Delete row 1',exact:true})).toBeFocused()
   await page.keyboard.press('Tab')
-  await expect(page.getByRole('button',{name:'Add row',exact:true})).toBeFocused()
-  await expect(observations.locator('tbody tr')).toHaveCount(3)
+  await expect(newObservation.getByRole('textbox',{name:'ID, new row',exact:true})).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(newObservation.getByRole('textbox',{name:/^Time.*new row$/})).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(newObservation.getByRole('button',{name:/^New row: Fail/})).toBeFocused()
+  await page.keyboard.press('Tab')
+  assert.equal(await observations.evaluate(element => element.contains(document.activeElement)),false,
+    'Tab must leave the virtual final row normally')
+  await expect(page.getByRole('button',{name:'Add row',exact:true})).toHaveCount(0)
+  await expect(observations.locator('tbody tr')).toHaveCount(4)
+  assert.deepEqual(await readObservationRows(),rowsBeforeNavigation,
+    'keyboard navigation and the final blank row must not add or mutate observations')
   const analyses=page.getByRole('toolbar',{name:'Life Data analysis selection'})
   await analyses.getByRole('button',{name:'New analysis',exact:true}).click()
   await expect(analyses.locator('button[aria-pressed="true"]')).toBeFocused()

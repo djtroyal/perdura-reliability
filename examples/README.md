@@ -2,9 +2,23 @@
 
 ## `demo-project.json`
 
-A ready-to-explore demo project with **input data pre-filled in every module**, so
-a new user can load it and immediately run analyses across the whole suite without
-typing in or supplying their own datasets.
+A ready-to-explore demo project with **input data pre-filled across the suite**.
+Load it to explore the architecture and run statistical and reliability examples
+without supplying your own datasets. FMEA studies are drafts: their remaining
+failure and risk-analysis prerequisites are shown in the analysis workspace.
+
+The shared System Model is a fictional twin-electric **Aircraft**, with eight L2
+systems: propulsion, electrical power, flight controls, avionics, hydraulics,
+landing gear, airframe, and thermal/environmental systems. Each branch continues
+through L3 subsystems to L4 components. Expand the structure or Interfaces diagram
+to explore the lower levels; the diagram initially shows the collapsed L2 systems.
+Functions, resources, interfaces, and parent-function support are defined across
+the hierarchy. The original redundant pumps and controller are part of Hydraulics.
+
+Architecture terminology draws on the [FAA aircraft systems handbook](https://www.faa.gov/regulationspolicies/handbooksmanuals/aviation/phak/chapter-7-aircraft-systems)
+and [NASA electric-aircraft research](https://www.nasa.gov/directorates/armd/x-57-technical-papers/).
+The example is illustrative; its numerical assumptions and analysis ratings are
+training inputs, not aircraft qualification or certification evidence.
 
 ### How to load it
 
@@ -19,9 +33,9 @@ Opening the demo loads it into the current session only — it is never saved ov
 so you can edit freely; use **Save** to keep a copy under your own name. You can
 also still **Import** this JSON file directly.
 
-> Results are intentionally **not** included — the suite strips computed results on
-> export/save, and the point of the demo is to let you press "Run" yourself. Every
-> module ships with valid inputs, so each analysis computes on the first click.
+Most examples contain inputs ready for **Run / Compute / Analyze**. A few retain
+small calculated results to demonstrate linked analyses, including the essential
+backup-power RBD. Changing analysis inputs requires a fresh calculation.
 
 ### What's included
 
@@ -29,10 +43,12 @@ also still **Import** this JSON file directly.
 |------|-----------------|
 | Life Data Analysis | A censored bearing-life dataset (failures + suspensions), all distributions selected, parametric mode |
 | Reliability Testing (ALT) | Temperature-accelerated failure times at three stress levels + use-level stress |
-| System Modeling — **RBD** | A redundant-pump block diagram (two parallel pumps in series with a controller) |
-| System Modeling — **FTA** | A fault tree (top OR gate over an AND of both pumps, plus controller and power-loss events) |
+| System Modeling — **System Definition** | Shared Aircraft architecture through L4, with resource functions and interfaces |
+| System Modeling — **RBD** | Aircraft hydraulic supply (two parallel pumps in series with a controller), plus essential backup power |
+| System Modeling — **FTA** | Aircraft hydraulic pressure loss (both pumps, controller, or power loss), plus independent gate-logic examples |
 | System Modeling — **Markov** | A 3-state operating/degraded/failed repairable chain with transition rates |
-| Failure Rate Prediction | A small controller board: microprocessor, resistors, capacitors (MIL-HDBK-217F) |
+| Failure Rate Prediction | Hydraulic controller board ground qualification example: microprocessor, resistors, capacitors (MIL-HDBK-217F); original GF/GB assumptions retained |
+| FMEA | Draft hydraulic controller DFMEA, assembly PFMEA, and monitoring supplement, linked to the shared architecture |
 | Physics of Failure | An S-N fatigue curve dataset |
 | Reliability Growth | A Crow-AMSAA cumulative-failure test sequence |
 | Warranty Analysis | A Nevada chart of shipments and field returns |
@@ -52,9 +68,15 @@ also still **Import** this JSON file directly.
 - The file matches the app's import schema (`ExportPayload` in
   `gui/frontend/src/store/project.ts`): top-level `app: "Perdura"`, subtitle,
   website,
-  `version`, `project`, `units`, `modules`.
+  `schemaVersion`, `createdWith`, `engineRevisions`, `project`, `units`, `modules`.
 - The same content is bundled at `gui/frontend/src/data/demoProject.json` (imported
   by `openDemoProject()` for the Open → Examples entry). Keep the two files in sync.
+- To regenerate both copies, install frontend dependencies and run
+  `python tools/refresh_demo_project.py --write --check`. The Aircraft model is
+  authored in `tools/build_aircraft_demo_model.py`; linked analyses are rebuilt
+  through the application's canonical adapters by
+  `gui/frontend/scripts/materializeAircraftDemo.mjs`. The generated manifest
+  checks source and artifact fingerprints with `--check` in Python-only CI.
 - Folio-based modules (`alt`, `system`, `faultTree`, `prediction`, `pof`,
   `growth`, `warranty`) are wrapped as `{ _folioWrap: true, activeId, folios:[…] }`;
   the rest are flat module state. `lifeData` keeps its own internal `folios` array.

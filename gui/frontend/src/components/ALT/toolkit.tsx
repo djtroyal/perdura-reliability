@@ -62,13 +62,13 @@ export function Select({ label, tip, value, onChange, options }: {
 }
 
 export function ToolLayout({ intro, controls, err, loading, onRun, runLabel, results }: {
-  intro: string; controls: React.ReactNode; err: string | null; loading: boolean
+  intro?: string; controls: React.ReactNode; err: string | null; loading: boolean
   onRun: () => void; runLabel: string; results: React.ReactNode
 }) {
   return (
     <div className="flex flex-1 overflow-hidden">
       <div className="w-80 shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-3">
-        <p className="text-xs text-gray-500 leading-snug">{intro}</p>
+        {intro && <p className="text-xs text-gray-500 leading-snug">{intro}</p>}
         {controls}
         {err && <p role="alert" className="text-xs text-red-600 bg-red-50 p-2 rounded">{err}</p>}
         <button

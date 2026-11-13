@@ -42,7 +42,6 @@ export default function Overview() {
       <div className="flex items-center justify-between mb-4">
         <div>
           <h2 className="text-base font-semibold text-gray-900">Human Reliability — Method Comparison</h2>
-          <p className="text-xs text-gray-500 mt-0.5">Latest HEP estimates and screening outputs, with their analytical scope shown explicitly.</p>
         </div>
         {withData.length > 0 && <ExportResultsButton getElement={() => resultsRef.current} baseName="hra_comparison" />}
       </div>
@@ -87,7 +86,7 @@ export default function Overview() {
             </div>
           )}
           <p className="text-[11px] text-slate-500 mt-4 leading-snug">
-            Compare like-for-like methods: each uses its own task definition, evidence, assumptions, and level of rigor. The Scope column distinguishes quantitative methods from screening outputs.
+            Compare results for the same task and evidence. Screening outputs are not equivalent to quantitative HEP estimates.
           </p>
         </>
       )}

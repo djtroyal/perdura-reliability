@@ -2,7 +2,7 @@
   "app": "Perdura",
   "subtitle": "Reliability Engineering and Statistics Suite",
   "website": "https://perdurareliability.com",
-  "schemaVersion": 6,
+  "schemaVersion": 11,
   "createdWith": {
     "version": "0.7.0",
     "commit": "dev",
@@ -82,8 +82,8 @@
         "buildStatus": "development"
       },
       "runId": "run-b85d7206-dd5c-4a6b-afec-83177bb99aca",
-      "moduleLabel": "Six Sigma — Process Capability",
-      "analysisName": "Six Sigma — Process Capability",
+      "moduleLabel": "Six Sigma \u2014 Process Capability",
+      "analysisName": "Six Sigma \u2014 Process Capability",
       "fingerprintSha256": "670dd461c9c873fa6857b0d166d2cfb395b9478ef9c99a03c841729608722ac2"
     }
   ],
@@ -1107,7 +1107,7 @@
         },
         "ppm_overall": {
           "below_lsl": 137442.79705218849,
-          "above_usl": 0.0000025411447933570115,
+          "above_usl": 2.5411447933570115e-06,
           "total": 137442.79705472963
         },
         "observed": {
@@ -1165,7 +1165,7 @@
           "normal": false
         },
         "normality_warning": true,
-        "normality_note": "Data appears non-normal (Shapiro-Wilk p < 0.05); normal-model ppm, Z-bench and capability indices may be unreliable — consider a transformation or a non-normal capability model.",
+        "normality_note": "Data appears non-normal (Shapiro-Wilk p < 0.05); normal-model ppm, Z-bench and capability indices may be unreliable \u2014 consider a transformation or a non-normal capability model.",
         "stability": {
           "status": "unstable",
           "source": "computed_phase_i_control_chart",

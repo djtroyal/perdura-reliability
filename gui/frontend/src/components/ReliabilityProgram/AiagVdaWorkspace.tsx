@@ -1,3 +1,12 @@
+import { availableFunctionInputs } from '../../store/functionResourceFlows'
+import { processArchitectureModel } from '../../store/systemArchitecture'
+import { createFmeaFailureChain } from '../../store/fmeaDefaults'
+import StructuredFunctionEditor from '../shared/StructuredFunctionEditor'
+import type { FunctionTraceNavigation } from '../shared/FunctionInputSuppliers'
+import { projectFunctionInputSuppliers } from '../../store/inheritedFunctionInputs'
+import { FmeaFunctionSupport, FmeaTransferEditor } from './StructuredFmeaAuthoring'
+import { assertFmeaEditAllowed, useFmeaReadiness } from '../../store/fmeaReadiness'
+import DropdownDetails from '../shared/DropdownDetails'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Building2,
@@ -48,9 +57,15 @@ import type {
 } from '../../api/reliabilityProgram'
 import type {
   FMEAAnalysisRef,
+  FMEAReadiness,
   FMEAFailureFlowRegistry,
 } from '../../api/fmea'
 import { matchesSearchQuery } from '../../searchMatch'
+import type { SystemDefinitionModel } from '../../api/systemDefinition'
+import { bindFmeaAnalysis, canonicalFmeaBinding, canonicalInstanceId, fmeaScopeInstanceIds } from '../../store/sharedFmeaModel'
+import { useUiPreference } from '../../store/uiPreferences'
+import SharedFmeaDiagram from './SharedFmeaDiagram'
+import FmeaSystemBindingControl from './FmeaSystemBindingControl'
 import {
   FMEA_STEPS,
   FMES_GROUP_DIMENSIONS,
@@ -86,7 +101,6 @@ import {
 } from './fmeaModel'
 import {
   CauseMechanismField,
-  FunctionStatementField,
   type FunctionTargetSuggestion,
   OperatingModesField,
   VocabularyManager,
@@ -300,6 +314,7 @@ function priorityClass(value?: string|null) {
 
 export default function AiagVdaWorkspace({
   analyses,
+  systemModel,
   predictionSources,
   programRequirements,
   customProfiles,
@@ -325,9 +340,14 @@ export default function AiagVdaWorkspace({
   onVocabularyProfileChange,
   onNavigateReference,
   onNavigatePrediction,
+  onNavigateSystemFunction,
+  onNavigateSystemInterface,
   failureFlow,
+  studyReadiness,
 }: {
   analyses: AIAGVDAFMEAAnalysis[]
+  studyReadiness?: FMEAReadiness
+  systemModel?: SystemDefinitionModel
   predictionSources: PredictionAnalysisSource[]
   programRequirements: RequirementInput[]
   customProfiles: FMEARatingProfile[]
@@ -358,6 +378,8 @@ export default function AiagVdaWorkspace({
     entityId: string
     pieceKey?: string
   }) => void
+  onNavigateSystemFunction?: FunctionTraceNavigation['onNavigateFunction']
+  onNavigateSystemInterface?: FunctionTraceNavigation['onNavigateInterface']
   failureFlow?: FailureFlowWorkspaceController
 }) {
   const [importState, setImportState] = useState<{
@@ -375,8 +397,21 @@ export default function AiagVdaWorkspace({
   const fileRef = useRef<HTMLInputElement>(null)
   const workspaceRef = useRef<HTMLDivElement>(null)
   const active = analyses.find(item => item.id === activeId) ?? analyses[0]
+  const binding = active && systemModel ? canonicalFmeaBinding(systemModel, active) : undefined
+  const [focusInstanceId, setFocusInstanceId] = useUiPreference<string>(
+    `fmea.focus:${systemModel?.id ?? 'local'}:${active?.id ?? 'none'}`,
+    binding?.scope_instance_id ?? '',
+  )
+  const focusStructure = (structureId: string) => {
+    const node = active?.structure_nodes.find(item => item.id === structureId)
+    const instanceId = node?.source_ref?.module === 'system_definition'
+      ? node.source_ref.entity_id : node?.system_definition_ref?.instance_id
+    if (instanceId) setFocusInstanceId(instanceId)
+  }
   const activeResult = result?.analyses.find(item => item.id === active?.id)
-  const allProfiles = [...builtInProfiles, ...customProfiles]
+  const allProfiles = useMemo(() => [...builtInProfiles, ...customProfiles], [builtInProfiles, customProfiles])
+  const draftReadiness = useFmeaReadiness(active, systemModel, allProfiles, programRequirements)
+  const liveReadiness = studyReadiness ?? draftReadiness
   const profile = allProfiles.find(item => item.id === active?.rating_profile_id)
   useEffect(() => {
     if (!message) return
@@ -419,8 +454,10 @@ export default function AiagVdaWorkspace({
 
   const update = (change: Partial<AIAGVDAFMEAAnalysis>) => {
     if (!active) return
-    onAnalysesChange(analyses.map(item =>
-      item.id === active.id ? { ...item, ...change } : item))
+    try {
+      assertFmeaEditAllowed(active, { ...active, ...change }, systemModel)
+      onAnalysesChange(analyses.map(item => item.id === active.id ? { ...item, ...change } : item))
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'Complete the prerequisite steps first.') }
   }
   const add = (kind: FMEAKind) => {
     const created = createFmeaAnalysis(kind, analyses.length + 1)
@@ -431,6 +468,8 @@ export default function AiagVdaWorkspace({
         created.source_revision = parent.revision
         created.structure_nodes = structuredClone(parent.structure_nodes)
         created.block_diagram = structuredClone(parent.block_diagram)
+        created.resources = structuredClone(parent.resources)
+        created.system_binding = structuredClone(parent.system_binding)
         created.functions = structuredClone(parent.functions)
         created.function_links = structuredClone(parent.function_links)
         created.functional_requirements = structuredClone(
@@ -455,7 +494,8 @@ export default function AiagVdaWorkspace({
         }))
       }
     }
-    onAnalysesChange([...analyses, created])
+    const linked = systemModel && kind !== 'pfmea' ? bindFmeaAnalysis(systemModel, created) : created
+    onAnalysesChange([...analyses, linked])
     onActiveId(created.id)
     onView('guided')
     onStep(1)
@@ -479,10 +519,12 @@ export default function AiagVdaWorkspace({
     const copy = await copyFmeaFoundation(active, analyses.length + 1)
     onAnalysesChange([...analyses, copy])
     onActiveId(copy.id)
-    setMessage(`Created a traceable working copy of ${active.id} revision ${active.revision}.`)
+    setMessage(`Created a working copy of ${active.id} revision ${active.revision}.`)
   }
   const updateChain = (chainId: string, change: Partial<FMEAFailureChain>) => {
     if (!active) return
+    try { assertFmeaEditAllowed(active, { ...active, failure_chains: active.failure_chains.map(chain => chain.id === chainId ? { ...chain, ...change } : chain) }, systemModel) }
+    catch (error) { setMessage(error instanceof Error ? error.message : 'Complete prerequisite steps.'); return }
     if (failureFlow?.onChainChange(active.id, chainId, change)) return
     update({ failure_chains: active.failure_chains.map(chain =>
       chain.id === chainId ? { ...chain, ...change } : chain) })
@@ -490,11 +532,12 @@ export default function AiagVdaWorkspace({
   const addFailureChainForFunction = (
     functionId: string,
     relatedTo?: FMEAFailureChain,
+    suggestedFailure?: string,
   ) => {
     if (!active) return
     const created = relatedTo
       ? relatedFailureCase(active.kind, relatedTo)
-      : { ...blankChain(active.kind), function_id: functionId }
+      : { ...blankChain(active.kind), function_id: functionId, failure_mode: suggestedFailure ?? '' }
     const sourceIndex = relatedTo
       ? active.failure_chains.findIndex(item => item.id === relatedTo.id)
       : -1
@@ -502,12 +545,17 @@ export default function AiagVdaWorkspace({
     if (sourceIndex >= 0) failure_chains.splice(sourceIndex + 1, 0, created)
     else failure_chains.push(created)
     update({ failure_chains })
+    focusStructure(active.functions.find(item => item.id === functionId)?.structure_node_id ?? '')
     setFocusedFailureChainId(created.id)
     onView('guided')
     onStep(4)
   }
   const navigateToFinding = (issue: FMEAIssue) => {
     if (!active) return
+    const focusRecord = active.structure_nodes.find(item => item.id === issue.record_id)
+    const focusFunction = active.functions.find(item => item.id === issue.record_id)
+      ?? active.functions.find(item => item.id === active.failure_chains.find(chain => chain.id === issue.record_id)?.function_id)
+    focusStructure(focusRecord?.id ?? focusFunction?.structure_node_id ?? '')
     const controlPlanFinding = Boolean(issue.record_id
       && active.control_plan.some(item => item.id === issue.record_id))
     const profileFinding = issue.field === 'rating_profile_id'
@@ -547,9 +595,7 @@ export default function AiagVdaWorkspace({
       <ShieldCheck size={36} className="mx-auto mb-3 text-blue-600" />
       <h3 className="text-lg font-semibold text-slate-800">Start an AIAG–VDA-aligned FMEA</h3>
       <p className="mt-2 text-sm leading-relaxed text-slate-500">
-        Use the seven-step workflow for a design, process, or supplemental
-        monitoring-and-system-response analysis. Classic FMEA/FMECA remains
-        available as a separate method.
+        Choose a design, process, or monitoring-and-system-response analysis.
       </p>
       <div className="mt-5 flex flex-wrap justify-center gap-2">
         {(['dfmea', 'pfmea', 'fmea_msr'] as FMEAKind[]).map(kind =>
@@ -561,8 +607,11 @@ export default function AiagVdaWorkspace({
     </div>
   </div>
 
-  const readiness = activeResult?.step_readiness ?? []
-  const exportMenu = <details className="relative">
+  const readiness = liveReadiness?.stages ?? []
+  const editStage = view === 'worksheet' ? 5 : view === 'control_plan' ? 6 : step
+  const prerequisite = liveReadiness?.findings.find(item => item.severity === 'error' && item.step < editStage)
+  const readOnly = Boolean(prerequisite)
+  const exportMenu = <DropdownDetails className="relative">
     <summary className="flex cursor-pointer list-none items-center gap-1 rounded border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-600 hover:border-blue-400">
       <Download size={13} /> Export <ChevronDown size={12} />
     </summary>
@@ -581,9 +630,10 @@ export default function AiagVdaWorkspace({
       )}
         className="w-full rounded px-2 py-1.5 text-left text-xs hover:bg-slate-100">Worksheet XLSX</button>
     </div>
-  </details>
+  </DropdownDetails>
 
-  return <div ref={workspaceRef} className="fmea-workspace min-w-0">
+  const diagramActive = view === 'guided' && step === 2 && structureView === 'diagram'
+  return <div ref={workspaceRef} className={`fmea-workspace min-w-0 ${diagramActive ? 'flex h-full min-h-0 flex-col' : ''}`}>
     <div className="sticky top-0 z-20 border-b border-slate-200 bg-white">
       <div className="flex flex-wrap items-center gap-2 px-4 py-2">
         <select aria-label="FMEA analysis" value={active.id} onChange={event => {
@@ -596,7 +646,7 @@ export default function AiagVdaWorkspace({
             {item.name} · {kindLabel(item.kind)} · Rev {item.revision}
           </option>)}
         </select>
-        <details className="relative">
+        <DropdownDetails className="relative">
           <summary className="flex cursor-pointer list-none items-center gap-1 rounded bg-blue-600 px-2 py-1.5 text-xs font-medium text-white">
             <Plus size={13} /> New <ChevronDown size={12} />
           </summary>
@@ -607,9 +657,9 @@ export default function AiagVdaWorkspace({
                 {kindLabel(kind)}
               </button>)}
           </div>
-        </details>
+        </DropdownDetails>
         <button onClick={() => void copyFoundation()}
-          title="Create an independent, traceable foundation copy"
+          title="Create an independent foundation copy"
           className="flex items-center gap-1 rounded border border-slate-300 px-2 py-1.5 text-xs text-slate-600 hover:border-blue-400">
           <ClipboardCopy size={13} /> Foundation copy
         </button>
@@ -661,12 +711,31 @@ export default function AiagVdaWorkspace({
       </button>
     </div>}
 
+    {systemModel && <FmeaSystemBindingControl key={active.id} analysis={active} model={systemModel} update={update} />}
+    {readOnly && <div role="status" className="mx-4 mt-3 rounded border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">
+      This work is read-only until its prerequisites are complete. {prerequisite?.message}
+      <button type="button" className="ml-2 font-semibold underline" onClick={() => { onView('guided'); onStep(prerequisite!.step) }}>Open Step {prerequisite?.step}</button>
+    </div>}
+    {view === 'guided' && Boolean(liveReadiness?.findings.some(item => item.step === step)) && <details
+      open={step !== 1 || liveReadiness?.findings.some(item => item.step === 1 && item.severity === 'error')}
+      className="mx-4 mt-3 rounded border border-slate-200 bg-slate-50 text-xs">
+      <summary className="cursor-pointer px-3 py-2 font-semibold text-slate-700">{step === 1 && !liveReadiness?.findings.some(item => item.step === 1 && item.severity === 'error')
+        ? 'Planning suggestions (optional)' : `Step ${step} completeness`}</summary>
+      <ul className="space-y-1 px-3 pb-3">{liveReadiness?.findings.filter(item => item.step === step).map((finding, index) => {
+        const linked = active.functions.find(fn => fn.id === finding.record_id || fn.system_definition_ref?.function_id === finding.record_id)
+          ?? active.interfaces.find(edge => edge.id === finding.record_id || edge.system_definition_ref?.interface_id === finding.record_id)
+          ?? active.structure_nodes.find(node => node.id === finding.record_id || node.system_definition_ref?.instance_id === finding.record_id)
+        return <li key={`${finding.code}-${index}`}><button type="button" className="text-left text-blue-800 underline decoration-blue-200 hover:decoration-blue-700"
+          onClick={() => navigateToFinding({ ...finding, record_id: linked?.id ?? finding.record_id, field: finding.path?.split('.').slice(-1)[0] ?? '', severity: finding.severity })}>
+          {finding.message}</button></li>
+      })}</ul>
+    </details>}
     {view === 'guided' && <>
       <div className="fmea-step-track flex overflow-x-auto border-b border-slate-300 bg-slate-100 px-2 py-1.5">
         {FMEA_STEPS.map((label, index) => {
           const status = readiness.find(item => item.step === index + 1)
           return <button key={label} onClick={() => onStep(index + 1)}
-            title={status ? `${status.errors} error(s), ${status.warnings} warning(s)` : 'Run analysis to check readiness'}
+            title={status ? status.complete ? 'Complete' : status.findings.map(item => item.message).join(' ') : 'Checking prerequisites'}
             aria-current={step === index + 1 ? 'step' : undefined}
             data-first={index === 0 || undefined}
             data-active={step === index + 1 || undefined}
@@ -676,28 +745,35 @@ export default function AiagVdaWorkspace({
                 ? 'text-blue-950'
                 : 'text-slate-700 hover:text-blue-900'}`}>
             <span className={`mx-auto mb-1 flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold ${
-              status?.ready ? 'bg-emerald-100 text-emerald-700' :
+              status?.complete ? 'bg-emerald-100 text-emerald-700' :
               status ? 'bg-red-100 text-red-700' :
               step === index + 1 ? 'bg-blue-100 text-blue-700' : 'bg-slate-200'}`}>
-              {status?.ready ? <Check size={11} /> : index + 1}
+              {status?.complete ? <Check size={11} /> : index + 1}
             </span>
             <span className="block whitespace-nowrap text-[10px] font-semibold">{label}</span>
           </button>
         })}
       </div>
-      <div className="p-4">
+      <fieldset disabled={readOnly} className={diagramActive ? "flex min-h-0 min-w-0 flex-1 flex-col px-4 pt-3" : "min-w-0 p-4"}>
         {step === 1 && <PlanningStep analysis={active} analyses={analyses} update={update} />}
         {step === 2 && <StructureStep analysis={active}
+          systemModel={systemModel} focusInstanceId={focusInstanceId}
+          onFocusInstanceId={setFocusInstanceId} onSelectStructure={focusStructure}
           predictionSources={predictionSources} update={update}
           initialView={structureView}
           findingNavigation={findingNavigation}
           onViewChange={onStructureView}
           onNavigatePrediction={onNavigatePrediction} />}
         {step === 3 && <FunctionStep analysis={active}
+          onNavigateSystemFunction={onNavigateSystemFunction}
+          onNavigateSystemInterface={onNavigateSystemInterface}
+          onSelectStructure={focusStructure}
+          systemModel={systemModel} focusInstanceId={focusInstanceId}
+          onFocusInstanceId={setFocusInstanceId}
           result={activeResult} programRequirements={programRequirements}
           vocabularyProfile={vocabularyProfile}
-          onAddFailureMode={functionId =>
-            addFailureChainForFunction(functionId)}
+          onAddFailureMode={(functionId, description) =>
+            addFailureChainForFunction(functionId, undefined, description)}
           update={update} onStep={onStep}
           initialVisualView={functionVisualView}
           initialPDiagramId={pDiagramId}
@@ -705,6 +781,7 @@ export default function AiagVdaWorkspace({
           onVisualViewChange={onFunctionVisualView}
           onPDiagramIdChange={onPDiagramId} />}
         {step === 4 && <FailureStep analysis={active}
+          onSelectStructure={focusStructure}
           vocabularyProfile={vocabularyProfile}
           hazardOptions={hazardOptions} fracasOptions={fracasOptions}
           onNavigateReference={onNavigateReference}
@@ -725,12 +802,12 @@ export default function AiagVdaWorkspace({
         {step === 7 && <DocumentationStep analysis={active}
           result={activeResult} update={update}
           onNavigateFinding={navigateToFinding} />}
-      </div>
+      </fieldset>
     </>}
-    {view === 'worksheet' && <Worksheet analysis={active} result={activeResult}
-      updateChain={updateChain} profile={profile} />}
-    {view === 'control_plan' && <ControlPlanView analysis={active}
-      result={activeResult} update={update} />}
+    {view === 'worksheet' && <fieldset disabled={readOnly}><Worksheet analysis={active} result={activeResult}
+      updateChain={updateChain} profile={profile} /></fieldset>}
+    {view === 'control_plan' && <fieldset disabled={readOnly}><ControlPlanView analysis={active}
+      result={activeResult} update={update} /></fieldset>}
     {view === 'terminology' &&
       <div className="p-4">
         <VocabularyManager profile={vocabularyProfile}
@@ -797,10 +874,6 @@ function PlanningStep({
   const plan = analysis.planning
   const setPlan = (change: Partial<typeof plan>) =>
     update({ planning: { ...plan, ...change } })
-  const requiredFields = [plan.subject, plan.scope, plan.intent]
-  const completedRequired = requiredFields.filter(value => value.trim()).length
-  const completionPercent = Math.round(
-    completedRequired / requiredFields.length * 100)
   const statusLabel = analysis.status === 'in_review'
     ? 'In review'
     : analysis.status === 'finalized' ? 'Finalized' : 'Draft'
@@ -811,7 +884,7 @@ function PlanningStep({
       : 'border-slate-200 bg-white text-slate-600'
   return <section className="space-y-4">
     <StepHeading number={1} title="Planning and preparation"
-      text="Establish the decision scope, boundaries, team, timing, and method basis before assigning ratings." />
+      text="Planning details can be completed later." />
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-slate-50/80 px-4 py-3">
         <div className="flex flex-wrap items-center gap-2">
@@ -821,18 +894,6 @@ function PlanningStep({
           </span>
           <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${statusTone}`}>
             {statusLabel}
-          </span>
-        </div>
-        <div className="flex min-w-48 items-center gap-2">
-          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-200"
-            role="progressbar" aria-label="Core planning definition complete"
-            aria-valuemin={0} aria-valuemax={3}
-            aria-valuenow={completedRequired}>
-            <div className="h-full rounded-full bg-blue-500 transition-all"
-              style={{ width: `${completionPercent}%` }} />
-          </div>
-          <span className="whitespace-nowrap text-[10px] font-medium text-slate-500">
-            {completedRequired}/3 core fields
           </span>
         </div>
       </div>
@@ -846,9 +907,6 @@ function PlanningStep({
               <h3 className="text-xs font-semibold text-slate-800">
                 Analysis identity
               </h3>
-              <p className="text-[9px] text-slate-400">
-                Record name, revision, subject, and lifecycle.
-              </p>
             </div>
           </div>
           <div className="grid gap-3 md:grid-cols-2">
@@ -870,7 +928,7 @@ function PlanningStep({
                 <option value="finalized">Finalized</option>
               </select>
             </label>
-            <Field label="Subject *" value={plan.subject}
+            <Field label="Subject" value={plan.subject}
               onChange={subject => setPlan({ subject })} />
             <Field label="Model / program" value={plan.model_program}
               onChange={model_program => setPlan({ model_program })} />
@@ -886,9 +944,6 @@ function PlanningStep({
               <h3 className="text-xs font-semibold text-slate-800">
                 Organization and ownership
               </h3>
-              <p className="text-[9px] text-slate-400">
-                Identify the accountable organization and stakeholders.
-              </p>
             </div>
           </div>
           <div className="grid gap-3 md:grid-cols-2">
@@ -912,15 +967,12 @@ function PlanningStep({
               <h3 className="text-xs font-semibold text-slate-800">
                 Scope and decision intent
               </h3>
-              <p className="text-[9px] text-slate-400">
-                Define what the analysis covers, excludes, and must support.
-              </p>
             </div>
           </div>
           <div className="grid gap-3 md:grid-cols-2">
-            <Field multiline label="Scope *" value={plan.scope}
+            <Field multiline label="Scope" value={plan.scope}
               onChange={scope => setPlan({ scope })} />
-            <Field multiline label="Intent *" value={plan.intent}
+            <Field multiline label="Intent" value={plan.intent}
               onChange={intent => setPlan({ intent })} />
             <Field multiline label="Exclusions" value={plan.exclusions}
               onChange={exclusions => setPlan({ exclusions })} />
@@ -938,9 +990,6 @@ function PlanningStep({
               <h3 className="text-xs font-semibold text-slate-800">
                 Execution plan
               </h3>
-              <p className="text-[9px] text-slate-400">
-                Establish participation, evidence, deliverables, and timing.
-              </p>
             </div>
           </div>
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -1004,6 +1053,7 @@ function PlanningStep({
 
 function StructureStep({
   analysis,
+  systemModel, focusInstanceId = '', onFocusInstanceId, onSelectStructure,
   predictionSources,
   update,
   initialView,
@@ -1012,6 +1062,10 @@ function StructureStep({
   onNavigatePrediction,
 }: {
   analysis: AIAGVDAFMEAAnalysis
+  systemModel?: SystemDefinitionModel
+  focusInstanceId?: string
+  onFocusInstanceId?: (id: string) => void
+  onSelectStructure?: (id: string) => void
   predictionSources: PredictionAnalysisSource[]
   update: (change: Partial<AIAGVDAFMEAAnalysis>) => void
   initialView?: 'hierarchy'|'diagram'
@@ -1025,6 +1079,7 @@ function StructureStep({
 }) {
   const levels = analysis.kind === 'pfmea'
     ? ['process_item', 'process_step', 'work_element', 'interface']
+    : analysis.system_binding ? ['system', 'subsystem', 'assembly', 'component', 'piece_part']
     : ['next_higher', 'focus', 'next_lower', 'interface']
   const [selectedNodeId, setSelectedNodeId] = useState('')
   const [collapsedNodeIds, setCollapsedNodeIds] = useState<Set<string>>(
@@ -1103,7 +1158,7 @@ function StructureStep({
   }, [analysis.structure_nodes, orderedNodes, selectedNodeId])
   const changeNode = (id: string, change: Partial<FMEAStructureNode>) => {
     if (analysis.structure_nodes.find(item => item.id === id)?.source_ref?.module
-        === 'system_definition') return
+        === 'system_definition' && !analysis.system_binding) return
     const block_diagram = 'name' in change
       ? {
           ...analysis.block_diagram,
@@ -1139,6 +1194,7 @@ function StructureStep({
   const selectNode = (nodeId: string) => {
     revealBranch(nodeId)
     setSelectedNodeId(nodeId)
+    onSelectStructure?.(nodeId)
   }
   useEffect(() => {
     if (findingNavigation?.targetStep !== 2
@@ -1189,7 +1245,7 @@ function StructureStep({
     setSelectedNodeId(node.id)
   }
   const deleteNode = (node: FMEAStructureNode) => {
-    if (node.source_ref?.module === 'system_definition') return
+    if (node.source_ref?.module === 'system_definition' && !analysis.system_binding) return
     const childCount = childrenById.get(node.id)?.length ?? 0
     const functionCount = analysis.functions.filter(
       item => item.structure_node_id === node.id,
@@ -1254,9 +1310,9 @@ function StructureStep({
     setDraggedNodeId('')
     setDropHint(null)
   }
-  return <section className="space-y-4">
+  return <section className={structureView === 'diagram' ? "flex min-h-0 flex-1 flex-col gap-3" : "space-y-4"}>
     <StepHeading number={2} title="Structure analysis"
-      text="Build the analysis structure directly in the hierarchy. Add, edit, reorder, promote, and demote blocks to define the system or process decomposition." />
+      text={analysis.system_binding ? "Edit the shared project hierarchy. Structure changes apply throughout the project; FMEA ratings and actions stay with this study." : "Build the analysis structure directly in the hierarchy. Add, edit, reorder, promote, and demote blocks to define the system or process decomposition."} />
     <div className="flex flex-wrap items-center justify-between gap-2">
       <div className="flex w-fit items-center rounded-lg border border-slate-200 bg-white p-1">
         <button type="button" onClick={() => selectStructureView('hierarchy')}
@@ -1274,7 +1330,7 @@ function StructureStep({
           Block diagram
         </button>
       </div>
-      {analysis.kind !== 'pfmea' && <PredictionStructureImporter
+      {analysis.kind !== 'pfmea' && !analysis.system_binding && <PredictionStructureImporter
         nodes={analysis.structure_nodes}
         sources={predictionSources}
         catalogs={predictionCatalogs}
@@ -1283,9 +1339,15 @@ function StructureStep({
       />}
     </div>
     {structureView === 'diagram'
-      ? <div className="-mx-4">
-          <FmeaBlockDiagramCanvas analysis={analysis} update={update}
-            findingNavigation={findingNavigation} />
+      ? <div className="-mx-4 min-h-0 flex-1">
+          {systemModel && analysis.system_binding && analysis.kind !== 'pfmea'
+            ? <SharedFmeaDiagram interfaceInspector={id => <FmeaTransferEditor analysis={analysis} interfaceId={id} model={systemModel} update={update} />} analysis={analysis} model={systemModel} update={update}
+                fillHeight
+                focusInstanceId={focusInstanceId} onFocusInstanceId={onFocusInstanceId ?? (() => {})}
+                scopeInstanceId={analysis.system_binding.scope_instance_id}
+                findingNavigation={findingNavigation} />
+            : <FmeaBlockDiagramCanvas analysis={analysis} update={update}
+                findingNavigation={findingNavigation} /> }
         </div>
       : <div aria-label="Interactive FMEA structure hierarchy"
       className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
@@ -1347,13 +1409,14 @@ function StructureStep({
             : undefined
           const selected = selectedNodeId === node.id
           const systemManaged = node.source_ref?.module === 'system_definition'
+          const locked = Boolean(node.source_ref && !(systemManaged && analysis.system_binding))
           const children = childrenById.get(node.id) ?? []
           const collapsed = collapsedNodeIds.has(node.id)
           const siblingNodes = analysis.structure_nodes.filter(item =>
             (item.parent_id ?? '') === (node.parent_id ?? ''))
           const siblingIndex = siblingNodes.findIndex(item => item.id === node.id)
-          const canIndent = !node.source_ref && siblingIndex > 0
-          const canOutdent = !node.source_ref && !!node.parent_id
+          const canIndent = !locked && siblingIndex > 0
+          const canOutdent = !locked && !!node.parent_id
           const sourceCatalog = predictionCatalogs.find(item =>
             item.analysisId === node.source_ref?.analysis_id)
           const sourceStatus = predictionSourceStatus(node, sourceCatalog)
@@ -1407,9 +1470,9 @@ function StructureStep({
               className={`flex min-h-10 cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1.5 ${
                 selected ? 'bg-blue-50/60' : ''
               }`}>
-              <span draggable={!node.source_ref}
+              <span draggable={!locked}
                 onDragStart={event => {
-                  if (node.source_ref) return
+                  if (locked) return
                   setDraggedNodeId(node.id)
                   event.dataTransfer.effectAllowed = 'move'
                   event.dataTransfer.setData('text/plain', node.id)
@@ -1419,12 +1482,12 @@ function StructureStep({
                   setDropHint(null)
                 }}
                 onClick={event => event.stopPropagation()}
-                title={node.source_ref
+                title={locked
                   ? 'Detach this managed Prediction item before rearranging it'
                   : 'Drag to rearrange the structure hierarchy'}
                 aria-label={`Drag structure item ${index + 1}`}
                 className={`rounded p-0.5 text-slate-300 ${
-                  node.source_ref
+                  locked
                     ? 'cursor-not-allowed opacity-50'
                     : 'cursor-grab hover:bg-slate-100 hover:text-slate-600 active:cursor-grabbing'
                 }`}>
@@ -1488,9 +1551,9 @@ function StructureStep({
                   : sourceStatus === 'changed' ? 'Source changed' : 'Source missing'}
                 {sourceStatus !== 'missing' && <ExternalLink size={9} />}
               </button>}
-              {systemManaged && <span title="Canonical structure is managed in System Definition"
+              {systemManaged && <span title="Shared project structure — edits apply throughout the project"
                 className="rounded bg-violet-100 px-1.5 py-0.5 text-[9px] font-medium text-violet-700">
-                System Definition linked
+                Project System Model
               </span>}
               {children.length > 0 && <span className="text-[9px] text-slate-400">
                 {children.length} child{children.length === 1 ? '' : 'ren'}
@@ -1502,13 +1565,13 @@ function StructureStep({
             {selected && <div
               className="space-y-2 border-t border-blue-100 px-3 py-3">
               <div className="flex flex-wrap items-center gap-1.5">
-                <button type="button" disabled={systemManaged} onClick={() => addNode({
+                <button type="button" disabled={locked} onClick={() => addNode({
                   parentId: node.id,
                   level: semanticChildLevel(node),
                 })} className="flex items-center gap-1 rounded border border-blue-200 px-2 py-1 text-[10px] text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-40">
                   <Plus size={10} /> Add child
                 </button>
-                <button type="button" disabled={systemManaged} onClick={() => addNode({
+                <button type="button" disabled={locked} onClick={() => addNode({
                   parentId: node.parent_id,
                   afterId: node.id,
                   level: node.level,
@@ -1524,7 +1587,7 @@ function StructureStep({
                     update({ structure_nodes })
                     revealBranch(node.id, structure_nodes)
                   }
-                }} title={node.source_ref
+                }} title={locked
                   ? 'Detach this managed Prediction item before rearranging it'
                   : 'Demote this block under its preceding sibling'}
                   className="rounded border border-slate-200 px-2 py-1 text-[10px] text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-35">
@@ -1539,22 +1602,22 @@ function StructureStep({
                     update({ structure_nodes })
                     revealBranch(node.id, structure_nodes)
                   }
-                }} title={node.source_ref
+                }} title={locked
                   ? 'Detach this managed Prediction item before rearranging it'
                   : 'Promote this block up one hierarchy level'}
                   className="rounded border border-slate-200 px-2 py-1 text-[10px] text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-35">
                   Promote
                 </button>
-                <button type="button" disabled={systemManaged} onClick={() => deleteNode(node)}
-                  title={systemManaged ? 'Remove this canonical block in System Definition' : 'Delete block'}
+                <button type="button" disabled={locked} onClick={() => deleteNode(node)}
+                  title={systemManaged ? 'Delete this installed item from the project System Model' : 'Delete block'}
                   className="ml-auto flex items-center gap-1 rounded border border-red-100 px-2 py-1 text-[10px] text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40">
                   <Trash2 size={10} /> Delete
                 </button>
               </div>
               <div className="grid gap-2 md:grid-cols-[minmax(240px,1fr)_220px]">
                 <label className="text-[10px] text-slate-500">Block name
-                  <input value={node.name} readOnly={!!node.source_ref}
-                    title={node.source_ref
+                  <input value={node.name} readOnly={locked}
+                    title={locked
                       ? 'Name is managed by the linked Prediction record; detach to edit'
                       : undefined}
                     autoFocus={!node.name}
@@ -1562,11 +1625,11 @@ function StructureStep({
                       changeNode(node.id, { name: event.target.value })}
                     placeholder="Element name"
                     className={`mt-1 ${fieldClass} ${
-                      node.source_ref ? 'bg-slate-50 text-slate-500' : ''
+                      locked ? 'bg-slate-50 text-slate-500' : ''
                     }`} />
                 </label>
                 <label className="text-[10px] text-slate-500">Structure level
-                  <select value={node.level} disabled={systemManaged} onChange={event =>
+                  <select value={node.level} disabled={locked} onChange={event =>
                     changeNode(node.id, { level: event.target.value })}
                     className={`mt-1 ${fieldClass}`}>
                     {levels.map(level => <option key={level} value={level}>
@@ -1576,12 +1639,12 @@ function StructureStep({
                 </label>
               </div>
               <div className="grid gap-2 md:grid-cols-2">
-                <Field multiline label="Description / boundary"
-                  disabled={systemManaged}
+                <Field multiline label={systemManaged ? "Definition description / boundary (all instances)" : "Description / boundary"}
+                  disabled={locked}
                   value={node.description} onChange={description =>
                     changeNode(node.id, { description })} />
                 <Field multiline label="Interface"
-                  disabled={systemManaged}
+                  disabled={locked}
                   value={node.interface} onChange={interfaceValue =>
                     changeNode(node.id, { interface: interfaceValue })} />
               </div>
@@ -1598,7 +1661,7 @@ function StructureStep({
                   <option value="environment">Environment</option>
                 </select>
               </label>}
-              {node.source_ref && <div
+              {node.source_ref?.module === 'prediction' && <div
                 className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded bg-blue-50/60 px-2 py-1.5 text-[9px] text-slate-500">
                 <button type="button"
                   disabled={!onNavigatePrediction || sourceStatus === 'missing'}
@@ -1703,6 +1766,7 @@ function toggleId(values: string[], id: string) {
 
 function FunctionStep({
   analysis,
+  onSelectStructure, systemModel, focusInstanceId = '', onFocusInstanceId,
   result,
   programRequirements,
   vocabularyProfile,
@@ -1714,12 +1778,18 @@ function FunctionStep({
   findingNavigation,
   onVisualViewChange,
   onPDiagramIdChange,
+  onNavigateSystemFunction,
+  onNavigateSystemInterface,
 }: {
   analysis: AIAGVDAFMEAAnalysis
+  onSelectStructure?: (id: string) => void
+  systemModel?: SystemDefinitionModel
+  focusInstanceId?: string
+  onFocusInstanceId?: (id: string) => void
   result?: AIAGVDAFMEAResult
   programRequirements: RequirementInput[]
   vocabularyProfile: FMEAVocabularyProfile
-  onAddFailureMode: (functionId: string) => void
+  onAddFailureMode: (functionId: string, description?: string) => void
   update: (change: Partial<AIAGVDAFMEAAnalysis>) => void
   onStep: (step: number) => void
   initialVisualView?: FunctionVisualView
@@ -1727,6 +1797,8 @@ function FunctionStep({
   findingNavigation?: FindingNavigationRequest|null
   onVisualViewChange?: (value: FunctionVisualView) => void
   onPDiagramIdChange?: (id: string) => void
+  onNavigateSystemFunction?: FunctionTraceNavigation['onNavigateFunction']
+  onNavigateSystemInterface?: FunctionTraceNavigation['onNavigateInterface']
 }) {
   const [editorView, setEditorView] = useState<FunctionEditorView>('functions')
   const [visualView, setVisualView] = useState<FunctionVisualView>('tree')
@@ -1789,10 +1861,15 @@ function FunctionStep({
     total: analysis.structure_nodes.length,
     gaps: localCoverage.reduce((total, item) => total + item.gaps.length, 0),
   }
+  const functionCreationTargets = useMemo(() => {
+    if (!systemModel || analysis.kind === 'pfmea' || !canonicalFmeaBinding(systemModel, analysis)) return analysis.structure_nodes
+    const scope = fmeaScopeInstanceIds(systemModel, analysis)
+    return analysis.structure_nodes.filter(node => scope.has(canonicalInstanceId(node, systemModel.id) ?? ''))
+  }, [analysis, systemModel])
 
   const changeFunction = (id: string, patch: Partial<FMEAFunction>) => {
     const existing = analysis.functions.find(item => item.id === id)
-    if (existing?.system_definition_ref) {
+    if (existing?.system_definition_ref && !analysis.system_binding) {
       const localPatch = Object.fromEntries(Object.entries(patch).filter(
         ([key]) => key === 'owner' || key === 'notes')) as Partial<FMEAFunction>
       update({ functions: analysis.functions.map(item =>
@@ -1803,7 +1880,7 @@ function FunctionStep({
       item.id === id ? { ...item, ...patch } : item) })
   }
   const removeFunction = (id: string) => {
-    if (analysis.functions.find(item => item.id === id)?.system_definition_ref) return
+    if (analysis.functions.find(item => item.id === id)?.system_definition_ref && !analysis.system_binding) return
     const relationshipCount = analysis.function_links.filter(item =>
       item.source_function_id === id || item.target_function_id === id).length
     const correlationCount = analysis.function_requirement_links.filter(
@@ -1880,6 +1957,9 @@ function FunctionStep({
     targetEditor?: FunctionEditorView,
   ) => {
     setContextSelection(selection)
+    const fnId = selection.kind === 'function' ? selection.id : selection.parentId
+    onSelectStructure?.(selection.kind === 'structure' ? selection.id
+      : analysis.functions.find(item => item.id === fnId)?.structure_node_id ?? '')
     if (targetEditor) setEditorView(targetEditor)
   }
   useEffect(() => {
@@ -1959,10 +2039,14 @@ function FunctionStep({
     {visualView === 'tree' && <FunctionTreeView analysis={analysis}
       selection={contextSelection}
       onSelect={(selection, editor) => selectContext(selection, editor)} />}
-    {visualView === 'interfaces' &&
-      <InterfaceFlowView analysis={analysis}
-        selection={contextSelection}
-        onSelect={(selection, editor) => selectContext(selection, editor)} />}
+    {visualView === 'interfaces' && (systemModel && analysis.system_binding && analysis.kind !== 'pfmea'
+      ? <div className="h-[620px]"><SharedFmeaDiagram interfaceInspector={id => <FmeaTransferEditor analysis={analysis} interfaceId={id} model={systemModel} update={update} />} analysis={analysis} model={systemModel} fillHeight viewSection="function"
+          update={update} focusInstanceId={focusInstanceId}
+          onFocusInstanceId={onFocusInstanceId ?? (() => {})}
+          scopeInstanceId={analysis.system_binding.scope_instance_id} /></div>
+      : <InterfaceFlowView analysis={analysis}
+          selection={contextSelection}
+          onSelect={(selection, editor) => selectContext(selection, editor)} />)}
     {visualView === 'p_diagram' && <PDiagramView analysis={analysis}
       selection={contextSelection}
       onSelect={(selection, editor) => selectContext(selection, editor)}
@@ -2012,7 +2096,7 @@ function FunctionStep({
 
   return <section className="space-y-4">
     <StepHeading number={3} title="Function analysis"
-      text="Allocate functions to the structure, correlate measurable requirements, and review inputs, interfaces, outputs, controls, and noise before defining failures." />
+      text="Define each block’s functions, inputs, and outputs before adding failures." />
     <div className="grid grid-cols-2 gap-2 md:grid-cols-6">
       {[
         ['Functions', summary.functions],
@@ -2049,13 +2133,23 @@ function FunctionStep({
     </div>
     <div className="grid min-w-0 gap-4 2xl:grid-cols-[minmax(430px,0.95fr)_minmax(560px,1.05fr)]">
       <div ref={editorPaneRef} className="min-w-0 space-y-2">
-        {editorView === 'functions' && <FunctionRecordsEditor
+        {editorView === 'functions' && <FunctionRecordsEditor systemModel={systemModel}
           analysis={analysis} query={query} change={changeFunction}
+          creationTargets={functionCreationTargets}
+          defaultStructureId={functionCreationTargets.find(item => canonicalInstanceId(item, systemModel?.id) === focusInstanceId)?.id}
           vocabularyProfile={vocabularyProfile}
           onAddFailureMode={onAddFailureMode}
           remove={removeFunction} update={update}
           correlationsByFunction={correlationsByFunction}
           selection={contextSelection}
+          onNavigateFunction={target => {
+            const scope = systemModel ? fmeaScopeInstanceIds(systemModel, analysis) : new Set<string>()
+            const fn = scope.has(target.instanceId) ? analysis.functions.find(item => item.system_definition_ref?.system_model_id === systemModel?.id
+              && item.system_definition_ref?.instance_id === target.instanceId && item.system_definition_ref?.function_id === target.functionId) : undefined
+            if (fn) { setQuery(''); selectContext({ kind: 'function', id: fn.id }, 'functions') }
+            else onNavigateSystemFunction?.(target)
+          }}
+          onNavigateInterface={onNavigateSystemInterface}
           onSelect={selection => selectContext(selection)} />}
         {editorView === 'requirements' && <RequirementRecordsEditor
           analysis={analysis} result={result} query={query}
@@ -2070,7 +2164,7 @@ function FunctionStep({
           analysis={analysis} update={update}
           selection={contextSelection}
           onSelect={selection => selectContext(selection)} />}
-        {editorView === 'interfaces' && <FunctionInterfacesEditor
+        {editorView === 'interfaces' && <FunctionInterfacesEditor systemModel={systemModel}
           analysis={analysis} query={query} update={update}
           selection={contextSelection}
           onSelect={selection => selectContext(selection)} />}
@@ -2163,20 +2257,36 @@ export function functionTargetSuggestions(
 }
 
 function FunctionRecordsEditor({
-  analysis, query, change, remove, update, correlationsByFunction,
-  vocabularyProfile, onAddFailureMode, selection, onSelect,
+  systemModel, analysis, query, change, remove, update, correlationsByFunction,
+  vocabularyProfile, onAddFailureMode, selection, onSelect, defaultStructureId, creationTargets, onNavigateFunction, onNavigateInterface,
 }: {
+  systemModel?: SystemDefinitionModel
   analysis: AIAGVDAFMEAAnalysis
   query: string
+  defaultStructureId?: string
+  creationTargets: FMEAStructureNode[]
   vocabularyProfile: FMEAVocabularyProfile
-  onAddFailureMode: (functionId: string) => void
+  onAddFailureMode: (functionId: string, description?: string) => void
   change: (id: string, patch: Partial<FMEAFunction>) => void
   remove: (id: string) => void
   update: (patch: Partial<AIAGVDAFMEAAnalysis>) => void
   correlationsByFunction: Map<string, FMEAFunctionRequirementLink[]>
   selection: FunctionContextSelection|null
   onSelect: (selection: FunctionContextSelection) => void
-}) {
+} & FunctionTraceNavigation) {
+  const [newFunctionTarget, setNewFunctionTarget] = useState('')
+  const [expandedFunctionId, setExpandedFunctionId] = useState('')
+  const architecture = analysis.kind === 'pfmea' ? processArchitectureModel(analysis) : systemModel
+  useEffect(() => { setNewFunctionTarget(defaultStructureId ?? '') }, [defaultStructureId])
+  useEffect(() => { if (selection?.kind === 'function') setExpandedFunctionId(selection.id) }, [selection?.kind, selection?.id])
+  const inputSuppliers = useMemo(() => {
+    const ref = analysis.functions.find(fn => fn.id === expandedFunctionId)?.system_definition_ref
+    if (!systemModel || analysis.kind === 'pfmea' || ref?.system_model_id !== systemModel.id || !ref?.instance_id || !ref.function_id) return undefined
+    return projectFunctionInputSuppliers(systemModel, { instanceId: ref.instance_id, functionId: ref.function_id,
+      modeId: analysis.system_binding?.mode_id })
+  }, [systemModel, analysis.kind, analysis.functions, analysis.system_binding?.mode_id, expandedFunctionId])
+  const targetId = creationTargets.find(node => node.id === newFunctionTarget)?.id
+    ?? creationTargets.find(node => node.id === defaultStructureId)?.id ?? creationTargets[0]?.id ?? ''
   const shown = analysis.functions.filter(item => {
     const structure = analysis.structure_nodes.find(
       node => node.id === item.structure_node_id)
@@ -2202,7 +2312,7 @@ function FunctionRecordsEditor({
       </div>
     })()}
     {shown.map(item => {
-      const systemManaged = Boolean(item.system_definition_ref)
+      const systemManaged = Boolean(item.system_definition_ref && !analysis.system_binding)
       const chainCount = analysis.failure_chains.filter(
         chain => chain.function_id === item.id).length
       const requirementCount = correlationsByFunction.get(item.id)?.length ?? 0
@@ -2232,9 +2342,12 @@ function FunctionRecordsEditor({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
             <OrdinalBadge value={`F${ordinal}`} title={`Function ${ordinal}`} />
-            <span className="font-mono text-[10px] text-slate-400">
-              {item.id}
-            </span>
+            <button type="button" aria-expanded={expandedFunctionId === item.id}
+              onClick={() => setExpandedFunctionId(expandedFunctionId === item.id ? '' : item.id)}
+              className="flex items-center gap-2 text-left text-xs font-medium text-slate-800">
+              {expandedFunctionId === item.id ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              {item.description || 'Define function'}
+            </button>
           </div>
           <div className="flex items-center gap-2">
             <span className={`rounded px-1.5 py-0.5 text-[9px] ${
@@ -2252,17 +2365,18 @@ function FunctionRecordsEditor({
               <Plus size={9} /> Failure mode
             </button>
             <button onClick={() => remove(item.id)} disabled={systemManaged}
-              title={systemManaged ? 'Remove this canonical function in System Definition' : 'Delete function'} className="text-slate-300 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-40">
+              title={systemManaged ? 'Remove this shared function in System Definition' : 'Delete function'} className="text-slate-300 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-40">
               <Trash2 size={13} />
             </button>
           </div>
         </div>
-        {systemManaged && <div className="rounded border border-violet-200 bg-violet-50 px-2 py-1.5 text-[9px] text-violet-800">Function identity, allocation, statement, type, and modes are managed in System Definition.</div>}
+        {expandedFunctionId === item.id && <>
+        {systemManaged && <div className="rounded border border-violet-200 bg-violet-50 px-2 py-1.5 text-[9px] text-violet-800">These function fields are linked to the project System Model.</div>}
         <fieldset disabled={systemManaged} className="space-y-2 disabled:opacity-70">
         <div className="grid gap-2 md:grid-cols-2">
           <label data-structure-selector
             className="text-[10px] text-slate-500">Structure element
-            <select value={item.structure_node_id} onChange={event =>
+            <select value={item.structure_node_id} disabled={Boolean(item.system_definition_ref)} title={item.system_definition_ref ? "This function belongs to its installed system item. Create a function on another item to allocate it there." : undefined} onChange={event =>
               {
                 change(item.id, { structure_node_id: event.target.value })
                 onSelect({
@@ -2280,6 +2394,31 @@ function FunctionRecordsEditor({
                 <option key={node.id} value={node.id}>{node.name}</option>)}
             </select>
           </label>
+
+        </div>
+        <div data-fmea-field="description">
+          <StructuredFunctionEditor value={item.definition} resources={analysis.resources}
+            defaultInputInstanceId={item.system_definition_ref?.instance_id ?? item.structure_node_id}
+            inputSuppliers={inputSuppliers}
+            inputOptions={architecture ? availableFunctionInputs(architecture, {
+              instanceId: item.system_definition_ref?.instance_id ?? item.structure_node_id,
+              functionId: item.system_definition_ref?.function_id ?? item.id,
+            }) : []}
+            onChange={(definition, description, resources) => update({ resources,
+              functions: analysis.functions.map(fn => fn.id === item.id ? { ...fn, definition, description, canonical_verb_id: undefined } : fn) })} />
+          <FmeaFunctionSupport analysis={analysis} fn={item} model={systemModel} update={update} />
+          <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+            <span className="text-xs text-slate-600">Suggested failures</span>
+            {(item.definition?.role === 'maintain_state'
+              ? [`${item.definition.action || 'Condition'} not maintained`, `${item.definition.action || 'Condition'} intermittently lost`]
+              : (() => { const output = analysis.resources.find(resource => resource.id === item.definition?.io.find(io => io.direction === 'output')?.resource_id)?.name || 'output'
+                return [`No ${output}`, `Incorrect ${output}`, `Intermittent ${output}`] })())
+              .filter(description => !analysis.failure_chains.some(chain => chain.function_id === item.id && chain.failure_mode === description))
+              .map(description => <button type="button" key={description} onClick={() => onAddFailureMode(item.id, description)}
+                className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:border-blue-400">+ {description}</button>)}
+          </div>
+        </div>
+        <details className="rounded border border-slate-200 p-2"><summary className="cursor-pointer text-xs font-medium text-slate-600">Advanced function settings</summary>
           <label className="text-[10px] text-slate-500">Function type
             <select value={item.function_type} onChange={event =>
               change(item.id, {
@@ -2290,32 +2429,40 @@ function FunctionRecordsEditor({
                 <option key={value} value={value}>{functionTypeLabel(value)}</option>)}
             </select>
           </label>
-        </div>
-        <div data-fmea-field="description">
-          <FunctionStatementField value={item.description}
-            canonicalVerbId={item.canonical_verb_id}
-            profile={vocabularyProfile} kind={analysis.kind}
-            targetSuggestions={functionTargetSuggestions(
-              analysis, item.structure_node_id)}
-            onChange={(description, canonical_verb_id) =>
-              change(item.id, { description, canonical_verb_id })} />
-        </div>
-        <OperatingModesField values={item.operating_modes}
+        {analysis.kind !== 'pfmea' && systemModel ? <fieldset className="rounded border border-slate-200 p-2">
+          <legend className="px-1 text-xs font-medium text-slate-700">Operating modes</legend>
+          <p className="mb-2 text-xs text-slate-600">No selection means all applicable project modes.</p>
+          <div className="flex flex-wrap gap-3">{systemModel.modes.map(mode => <label key={mode.id} className="flex items-center gap-1 text-xs text-slate-700">
+            <input type="checkbox" checked={item.operating_modes.includes(mode.id)} onChange={event => change(item.id, {
+              operating_modes: event.target.checked ? [...item.operating_modes, mode.id] : item.operating_modes.filter(id => id !== mode.id),
+            })} />{mode.name}</label>)}</div>
+        </fieldset> : <OperatingModesField values={item.operating_modes}
           profile={vocabularyProfile} kind={analysis.kind}
-          onChange={operating_modes =>
-            change(item.id, { operating_modes })} />
-        </fieldset>
+          onChange={operating_modes => change(item.id, { operating_modes })} />}
         <Field multiline label="Notes / assumptions" value={item.notes}
           onChange={notes => change(item.id, { notes })} />
+        </details>
+        </fieldset>
+        </>}
       </div>
     })}
-    <button onClick={() => update({ functions: [...analysis.functions, {
-      id: uid('FN'), structure_node_id: analysis.structure_nodes[0]?.id ?? '',
-      description: '', function_type: 'primary', operating_modes: [],
-      owner: '', notes: '',
-    }] })} className="flex items-center gap-1 rounded border border-dashed border-blue-300 px-3 py-2 text-xs text-blue-700">
-      <Plus size={13} /> Add function
-    </button>
+    <div className="flex flex-wrap items-center gap-2 rounded border border-dashed border-blue-300 p-2">
+      <label className="text-xs text-slate-600">New function on
+        <select aria-label="New function system item" value={targetId}
+          onChange={event => setNewFunctionTarget(event.target.value)} className="ml-2 rounded border bg-white p-1.5 text-xs">
+          {creationTargets.map(node => <option key={node.id} value={node.id}>{node.name || node.id}</option>)}
+        </select>
+      </label>
+      <button disabled={!targetId} onClick={() => {
+        const id = uid('FN'); setExpandedFunctionId(id)
+        update({ functions: [...analysis.functions, { id, structure_node_id: targetId,
+          description: '', definition: { role: 'transform', action: '', io: [] },
+          function_type: 'primary', operating_modes: [], owner: '', notes: '',
+        }] })
+      }} className="flex items-center gap-1 rounded px-3 py-2 text-xs text-blue-700 disabled:opacity-40">
+        <Plus size={13} /> Add function
+      </button>
+    </div>
   </>
 }
 
@@ -2701,8 +2848,9 @@ function IdChecklist({
 }
 
 function FunctionInterfacesEditor({
-  analysis, query, update, selection, onSelect,
+  systemModel, analysis, query, update, selection, onSelect,
 }: {
+  systemModel?: SystemDefinitionModel
   analysis: AIAGVDAFMEAAnalysis
   query: string
   update: (patch: Partial<AIAGVDAFMEAAnalysis>) => void
@@ -2871,18 +3019,12 @@ function FunctionInterfacesEditor({
           </select>
         </label>
       </div>
-      <Field label="What flows across the interface" value={item.flow_description}
-        onChange={flow_description => change(item.id, { flow_description })} />
+      <FmeaTransferEditor analysis={analysis} interfaceId={item.id} model={systemModel} update={update} />
       <Field multiline label="Interface detail / subtype"
         value={item.interface_detail}
         onChange={interface_detail => change(item.id, { interface_detail })} />
       <Field label="Operating condition" value={item.operating_condition}
         onChange={operating_condition => change(item.id, { operating_condition })} />
-      <IdChecklist label="Linked functions"
-        options={analysis.functions.map(value => ({
-          id: value.id, label: value.description || value.id,
-        }))} values={item.function_ids}
-        onChange={function_ids => change(item.id, { function_ids })} />
       <IdChecklist label="Linked requirements"
         options={analysis.functional_requirements.map(value => ({
           id: value.id, label: value.statement || value.id,
@@ -3711,26 +3853,7 @@ function EmptyFunctionView({ text }: { text: string }) {
   </div>
 }
 
-function blankChain(kind: FMEAKind): FMEAFailureChain {
-  return {
-    id: uid('FC'), effect: '', failure_mode: '', cause: '', effect_level: '',
-    cause_noun: '', cause_mechanism_verb: '',
-    effect_contexts: [],
-    severity: 5,
-    occurrence: kind === 'fmea_msr' ? undefined : 5,
-    detection: kind === 'fmea_msr' ? undefined : 5,
-    frequency: kind === 'fmea_msr' ? 5 : undefined,
-    monitoring: kind === 'fmea_msr' ? 5 : undefined,
-    prevention_controls: '', detection_controls: '', severity_rationale: '',
-    occurrence_rationale: '', detection_rationale: '',
-    frequency_rationale: '', monitoring_rationale: '',
-    actions: [], no_action_justification: '', post_severity_rationale: '',
-    linked_hazard_ids: [], linked_fracas_ids: [], monitoring_system: '',
-    system_response: '', safe_state: '',
-    mitigated_effect: '', management_review_status: '',
-    management_review_evidence_ids: [], remarks: '',
-  }
-}
+function blankChain(kind: FMEAKind): FMEAFailureChain { return createFmeaFailureChain(kind, uid('FC')) }
 
 export function lowerLevelCauseNodes(
   analysis: AIAGVDAFMEAAnalysis,
@@ -3836,6 +3959,7 @@ function FailureFlowBindingBadge({
 
 function FailureStep({
   analysis,
+  onSelectStructure,
   vocabularyProfile,
   hazardOptions,
   fracasOptions,
@@ -3850,6 +3974,7 @@ function FailureStep({
   failureFlow,
 }: {
   analysis: AIAGVDAFMEAAnalysis
+  onSelectStructure?: (id: string) => void
   vocabularyProfile: FMEAVocabularyProfile
   hazardOptions: ProgramRecordLinkOption[]
   fracasOptions: ProgramRecordLinkOption[]
@@ -3857,7 +3982,7 @@ function FailureStep({
   focusedChainId: string
   focusedField?: FailureFieldKind
   onFocusHandled: () => void
-  onAddFailureMode: (functionId: string) => void
+  onAddFailureMode: (functionId: string, description?: string) => void
   onAddRelatedCase: (chain: FMEAFailureChain) => void
   update: (change: Partial<AIAGVDAFMEAAnalysis>) => void
   updateChain: (id: string, change: Partial<FMEAFailureChain>) => void
@@ -3912,6 +4037,8 @@ function FailureStep({
   }, [failureFieldFocusRequest, recordsExpanded])
   const selectFailureField = (chainId: string, field: FailureFieldKind) => {
     const selection = { chainId, field }
+    const functionId = analysis.failure_chains.find(item => item.id === chainId)?.function_id
+    onSelectStructure?.(analysis.functions.find(item => item.id === functionId)?.structure_node_id ?? '')
     setRecordsExpanded(true)
     setSelectedFailureField(selection)
     setFailureFieldFocusRequest(previous => ({
@@ -3939,10 +4066,10 @@ function FailureStep({
       )).length ?? 0
   return <section ref={sectionRef} className="space-y-4">
     <StepHeading number={4} title="Failure analysis"
-      text="Build explicit effect → failure mode → cause chains and connect each chain to its intended function." />
+      text="Link each function to its failure modes, effects, and causes." />
     <div className="flex flex-wrap items-center gap-2">
       <div className="flex min-w-[420px] max-w-xl flex-1 items-center gap-2 rounded border border-dashed border-blue-300 bg-blue-50/40 p-2">
-        <select value={newChainFunctionId}
+        <select aria-label="Function for new failure mode" value={newChainFunctionId}
           onChange={event => setNewChainFunctionId(event.target.value)}
           className={fieldClass}>
           <option value="" disabled>Select function…</option>
@@ -4027,7 +4154,7 @@ function FailureStep({
             {chain.id}
           </span>
         </div>
-        <select value={chain.function_id ?? ''} disabled={Boolean(chain.system_definition_ref)} onChange={event =>
+        <select aria-label={`Function for failure chain ${chain.id}`} value={chain.function_id ?? ''} disabled={Boolean(chain.system_definition_ref && !analysis.system_binding)} onChange={event =>
           updateChain(chain.id, { function_id: event.target.value || undefined })}
           className={fieldClass}>
           <option value="" disabled>Select function…</option>
@@ -4047,7 +4174,7 @@ function FailureStep({
           <FailureFlowBindingBadge chain={chain} role="effect"
             flow={failureFlow} />
         </div>
-        <fieldset disabled={Boolean(chain.system_definition_ref)} data-failure-field="failure_mode"
+        <fieldset disabled={Boolean(chain.system_definition_ref && !analysis.system_binding)} data-failure-field="failure_mode"
           onFocusCapture={() =>
             highlightFailureField(chain.id, 'failure_mode')}
           className={`flex items-start gap-1 rounded ${
@@ -4127,11 +4254,11 @@ function FailureStep({
             <span className="sr-only"> Add related case</span>
           </button>
           <button
-            disabled={activeFlowLinksForChain(chain.id) > 0 || Boolean(chain.system_definition_ref)}
+            disabled={activeFlowLinksForChain(chain.id) > 0 || Boolean(chain.system_definition_ref && !analysis.system_binding)}
             onClick={() => update({ failure_chains:
               analysis.failure_chains.filter(item => item.id !== chain.id) })}
             title={chain.system_definition_ref
-              ? 'Remove this canonical failure mode in System Definition'
+              ? 'Remove this shared failure mode in System Definition'
               : activeFlowLinksForChain(chain.id) > 0
               ? 'Detach this record’s active failure-flow links before deleting it'
               : 'Delete failure chain'}
@@ -4592,7 +4719,7 @@ function FailureDiagram({
             className={`rounded px-2.5 py-1 text-[10px] font-semibold transition ${
               combineRepeatedNodes
                 ? 'bg-white text-blue-700 shadow-xs ring-1 ring-slate-200'
-                : 'text-slate-500 hover:bg-white/70 hover:text-slate-700'
+                : 'text-slate-600 hover:bg-white/70 hover:text-slate-800'
             }`}>
             Combined
           </button>
@@ -4602,7 +4729,7 @@ function FailureDiagram({
             className={`rounded px-2.5 py-1 text-[10px] font-semibold transition ${
               !combineRepeatedNodes
                 ? 'bg-white text-blue-700 shadow-xs ring-1 ring-slate-200'
-                : 'text-slate-500 hover:bg-white/70 hover:text-slate-700'
+                : 'text-slate-600 hover:bg-white/70 hover:text-slate-800'
             }`}>
             Separate
           </button>
@@ -4696,7 +4823,7 @@ function RiskStep({
 }) {
   return <section className="space-y-4">
     <StepHeading number={5} title="Risk analysis"
-      text="Select ratings from the controlled profile, record the evidence basis, and use Action Priority to direct review and action." />
+      text="Choose ratings and record their basis. Action Priority identifies where to act." />
     <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-slate-200 bg-white p-3">
       <div>
         <div className="text-xs font-semibold text-slate-700">{profile?.name ?? 'Rating profile unavailable'}</div>
@@ -4835,7 +4962,7 @@ function OptimizationStep({
       action.id === actionId ? { ...action, ...patch } : action) })
   return <section className="space-y-4">
     <StepHeading number={6} title="Optimization"
-      text="Resolve Action Priority through prevention/detection actions or an explicit disposition, then record verified post-action ratings." />
+      text="Record actions or a disposition, then verify post-action ratings." />
     {analysis.failure_chains.map((chain, index) => {
       const evaluated = result?.failure_chains.find(item => item.id === chain.id)
       const msr = analysis.kind === 'fmea_msr'
@@ -4975,9 +5102,9 @@ function DocumentationStep({
 }) {
   return <section className="space-y-4">
     <StepHeading number={7} title="Results documentation"
-      text="Review completeness, document the method/profile revision, and finalize only when blocking findings are resolved." />
+      text="Resolve blocking findings before finalizing." />
     {!result ? <div className="rounded border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
-      Run <strong>Analyze program</strong> to generate the readiness review and Action Priority results.
+      Prerequisites are checked as you edit. Complete Steps 1–5 and run analysis to generate Action Priority results.
     </div> : <>
       <div className="text-[10px] font-medium text-slate-500">Results summary</div>
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
@@ -5382,7 +5509,7 @@ function Worksheet({
     safePage * pageSize, (safePage + 1) * pageSize)
   return <div className="p-4">
     <StepHeading title="Consolidated worksheet"
-      text="A compact review surface for the failure chains, controls, ratings, priority, and dispositions." />
+      text="Review failure chains, controls, ratings, and actions." />
     <div className="mt-4 flex flex-wrap items-center gap-2 rounded-t-lg border border-b-0 border-slate-200 bg-white p-2">
       <label className="relative min-w-64 flex-1">
         <Search size={13} className="pointer-events-none absolute left-2 top-2 text-slate-400" />
@@ -5489,7 +5616,7 @@ function ControlPlanView({
       row.id === id ? { ...row, ...change } : row) })
   return <div className="space-y-4 p-4">
     <StepHeading title="PFMEA-linked Control Plan"
-      text="Compare PFMEA-derived proposals with accepted Control Plan content. Accepting a proposal preserves sampling and reaction-plan decisions." />
+      text="Review PFMEA proposals. Accepting preserves existing sampling and reaction plans." />
     {result?.control_plan_review.map(review =>
       <div key={review.failure_chain_id}
         className={`rounded border p-3 ${review.status === 'in_sync'
@@ -5587,7 +5714,7 @@ function ProfileManager({
   }
   return <div className="space-y-4 p-4">
     <StepHeading title="Controlled rating profiles"
-      text="Built-ins contain concise, independently worded selection guidance. Organization profiles are versioned and become read-only when approved." />
+      text="Choose rating guidance. Approved organization profiles are read-only." />
     <div className="flex flex-wrap items-end gap-2 rounded border bg-white p-3">
       <label className="min-w-72 flex-1 text-[11px] font-medium text-slate-600">Selected profile
         <select value={analysis.rating_profile_id ?? ''} onChange={event =>
@@ -5700,8 +5827,7 @@ function ImportMapping({
             </div>)}
           </div>
           <p className="rounded border border-amber-200 bg-amber-50 p-2 text-amber-800">
-            Review IDs and cross-references after import. Invalid or missing
-            references will be identified by the next analysis run.
+            Run the analysis after import to check IDs and references.
           </p>
         </div>
         <div className="flex justify-end gap-2 border-t px-5 py-3">

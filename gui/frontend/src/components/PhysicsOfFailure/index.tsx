@@ -1079,9 +1079,6 @@ export default function PhysicsOfFailure() {
       case 'damage':
         return (
           <>
-            <p className="text-xs text-gray-500">
-              Enter stress levels with applied and failure cycles for each.
-            </p>
             <ExampleButton
               hasData={dmgRows.some(row => row.stress.trim() || row.cyclesApplied.trim() || row.cyclesToFailure.trim())}
               onLoad={() => patch({
@@ -1177,7 +1174,7 @@ export default function PhysicsOfFailure() {
             </div>
             <hr className="border-gray-200" />
             <p className="text-[10px] text-gray-500">
-              Optional: Paris law crack growth (provide C, m, a_initial, delta_sigma)
+              Paris law crack growth (optional)
             </p>
             <div className="grid grid-cols-2 gap-2">
               <div>
@@ -2491,7 +2488,7 @@ export default function PhysicsOfFailure() {
           </span>
           <button onClick={() => setWizardOpen(true)}
             className="flex items-center gap-1.5 text-xs font-medium text-violet-700 border border-violet-300 bg-violet-50 hover:bg-violet-100 rounded px-3 py-1.5 transition-colors">
-            <Wand2 size={13} /> Model wizard — help me choose
+            <Wand2 size={13} /> Model wizard
           </button>
         </div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">

@@ -1,6 +1,7 @@
 import { useRef } from 'react'
 import { LayoutGrid } from 'lucide-react'
 import type { DiagramLayoutOptions } from './adaptiveDiagramLayout.mjs'
+import DropdownDetails from './DropdownDetails'
 
 /** Native disclosure/actions allow reapplying the selected preset and provide
  * standard keyboard focus without an incomplete custom menu implementation. */
@@ -17,11 +18,7 @@ export default function DiagramLayoutMenu({ value, onChange, onApply, gateLabel 
     onApply(next)
     if (ref.current) { ref.current.open = false; ref.current.querySelector('summary')?.focus() }
   }
-  return <details ref={ref} className="relative" onKeyDown={event => {
-    if (event.key === 'Escape' && ref.current?.open) {
-      event.preventDefault(); ref.current.open = false; ref.current.querySelector('summary')?.focus()
-    }
-  }}>
+  return <DropdownDetails ref={ref} className="relative">
     <summary className="flex h-8 cursor-pointer list-none items-center gap-1 whitespace-nowrap rounded border border-slate-300 bg-white px-2 text-[10px] font-medium text-slate-700 hover:bg-slate-50" aria-label="Diagram layout">
       <LayoutGrid size={12} /> Layout: {value.mode === 'normal' ? 'Normal' : value.mode === 'compact' ? 'Compact' : 'Expanded'}
     </summary>
@@ -42,5 +39,5 @@ export default function DiagramLayoutMenu({ value, onChange, onApply, gateLabel 
         onChange={event => onChange({ ...value, optimizeLabelGeometry: event.target.checked })} />Optimize label geometry</label>
       <p className="mt-1 max-w-64 text-[10px] text-slate-600">Preserves visual order. Apply a mode to arrange the diagram. Model input order and logic stay unchanged.</p>
     </div>
-  </details>
+  </DropdownDetails>
 }

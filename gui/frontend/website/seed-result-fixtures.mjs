@@ -179,6 +179,9 @@ try {
       if (Object.keys(changedModules).length === 0) {
         throw new Error(`${capture.id}: analysis produced no persisted state change`)
       }
+      // Dependent modules must remain portable current-format project exports.
+      if (['prediction', 'fmea'].some(key => key in changedModules) && exported.modules.systemDefinition)
+        changedModules.systemDefinition = exported.modules.systemDefinition
       const fixture = { ...exported, modules: changedModules }
       const data = `${JSON.stringify(fixture, null, 2)}\n`
       await writeFile(resolve(fixtureDir, `${capture.id}.json`), data)

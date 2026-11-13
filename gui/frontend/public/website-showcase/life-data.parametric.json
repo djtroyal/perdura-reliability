@@ -2,7 +2,7 @@
   "app": "Perdura",
   "subtitle": "Reliability Engineering and Statistics Suite",
   "website": "https://perdurareliability.com",
-  "schemaVersion": 9,
+  "schemaVersion": 11,
   "createdWith": {
     "version": "0.8.1",
     "commit": "dev",
@@ -87,7 +87,7 @@
       },
       "runId": "run-3a967527-cdfb-41ac-af88-62a91094b6dd",
       "moduleLabel": "Life Data Analysis",
-      "analysisName": "Airplane Glass — Complete Lifetimes",
+      "analysisName": "Airplane Glass \u2014 Complete Lifetimes",
       "method": "MLE",
       "fingerprintSha256": "8f827cb3a2a819024a9bc1ca2aaeee8e33d82734c61da6e94e07d005e09a893a"
     }
@@ -98,7 +98,7 @@
       "folios": [
         {
           "id": "folio1",
-          "name": "Airplane Glass — Complete Lifetimes",
+          "name": "Airplane Glass \u2014 Complete Lifetimes",
           "rows": [
             {
               "key": "fuller2-1",

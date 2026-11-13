@@ -15,7 +15,6 @@ from reliability.SystemDefinition import (  # noqa: E402
     project_system_definition,
     propagate_system_definition,
     resolve_analysis_profile,
-    upgrade_system_definition,
     validate_system_definition,
 )
 from system_definition_schemas import (  # noqa: E402
@@ -41,12 +40,6 @@ def adapters() -> dict:
 @router.post("/validate", response_model=dict, summary="Validate a canonical system model")
 def validate(request: SystemDefinitionValidateRequest) -> dict:
     return validate_system_definition(request.model.model_dump())
-
-
-@router.post("/upgrade", response_model=dict,
-             summary="Upgrade a version 1 canonical model to version 2")
-def upgrade(request: SystemDefinitionValidateRequest) -> dict:
-    return upgrade_system_definition(request.model.model_dump())
 
 
 @router.post("/resolve-profile", response_model=dict,

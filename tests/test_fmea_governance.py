@@ -32,6 +32,8 @@ def _model():
         "kind": "dfmea",
         "revision": "A",
         "status": "draft",
+        "system_binding": {"version": 1, "system_model_id": "controller", "scope_instance_id": "controller"},
+        "resources": [{"id": "output", "name": "Controlled output state", "category": "state"}],
         "planning": {
             "subject": "Controller",
             "scope": "Command input through controlled output",
@@ -40,11 +42,15 @@ def _model():
         },
         "structure_nodes": [{
             "id": "ST-1", "name": "Controller", "level": "focus",
+            "system_definition_ref": {"system_model_id": "controller", "instance_id": "controller", "definition_id": "controller"},
         }],
         "functions": [{
             "id": "FN-1", "structure_node_id": "ST-1",
             "description": "Provide controlled output",
             "function_type": "primary",
+            "operating_modes": [],
+            "definition": {'role': 'maintain_state', 'action': 'Operational integrity', 'io': []},
+            "system_definition_ref": {"system_model_id": "controller", "instance_id": "controller", "definition_id": "controller", "function_id": "FN-1"},
         }],
         "functional_requirements": [{
             "id": "REQ-1",
@@ -64,6 +70,8 @@ def _model():
         "failure_chains": [{
             "id": "FC-1",
             "function_id": "FN-1",
+            "cause_structure_node_id": "ST-1",
+            "effect_function_id": "FN-1",
             "effect": "Output unavailable",
             "failure_mode": "No output",
             "cause": "Open circuit",
@@ -79,9 +87,14 @@ def _model():
     }
 
 
+def _canonical_system():
+    analysis = _model()
+    return {"version": 4, "id": "controller", "name": "Controller", "root_instance_id": "controller", "resources": analysis["resources"], "definitions": [{"id": "controller", "name": "Controller", "kind": "system", "functions": [{**analysis["functions"][0], "mode_ids": []}]}], "instances": [{"id": "controller", "name": "Controller", "definition_id": "controller"}]}
+
+
 def _study():
     return {
-        "schema_version": 2,
+        "schema_version": 4,
         "id": "DFMEA-1",
         "lifecycle_status": "draft",
         "method_profile_id": "aiag_vda_2019_public",
@@ -250,7 +263,7 @@ def test_failure_flow_accepts_explicit_mode_effect_and_cause_mode_links():
         "mapped_analyses": 1,
         "coverage_gaps": 0,
     }
-    analyzed = analyze_studies([study])["studies"][0]
+    analyzed = analyze_studies([study], canonical_system=_canonical_system())["studies"][0]
     assert analyzed["failure_flow"]["active_links"] == 2
     assert analyzed["failure_flow_snapshot"]["owner"]["analysis_id"] == "DFMEA-1"
 
@@ -341,7 +354,7 @@ def test_failure_flow_is_part_of_the_controlled_content_hash():
     study = _study_with_failure_flow()
     before = study_sha256(study)
     revision = create_revision(
-        study, created_by="Analyst",
+        study, canonical_system=_canonical_system(), created_by="Analyst",
         change_summary="Capture linked hierarchy.",
     )
     assert revision["snapshot"]["failure_flow"]["edges"][0][
@@ -471,10 +484,10 @@ def test_process_verification_and_characteristic_flowdown_is_validated():
 
 def test_revision_release_and_verification_are_content_addressed():
     study = _study()
-    analysis = analyze_studies([study])["studies"][0]
+    analysis = analyze_studies([study], canonical_system=_canonical_system())["studies"][0]
     assert analysis["release_ready"] is True
     revision = create_revision(
-        study, created_by="A. Reviewer", change_summary="Initial baseline")
+        study, canonical_system=_canonical_system(), created_by="A. Reviewer", change_summary="Initial baseline")
     assert revision["content_sha256"] == study_sha256(study)
     study["revisions"].append(revision)
     attestation = {
@@ -487,13 +500,13 @@ def test_revision_release_and_verification_are_content_addressed():
         "identity_assurance": "named_local",
     }
     study = transition_lifecycle(
-        study, target_status="in_review", actor="A. Reviewer",
+        study, canonical_system=_canonical_system(), target_status="in_review", actor="A. Reviewer",
         rationale="Ready for review")
     study = transition_lifecycle(
-        study, target_status="approved", actor="A. Reviewer",
+        study, canonical_system=_canonical_system(), target_status="approved", actor="A. Reviewer",
         rationale="Approved", attestations=[attestation])
     release = create_release(
-        study,
+        study, canonical_system=_canonical_system(),
         rating_profiles=[],
         program_requirements=[],
         software_version="0.7.0",
@@ -511,23 +524,22 @@ def test_revision_release_and_verification_are_content_addressed():
 def test_reference_gated_profile_blocks_release_readiness():
     study = _study()
     study["method_profile_id"] = "iso_26262_2018_fmeda"
-    result = analyze_studies([study])["studies"][0]
-    assert result["release_ready"] is False
-    assert result["findings"][0]["code"] == "method_reference_gated"
+    with pytest.raises(ValueError, match="not enabled"):
+        analyze_studies([study], canonical_system=_canonical_system())
 
 
 def test_release_requires_an_approving_attestation():
     study = _study()
     revision = create_revision(
-        study, created_by="Reviewer", change_summary="Baseline")
+        study, canonical_system=_canonical_system(), created_by="Reviewer", change_summary="Baseline")
     study["revisions"].append(revision)
     study = transition_lifecycle(
-        study, target_status="in_review", actor="Reviewer",
+        study, canonical_system=_canonical_system(), target_status="in_review", actor="Reviewer",
         rationale="Ready for review")
     study["lifecycle_status"] = "approved"
     with pytest.raises(ValueError, match="approving approver"):
         create_release(
-            study,
+            study, canonical_system=_canonical_system(),
             rating_profiles=[],
             program_requirements=[],
             software_version="0.7.0",
@@ -575,15 +587,15 @@ def test_lifecycle_requires_revision_and_approval_attestation():
     study = _study()
     with pytest.raises(ValueError, match="Capture"):
         transition_lifecycle(
-            study, target_status="in_review", actor="Reviewer",
+            study, canonical_system=_canonical_system(), target_status="in_review", actor="Reviewer",
             rationale="Ready")
     study["revisions"].append(create_revision(
-        study, created_by="Reviewer", change_summary="Baseline"))
+        study, canonical_system=_canonical_system(), created_by="Reviewer", change_summary="Baseline"))
     review = transition_lifecycle(
-        study, target_status="in_review", actor="Reviewer", rationale="Ready")
+        study, canonical_system=_canonical_system(), target_status="in_review", actor="Reviewer", rationale="Ready")
     with pytest.raises(ValueError, match="approving reviewer or approver"):
         transition_lifecycle(
-            review, target_status="approved", actor="Reviewer",
+            review, canonical_system=_canonical_system(), target_status="approved", actor="Reviewer",
             rationale="Approved")
 
 

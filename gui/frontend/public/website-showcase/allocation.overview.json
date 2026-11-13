@@ -2,7 +2,7 @@
   "app": "Perdura",
   "subtitle": "Reliability Engineering and Statistics Suite",
   "website": "https://perdurareliability.com",
-  "schemaVersion": 6,
+  "schemaVersion": 11,
   "createdWith": {
     "version": "0.7.0",
     "commit": "dev",
@@ -134,19 +134,19 @@
                 {
                   "name": "Sensor Array",
                   "reliability": 0.9921397783193865,
-                  "failure_rate": 0.000007891276059623125,
+                  "failure_rate": 7.891276059623125e-06,
                   "mtbf": 126722.21735045454
                 },
                 {
                   "name": "Control Unit",
                   "reliability": 0.980465137174152,
-                  "failure_rate": 0.000019728190149057895,
+                  "failure_rate": 1.9728190149057895e-05,
                   "mtbf": 50688.8869401816
                 },
                 {
                   "name": "Actuator",
                   "reliability": 0.9766041985840214,
-                  "failure_rate": 0.000023673828178869462,
+                  "failure_rate": 2.3673828178869462e-05,
                   "mtbf": 42240.73911681802
                 }
               ],

@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import DropdownDetails from '../shared/DropdownDetails'
+import { useDismissiblePopover } from '../shared/useDismissiblePopover'
 import {
   Activity,
   Anchor,
@@ -148,6 +150,9 @@ export function VocabularyPicker({
     left: 12, top: 12, width: 320, maxHeight: 480,
   })
   const buttonRef = useRef<HTMLButtonElement>(null)
+  const popoverRef = useRef<HTMLDivElement>(null)
+  useDismissiblePopover({ open, onDismiss: () => setOpen(false),
+    elements: () => [buttonRef.current, popoverRef.current], trigger: () => buttonRef.current })
   const terms = useMemo(
     () => vocabularyTerms(profile, domain, kind),
     [domain, kind, profile],
@@ -178,17 +183,12 @@ export function VocabularyPicker({
         : Math.max(margin, rect.top - maxHeight - gap)
       setPosition({ left, top, width, maxHeight })
     }
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false)
-    }
     place()
     window.addEventListener('resize', place)
     window.addEventListener('scroll', place, true)
-    window.addEventListener('keydown', onKeyDown)
     return () => {
       window.removeEventListener('resize', place)
       window.removeEventListener('scroll', place, true)
-      window.removeEventListener('keydown', onKeyDown)
     }
   }, [open])
   return <div className="relative">
@@ -202,9 +202,7 @@ export function VocabularyPicker({
       <BookOpen size={13} />
     </button>
     {open && typeof document !== 'undefined' && createPortal(<>
-      <div className="fixed inset-0 z-[139]"
-        aria-hidden="true" onMouseDown={() => setOpen(false)} />
-      <div role="dialog" aria-label={title ?? DOMAIN_LABELS[domain]}
+      <div ref={popoverRef} role="dialog" aria-label={title ?? DOMAIN_LABELS[domain]}
         className="fmea-workspace fixed z-[140] flex flex-col rounded-lg border border-slate-400 bg-white p-3 shadow-2xl"
         style={{
           left: position.left,
@@ -469,7 +467,7 @@ export function FunctionStatementField({
           className="min-w-0 flex-1 bg-transparent text-xs font-medium text-violet-950 outline-hidden placeholder:text-slate-400 disabled:cursor-not-allowed" />
       </div>
       {targetSuggestions.length > 0 &&
-        <details ref={targetDetailsRef} className="relative">
+        <DropdownDetails ref={targetDetailsRef} className="relative">
         <summary title="Choose a target system or object from this analysis"
           className="flex h-7 cursor-pointer list-none items-center gap-1 rounded-full border border-violet-200 bg-white px-2 text-[9px] font-medium text-violet-700 hover:border-violet-400 hover:bg-violet-50 [&::-webkit-details-marker]:hidden">
           Choose target <ChevronDown size={10} />
@@ -522,7 +520,7 @@ export function FunctionStatementField({
               </section>)}
           </div>
         </div>
-      </details>}
+        </DropdownDetails>}
     </div>
     {(verbCorrection || targetCorrection) &&
       <div className="mt-1 flex flex-wrap items-center gap-1 text-[9px] text-slate-500">
@@ -687,19 +685,10 @@ export function CauseMechanismField({
   const mechanismPickerRef = useRef<HTMLDivElement>(null)
   const effectiveNoun = noun ?? (
     cause.trim() && !mechanismVerb?.trim() ? cause : '')
-  useEffect(() => {
-    if (!nounOptionsOpen && !mechanismOptionsOpen) return
-    const close = (event: MouseEvent) => {
-      if (!nounPickerRef.current?.contains(event.target as Node)) {
-        setNounOptionsOpen(false)
-      }
-      if (!mechanismPickerRef.current?.contains(event.target as Node)) {
-        setMechanismOptionsOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', close)
-    return () => document.removeEventListener('mousedown', close)
-  }, [mechanismOptionsOpen, nounOptionsOpen])
+  useDismissiblePopover({ open: nounOptionsOpen, onDismiss: () => setNounOptionsOpen(false),
+    elements: () => [nounPickerRef.current] })
+  useDismissiblePopover({ open: mechanismOptionsOpen, onDismiss: () => setMechanismOptionsOpen(false),
+    elements: () => [mechanismPickerRef.current] })
   const applyStructured = (patch: {
     cause_noun?: string
     cause_structure_node_id?: string

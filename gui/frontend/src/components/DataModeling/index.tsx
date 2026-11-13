@@ -587,7 +587,7 @@ export default function DataModeling() {
       {/* Results */}
       <div className="flex-1 overflow-y-auto">
         <StaleBanner show={isStale} onRerun={fitAllCompatible}
-          message="The data has changed since these models were fitted. Re-fit for up-to-date results."
+          message="Inputs changed. Refit models."
           rerunLabel={busy ? 'Fitting…' : 'Re-fit all'} />
         {s.fitted.length === 0 ? (
           <div className="h-full flex items-center justify-center text-gray-400">

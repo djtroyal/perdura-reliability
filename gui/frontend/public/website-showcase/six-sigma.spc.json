@@ -2,7 +2,7 @@
   "app": "Perdura",
   "subtitle": "Reliability Engineering and Statistics Suite",
   "website": "https://perdurareliability.com",
-  "schemaVersion": 6,
+  "schemaVersion": 11,
   "createdWith": {
     "version": "0.7.0",
     "commit": "dev",
@@ -82,8 +82,8 @@
         "buildStatus": "development"
       },
       "runId": "run-39b89c47-2663-42f5-ac6d-9624c290dcc1",
-      "moduleLabel": "Six Sigma — Statistical Process Control",
-      "analysisName": "Six Sigma — Statistical Process Control",
+      "moduleLabel": "Six Sigma \u2014 Statistical Process Control",
+      "analysisName": "Six Sigma \u2014 Statistical Process Control",
       "fingerprintSha256": "8ae0165edf3718ec97823c479915b76c9662dda089a37ab6762d84430ec01b7f"
     }
   ],

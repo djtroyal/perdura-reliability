@@ -119,6 +119,6 @@ export default function Spares() {
   )
 
   return <ToolLayout
-    intro="Spare-parts provisioning with three explicit scopes: constant-rate Poisson demand, overdispersed negative-binomial demand, or finite-horizon renewal/pipeline simulation with stochastic replenishment and optional compound common shocks."
+    intro="Size spares using Poisson demand, negative-binomial demand, or finite-horizon replenishment simulation."
     controls={controls} err={err} loading={loading} onRun={run} runLabel="Compute" results={results} />
 }

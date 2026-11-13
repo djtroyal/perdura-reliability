@@ -65,7 +65,7 @@ export default function Jhedi() {
 
   return (
     <ToolLayout
-      intro="Local category-factor screen for prioritization: choose a base-rate category and count aggravating conditions. Use a calibrated HRA method when a quantitative HEP is required."
+      intro="Uncalibrated category-factor screening for task prioritization."
       controls={controls} err={error} loading={loading} onRun={run} runLabel="Screen" results={results} />
   )
 }

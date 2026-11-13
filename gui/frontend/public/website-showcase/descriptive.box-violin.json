@@ -2,7 +2,7 @@
   "app": "Perdura",
   "subtitle": "Reliability Engineering and Statistics Suite",
   "website": "https://perdurareliability.com",
-  "schemaVersion": 6,
+  "schemaVersion": 11,
   "createdWith": {
     "version": "0.7.0",
     "commit": "dev",
@@ -82,8 +82,8 @@
         "buildStatus": "development"
       },
       "runId": "run-a00a2f0f-534a-407c-9ce3-7354c3086cc5",
-      "moduleLabel": "Statistical Modeling — Descriptive Statistics",
-      "analysisName": "Anscombe's Quartet — Visual Diagnostics",
+      "moduleLabel": "Statistical Modeling \u2014 Descriptive Statistics",
+      "analysisName": "Anscombe's Quartet \u2014 Visual Diagnostics",
       "fingerprintSha256": "f08e945cc78e7ac5ff0409ccbab6e54c68d2fd7f64ae3090d7dffc2be2a8d412"
     }
   ],

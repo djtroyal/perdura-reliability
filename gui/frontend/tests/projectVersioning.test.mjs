@@ -38,19 +38,19 @@ try {
 
   assert.throws(
     () => project.importPayload({ ...payload, schemaVersion: 1 }),
-    /Unsupported project schema 1.*accepts schemas 6, 7 or 9/,
+    /Unsupported project schema 1.*requires schema 11/,
     'schemas older than the explicit migration boundary must fail closed',
   )
   assert.throws(
     () => project.importPayload({ ...payload, schemaVersion: 999 }),
-    /Unsupported project schema 999.*accepts schemas 6, 7 or 9/,
+    /Unsupported project schema 999.*requires schema 11/,
     'newer schemas must fail closed instead of being interpreted approximately',
   )
   const beforeLegacyImport = project.getProjectState()
   assert.throws(() => project.importPayload({
     ...payload, schemaVersion: 6,
     modules: { ...payload.modules, prediction: { blocks: [], parts: [] } },
-  }), /shared-system scenario format/)
+  }), /Unsupported project schema 6/)
   assert.equal(project.getProjectState(), beforeLegacyImport,
     'unsupported copied prediction hierarchies must not erase or replace the current project')
   assert.throws(
@@ -73,17 +73,9 @@ try {
   assert.equal(project.getProjectState().modules.growth.result, undefined,
     'mismatched engine revisions must retain inputs and remove computed output')
 
-  project.importPayload({ ...payload, schemaVersion: 7, engineRevisions: { faultTree: 0 }, modules: {
-    faultTree: { _folioWrap: true, activeId: 'legacy-tree', folios: [{ id: 'legacy-tree', name: 'Legacy',
-      state: { nodes: [], edges: [], result: { top_event_probability: 0.2 } } }] },
-  } })
-  const historical = project.getProjectState().modules.faultTree.folios[0]
-  assert.equal(historical.state.result.top_event_probability, 0.2,
-    'FTA migration must retain inspectable historical output even if the engine differs')
-  assert.equal(historical.dirty, true, 'historical engine output cannot appear current')
-  assert.equal(project.getProjectState().modules.faultTreeCatalog.byTreeId['legacy-tree'].code, 'FTA-001')
-  assert.ok(project.buildExport(project.moduleSlices('faultTree'), true).modules.faultTreeCatalog,
-    'module exports retain the catalog companion')
+  assert.throws(() => project.importPayload({ ...payload, schemaVersion: 7,
+    modules: { faultTree: { _folioWrap: true, activeId: 'old-tree', folios: [{ id: 'old-tree', state: { nodes: [], edges: [] } }] } },
+  }), /Unsupported project schema 7/, 'Old diagrams must not trigger implicit project migrations')
 
   project.newProject('Existing hours project')
   project.setModuleState('warranty', { times: [100, 200], result: { estimate: 1 } })

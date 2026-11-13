@@ -146,7 +146,7 @@ export default function CostForecast() {
 
   return (
     <ToolLayout
-      intro="Projects the expected number of preventive and corrective maintenance events, and the total cost, over a planning horizon under the chosen policy — with a cumulative-cost curve for budgeting."
+      intro="Forecast maintenance events and cumulative cost over the planning horizon."
       controls={controls} err={error} loading={loading} onRun={run} runLabel="Forecast cost" results={results}
     />
   )

@@ -341,7 +341,7 @@ def test_planning_completeness_prompts_are_non_blocking_warnings():
         "subject": "",
         "scope": "",
         "intent": "",
-        "team": [],
+        "team": ["   "],
     }
     result = analyze_aiag_vda_fmea([analysis])["analyses"][0]
     expected = {

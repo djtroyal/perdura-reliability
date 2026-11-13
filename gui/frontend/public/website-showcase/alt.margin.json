@@ -2,7 +2,7 @@
   "app": "Perdura",
   "subtitle": "Reliability Engineering and Statistics Suite",
   "website": "https://perdurareliability.com",
-  "schemaVersion": 6,
+  "schemaVersion": 11,
   "createdWith": {
     "version": "0.7.0",
     "commit": "dev",
@@ -82,7 +82,7 @@
         "buildStatus": "development"
       },
       "runId": "run-68995ef9-ab54-4612-be09-a4ab97008980",
-      "moduleLabel": "Reliability Testing — Margin Testing",
+      "moduleLabel": "Reliability Testing \u2014 Margin Testing",
       "analysisName": "Temperature ALT",
       "fingerprintSha256": "52107a91399cf517ca07365545130cee61c10e27016c7d3e09e13c75f3dfb27c"
     }

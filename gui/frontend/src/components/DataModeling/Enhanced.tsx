@@ -548,9 +548,9 @@ export default function EnhancedDataModeling() {
             <ExportResultsButton getElement={() => resultsRef.current} baseName="decision-grade-modeling" title="Regression & ML" />
           </div>
         </div>
-        <StaleBanner show={stale} message="The data or modeling configuration changed after validation. Re-run before finalizing; an existing finalized asset remains immutable." onRerun={runEvaluation} />
+        <StaleBanner show={stale} message="Data or settings changed. Re-run validation before finalizing." onRerun={runEvaluation} />
         {error && <div className="mx-4 mt-3 flex items-start gap-2 rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700"><AlertTriangle size={14} className="mt-0.5 shrink-0" />{error}</div>}
-        {state.legacyResultCount > 0 && !state.run && <div className="mx-4 mt-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">This analysis contains {state.legacyResultCount} pre-workflow fitted result(s). They require refitting under the unified out-of-sample contract before comparison, finalization, or export.</div>}
+        {state.legacyResultCount > 0 && !state.run && <div className="mx-4 mt-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">Refit these {state.legacyResultCount} older results before comparing, finalizing, or exporting.</div>}
 
         <div ref={resultsRef} className="flex-1 overflow-y-auto p-4">
           {state.stage === 'prepare' && <PrepareView state={state} selectionMetric={effectiveSelectionMetric} columns={columns} rows={rows} run={state.run} />}
@@ -609,7 +609,7 @@ function PrepareView({ state, selectionMetric, columns, rows, run }: { state: Mo
   const missing = state.features.reduce((sum, feature) => sum + rows.filter(row => !String(row[feature] ?? '').trim()).length, 0)
   const duplicates = new Set(rows.map(row => JSON.stringify(columns.map(column => row[column] ?? '')))).size
   return <div className="space-y-4">
-    <header><h2 className="text-lg font-semibold text-gray-900">Prepare a trustworthy modeling dataset</h2><p className="text-xs text-gray-500">Declare what will be available at prediction time, then inspect data loss and leakage risks before comparing algorithms.</p></header>
+    <header><h2 className="text-lg font-semibold text-gray-900">Prepare data</h2><p className="text-xs text-gray-500">Choose predictors available at prediction time.</p></header>
     <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
       <SummaryCard label="Rows" value={String(readiness?.n_rows_original ?? rows.length)} />
       <SummaryCard label="Eligible rows" value={String(readiness?.n_rows_eligible ?? 'Run audit')} accent />
@@ -618,7 +618,7 @@ function PrepareView({ state, selectionMetric, columns, rows, run }: { state: Mo
       <SummaryCard label="Duplicate rows" value={String(readiness?.duplicate_rows ?? rows.length - duplicates)} />
     </div>
     <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-      <Panel title="Modeling contract" icon={<ShieldCheck size={15} />}>
+      <Panel title="Model settings" icon={<ShieldCheck size={15} />}>
         <dl className="grid grid-cols-[10rem_1fr] gap-x-4 gap-y-2 text-xs">
           <dt className="text-gray-500">Task</dt><dd className="font-medium capitalize">{state.task}</dd>
           <dt className="text-gray-500">Target</dt><dd className="font-mono">{state.target}</dd>
@@ -629,13 +629,13 @@ function PrepareView({ state, selectionMetric, columns, rows, run }: { state: Mo
         </dl>
       </Panel>
       <Panel title="Data readiness" icon={readiness?.status === 'ready' ? <CheckCircle2 size={15} className="text-green-600" /> : <AlertTriangle size={15} className="text-amber-500" />}>
-        {!readiness ? <p className="text-xs text-gray-500">Run Compare & tune to execute the backend audit with the exact eligible-row and type rules.</p> : <>
+        {!readiness ? <p className="text-xs text-gray-500">Run Compare & tune to check data eligibility.</p> : <>
           <div className="mb-2 flex flex-wrap gap-1.5">
             <Badge>{readiness.numeric_features.length} numeric</Badge><Badge>{readiness.categorical_features.length} categorical</Badge>
             <Badge>{readiness.dropped_missing_target} missing targets dropped</Badge><Badge>{readiness.leakage_warnings.length} leakage warning(s)</Badge>
           </div>
           {readiness.warnings.length ? <ul className="list-disc space-y-1 pl-4 text-[11px] text-amber-800">{readiness.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul>
-            : <p className="text-xs text-green-700">No structural readiness warnings were detected.</p>}
+            : <p className="text-xs text-green-700">No data readiness warnings.</p>}
         </>}
       </Panel>
     </div>
@@ -643,7 +643,7 @@ function PrepareView({ state, selectionMetric, columns, rows, run }: { state: Mo
 }
 
 function CompareView({ run, selectedModel, onSelect, metric }: { run: ModelingRun | null; selectedModel: ModelingModel | null; onSelect: (model: ModelingModel) => void; metric: string }) {
-  if (!run) return <EmptyState icon={<SlidersHorizontal size={30} />} title="No comparable models yet" text="Configure candidates and run Compare & tune. The leaderboard will use one out-of-sample contract for every model." />
+  if (!run) return <EmptyState icon={<SlidersHorizontal size={30} />} title="No comparable models yet" text="Choose candidate models, then run Compare & tune." />
   const ordered = [...run.models].sort((a, b) => (a.rank ?? 999) - (b.rank ?? 999))
   const metricKeys = [...new Set([
     run.selection_metric,
@@ -677,7 +677,7 @@ function CompareView({ run, selectedModel, onSelect, metric }: { run: ModelingRu
 }
 
 function DiagnoseView({ model, run }: { model: ModelResult | null; run: ModelingRun | null }) {
-  if (!model || !run) return <EmptyState icon={<Gauge size={30} />} title="Select an eligible model" text="Choose a leaderboard row to inspect its held-out behavior, uncertainty, explanations, and fitted settings." />
+  if (!model || !run) return <EmptyState icon={<Gauge size={30} />} title="Select an eligible model" text="Choose a leaderboard row to review its diagnostics." />
   const important = model.permutation_importance?.feature_names.map((name, index) => ({ name, mean: model.permutation_importance.mean[index], std: model.permutation_importance.std[index] })).sort((a, b) => b.mean - a.mean) ?? []
   const thresholdFolds = model.folds.filter(fold => fold.threshold_detail?.curve?.length)
   return <div className="space-y-4">
@@ -696,19 +696,17 @@ function DiagnoseView({ model, run }: { model: ModelResult | null; run: Modeling
         {model.diagnostics.calibration && <PlotPanel title="Reliability diagram"><Calibration diagnostic={model.diagnostics.calibration} /></PlotPanel>}
         {thresholdFolds.length > 0 && <PlotPanel title="Inner-fold decision threshold sensitivity"><ThresholdSensitivity folds={thresholdFolds} selected={model.threshold} /></PlotPanel>}
       </>}
-      {important.length > 0 && <PlotPanel title="Held-out permutation importance"><Importance values={important} /></PlotPanel>}
-      {model.partial_dependence?.filter(item => item.grid && item.average).map(item => <PlotPanel key={item.feature} title={`Partial dependence / ICE — ${item.feature}`}><Dependence item={item} /></PlotPanel>)}
+      {important.length > 0 && <PlotPanel title="Held-out permutation importance"><Importance values={important} /><p className="text-xs text-gray-600">Importance measures predictive contribution; it does not establish causation.</p></PlotPanel>}
+      {model.partial_dependence?.filter(item => item.grid && item.average).map(item => <PlotPanel key={item.feature} title={`Partial dependence / ICE — ${item.feature}`}><Dependence item={item} /><p className="text-xs text-gray-600">Correlated predictors can produce implausible combinations in this plot.</p></PlotPanel>)}
     </div>
     <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
       <Panel title="Selected hyperparameters" icon={<SlidersHorizontal size={15} />}><pre className="overflow-x-auto whitespace-pre-wrap text-[11px] text-gray-700">{JSON.stringify(model.selected_params, null, 2)}</pre></Panel>
-      <Panel title="Interpretation guardrails" icon={<ShieldCheck size={15} />}>
+      {(model.conformal || model.warnings.length > 0) && <Panel title="Uncertainty and warnings" icon={<ShieldCheck size={15} />}>
         <ul className="list-disc space-y-1 pl-4 text-[11px] text-gray-700">
-          <li>Permutation importance measures performance loss when a raw feature is disrupted; it is not a causal effect.</li>
-          <li>Partial dependence may describe implausible combinations when predictors are correlated.</li>
           {model.conformal && <li>Prediction band: {pretty(String(model.conformal.coverage_scope))}; formal finite-sample guarantee: {String(model.conformal.formal_finite_sample_guarantee)}.</li>}
           {model.warnings.map((warning, index) => <li key={index} className="text-amber-800">{warning}</li>)}
         </ul>
-      </Panel>
+      </Panel>}
     </div>
     {model.inference && <InferencePanel inference={model.inference} />}
   </div>
@@ -721,9 +719,9 @@ function FinalizeView({ model, asset, assets, stale, busy, onFinalize, scoreRows
   onDownloadScores: () => void; onSelectAsset: (asset: ModelAsset) => void; onNewAsset: () => void
   onDownloadCard: () => void; onDownloadOnnx: () => void
 }) {
-  if (!model && !asset && assets.length === 0) return <EmptyState icon={<ShieldCheck size={30} />} title="Choose a model before finalizing" text="Review an eligible model, then create an immutable scoring asset and model card." />
+  if (!model && !asset && assets.length === 0) return <EmptyState icon={<ShieldCheck size={30} />} title="Choose a model before finalizing" text="Select and review a validated model to save it for predictions." />
   return <div className="space-y-4">
-    <header><h2 className="text-lg font-semibold text-gray-900">Finalize and predict</h2><p className="text-xs text-gray-500">Promote a validated recipe into an immutable project asset. Models with an executable artifact can then score new rows without using the live analysis table.</p></header>
+    <header><h2 className="text-lg font-semibold text-gray-900">Finalize and predict</h2></header>
     {assets.length > 0 && <Panel title="Saved model assets" icon={<ShieldCheck size={15} />}>
       <div className="flex flex-wrap gap-2">
         {[...assets].reverse().map(item => <button key={item.asset_id} onClick={() => onSelectAsset(item)}
@@ -734,11 +732,11 @@ function FinalizeView({ model, asset, assets, stale, busy, onFinalize, scoreRows
       </div>
       {asset && model && <button className="mini-button mt-3" onClick={onNewAsset}><Plus size={11} /> Finalize current selection as another asset</button>}
     </Panel>}
-    {!asset && model && <Panel title="Create model asset" icon={<ShieldCheck size={15} />}><p className="mb-3 text-xs text-gray-700">Finalize <strong>{model.label}</strong> using its selected parameters. Perdura refits the point model on all eligible rows and records the complete rebuild recipe. {model.model === 'spline' ? 'Spline Regression v1 creates a rebuild-only asset; executable scoring and ONNX export are not yet available.' : 'Perdura also attempts parity-checked ONNX conversion.'}</p><button disabled={stale || busy !== null} onClick={onFinalize} className="primary-button">{busy === 'finalize' ? 'Finalizing…' : 'Finalize selected model'}</button>{stale && <p className="mt-2 text-[10px] text-amber-700">Re-run validation before finalizing changed inputs.</p>}</Panel>}
+    {!asset && model && <Panel title="Create model asset" icon={<ShieldCheck size={15} />}><p className="mb-3 text-xs text-gray-700">Refit <strong>{model.label}</strong> on all eligible rows and save its parameters. {model.model === 'spline' && 'Spline models support rebuilding only; scoring and ONNX export are unavailable.'}</p><button disabled={stale || busy !== null} onClick={onFinalize} className="primary-button">{busy === 'finalize' ? 'Finalizing…' : 'Finalize selected model'}</button>{stale && <p className="mt-2 text-[10px] text-amber-700">Re-run validation before finalizing changed inputs.</p>}</Panel>}
     {asset && <>
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <Panel title="Model card" icon={<FileJson size={15} />}><dl className="grid grid-cols-[9rem_1fr] gap-x-3 gap-y-2 text-xs"><dt className="text-gray-500">Asset</dt><dd className="font-mono">{asset.asset_id}</dd><dt className="text-gray-500">Model</dt><dd>{asset.model_label}</dd><dt className="text-gray-500">Target</dt><dd>{asset.schema.target}</dd><dt className="text-gray-500">Selection metric</dt><dd>{pretty(asset.selection_metric)}</dd>{asset.task === 'classification' && <><dt className="text-gray-500">Decision policy</dt><dd>{asset.threshold == null ? 'Estimator default' : `threshold ${fmt(asset.threshold, 3)}`} · {String(asset.calibration_state?.method ?? 'uncalibrated')}</dd></>}<dt className="text-gray-500">Dataset fingerprint</dt><dd className="truncate font-mono" title={asset.schema.dataset_fingerprint}>{asset.schema.dataset_fingerprint}</dd><dt className="text-gray-500">Created</dt><dd>{asset.created_at}</dd></dl><div className="mt-3 flex flex-wrap gap-2"><button className="secondary-button" onClick={onDownloadCard}><FileJson size={12} /> JSON model card</button>{asset.artifact.kind === 'onnx' && asset.artifact.available && <button className="secondary-button" onClick={onDownloadOnnx}><Download size={12} /> ONNX</button>}</div></Panel>
-        <Panel title="Executable artifact" icon={asset.artifact.available ? <CheckCircle2 size={15} className="text-green-600" /> : <AlertTriangle size={15} className="text-amber-500" />}><p className="text-sm font-medium capitalize text-gray-900">{pretty(asset.artifact.kind)}</p>{asset.artifact.available ? <div className="mt-2 space-y-1 text-[11px] text-gray-600"><p>Ready for project scoring.</p>{asset.artifact.size_bytes && <p>Size: {(asset.artifact.size_bytes / 1024).toFixed(1)} KiB</p>}{asset.artifact.parity && <p>Parity checked on {asset.artifact.parity.rows} rows · passed.</p>}</div> : <p className="mt-2 text-[11px] text-amber-800">{asset.artifact.reason}</p>}<p className="mt-3 text-[10px] text-gray-400">Pickle and joblib imports are deliberately unsupported.</p></Panel>
+        <Panel title="Executable artifact" icon={asset.artifact.available ? <CheckCircle2 size={15} className="text-green-600" /> : <AlertTriangle size={15} className="text-amber-500" />}><p className="text-sm font-medium capitalize text-gray-900">{pretty(asset.artifact.kind)}</p>{asset.artifact.available ? <div className="mt-2 space-y-1 text-[11px] text-gray-600"><p>Ready for project scoring.</p>{asset.artifact.size_bytes && <p>Size: {(asset.artifact.size_bytes / 1024).toFixed(1)} KiB</p>}{asset.artifact.parity && <p>Parity checked on {asset.artifact.parity.rows} rows · passed.</p>}</div> : <p className="mt-2 text-[11px] text-amber-800">{asset.artifact.reason}</p>}</Panel>
       </div>
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <Panel title="Score one row" icon={<Play size={15} />}><div className="grid grid-cols-2 gap-3">{asset.schema.features.map(feature => <label key={feature} className="text-[11px] text-gray-600">{feature}<input value={scoreRows[feature] ?? ''} onChange={event => setScoreRows({ ...scoreRows, [feature]: event.target.value })} className="field mt-1 font-mono" /></label>)}</div><button disabled={!asset.artifact.available || busy !== null} onClick={onSingleScore} className="primary-button mt-3">{busy === 'score' ? 'Scoring…' : 'Score row'}</button></Panel>
@@ -828,5 +826,5 @@ function InferencePanel({ inference }: { inference: Record<string, unknown> }) {
   const names = (inference.feature_names as string[] | undefined) ?? []
   const coefficients = (inference.coefficients as number[] | undefined) ?? []
   const pvalues = (inference.p_values as number[] | undefined) ?? []
-  return <Panel title="Separate full-sample classical inference" icon={<Gauge size={15} />}><p className="mb-2 text-[10px] text-gray-500">These coefficient estimates describe the full-sample statistical fit. They are not the out-of-sample leaderboard metrics above.</p><div className="overflow-x-auto"><table className="w-full text-xs"><thead className="bg-gray-50"><tr><th className="px-2 py-1 text-left">Term</th><th className="px-2 py-1 text-right">Coefficient</th><th className="px-2 py-1 text-right">p-value</th></tr></thead><tbody>{names.map((name, index) => <tr key={name} className="border-t"><td className="px-2 py-1">{name}</td><td className="px-2 py-1 text-right font-mono">{fmt(coefficients[index])}</td><td className="px-2 py-1 text-right font-mono">{fmt(pvalues[index])}</td></tr>)}</tbody></table></div></Panel>
+  return <Panel title="Full-sample classical inference" icon={<Gauge size={15} />}><p className="mb-2 text-[10px] text-gray-500">Coefficients use the full sample; leaderboard metrics use held-out predictions.</p><div className="overflow-x-auto"><table className="w-full text-xs"><thead className="bg-gray-50"><tr><th className="px-2 py-1 text-left">Term</th><th className="px-2 py-1 text-right">Coefficient</th><th className="px-2 py-1 text-right">p-value</th></tr></thead><tbody>{names.map((name, index) => <tr key={name} className="border-t"><td className="px-2 py-1">{name}</td><td className="px-2 py-1 text-right font-mono">{fmt(coefficients[index])}</td><td className="px-2 py-1 text-right font-mono">{fmt(pvalues[index])}</td></tr>)}</tbody></table></div></Panel>
 }

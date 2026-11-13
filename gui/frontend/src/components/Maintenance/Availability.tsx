@@ -92,6 +92,6 @@ export default function Availability() {
   )
 
   return <ToolLayout
-    intro="Availability from MTBF, MTTR and downtime delays. Inherent availability uses repair time only; operational availability adds administrative and logistics delay. Supply MTBM and mean maintenance time for achieved availability."
+    intro="Calculate inherent, achieved, and operational availability from operating, maintenance, and delay times."
     controls={controls} err={err} loading={loading} onRun={run} runLabel="Compute" results={results} />
 }

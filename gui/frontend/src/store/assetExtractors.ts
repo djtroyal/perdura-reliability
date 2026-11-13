@@ -1,4 +1,6 @@
+import { distributionLabel } from '../components/shared/distributionLabels'
 import { materializePrediction, systemInputFingerprint, type PredictionScenario } from './sharedSystemModel'
+import { canonicalFmeaBinding, collectFmeaProtectedEntityIds, fmeaSemanticFingerprint, inspectFmeaBinding, materializeFmeaAnalysis } from './sharedFmeaModel'
 import type { SystemDefinitionState } from '../components/SystemDefinition/model'
 import { CURRENT_ENGINE_REVISIONS } from '../version'
 import { buildFtaReferenceIndex, createFtaResultProvenance, ftaResultFreshness, normalizeFtaLibrary, sha256FtaText, semanticFtaFingerprint, type FtaFolio } from '../components/FaultTree/libraryModel'
@@ -27,7 +29,7 @@ import { betaPdfCurve } from '../components/shared/stats'
 import type { GenerateDesignResponse } from '../api/doe'
 import type { HypothesisResult, AnovaTableRow } from '../api/hypothesis'
 import type { FitRegressionResponse } from '../api/regression'
-import type { ReliabilityProgramResponse } from '../api/reliabilityProgram'
+import type { AIAGVDAFMEAAnalysis, ReliabilityProgramResponse } from '../api/reliabilityProgram'
 import type { FMEAAnalysisResponse } from '../api/fmea'
 import type { ModelAsset, ModelingRun, ModelResult } from '../api/modeling'
 import type {
@@ -175,7 +177,7 @@ function extractLifeData(modules: Record<string, unknown>, out: AssetDescriptor[
         getData: () => {
           const headers = ['Distribution', 'AICc', 'BIC', 'AD', 'LogLik']
           const rows = fit.results.map(r => [
-            r.Distribution, fmt(r.AICc), fmt(r.BIC), fmt(r.AD), fmt(r.LogLik),
+            distributionLabel(r.Distribution), fmt(r.AICc), fmt(r.BIC), fmt(r.AD), fmt(r.LogLik),
           ])
           return { tableHeaders: headers, tableRows: rows }
         },
@@ -193,7 +195,7 @@ function extractLifeData(modules: Record<string, unknown>, out: AssetDescriptor[
               const p = pd.probability!
               const plotData: unknown[] = [
                 { x: p.scatter_x, y: p.scatter_y, mode: 'markers', name: 'Data', marker: { color: '#3b82f6', size: 6 } },
-                { x: p.line_x, y: p.line_y, mode: 'lines', name: distName, line: { color: '#ef4444', width: 2 } },
+                { x: p.line_x, y: p.line_y, mode: 'lines', name: distributionLabel(distName), line: { color: '#ef4444', width: 2 } },
               ]
               if (showSuspensions) {
                 const t = probSuspensionTrace(p, rc)
@@ -201,7 +203,7 @@ function extractLifeData(modules: Record<string, unknown>, out: AssetDescriptor[
               }
               return {
                 plotData,
-                plotLayout: { ...BASE, xaxis: { title: { text: p.x_label }, gridcolor: GREY }, yaxis: { title: { text: p.y_label }, gridcolor: GREY }, title: { text: `${distName} Probability Plot` } },
+                plotLayout: { ...BASE, xaxis: { title: { text: p.x_label }, gridcolor: GREY }, yaxis: { title: { text: p.y_label }, gridcolor: GREY }, title: { text: `${distributionLabel(distName)} Probability Plot` } },
               }
             },
           })
@@ -216,7 +218,7 @@ function extractLifeData(modules: Record<string, unknown>, out: AssetDescriptor[
               getData: () => {
                 const c = pd.curves!
                 const plotData: unknown[] = [
-                  { x: c.x, y: c[key], mode: 'lines', name: distName, line: { color: '#3b82f6', width: 2 } },
+                  { x: c.x, y: c[key], mode: 'lines', name: distributionLabel(distName), line: { color: '#3b82f6', width: 2 } },
                 ]
                 if (showSalient) {
                   const dist = fit.results.find(r => r.Distribution === distName) as Any
@@ -231,7 +233,7 @@ function extractLifeData(modules: Record<string, unknown>, out: AssetDescriptor[
                 }
                 return {
                   plotData,
-                  plotLayout: { ...BASE, xaxis: { title: { text: 'Time' }, gridcolor: GREY }, yaxis: { title: { text: curve }, gridcolor: GREY }, title: { text: `${distName} — ${curve}` } },
+                  plotLayout: { ...BASE, xaxis: { title: { text: 'Time' }, gridcolor: GREY }, yaxis: { title: { text: curve }, gridcolor: GREY }, title: { text: `${distributionLabel(distName)} — ${curve}` } },
                 }
               },
             })
@@ -247,7 +249,7 @@ function extractLifeData(modules: Record<string, unknown>, out: AssetDescriptor[
         group: gp, label: `${specified.distribution} Specified Model Summary`, type: 'metrics',
         getData: () => ({
           metrics: [
-            { label: 'Distribution', value: specified.distribution },
+            { label: 'Distribution', value: distributionLabel(specified.distribution) },
             ...Object.entries(specified.params ?? {}).map(([key, value]) => ({ label: key, value: fmt(value as number) })),
             { label: 'Mean', value: fmt(specified.stats?.mean) },
             { label: 'Median', value: fmt(specified.stats?.median) },
@@ -263,9 +265,9 @@ function extractLifeData(modules: Record<string, unknown>, out: AssetDescriptor[
           getData: () => ({
             plotData: [{
               x: specified.curves.x, y: specified.curves[key], mode: 'lines',
-              name: specified.distribution, line: { color: COLORS[0], width: 2 },
+              name: distributionLabel(specified.distribution), line: { color: COLORS[0], width: 2 },
             }],
-            plotLayout: { ...BASE, xaxis: { title: { text: 'Time' }, gridcolor: GREY }, yaxis: { title: { text: curve }, gridcolor: GREY }, title: { text: `${specified.distribution} (specified) — ${curve}` } },
+            plotLayout: { ...BASE, xaxis: { title: { text: 'Time' }, gridcolor: GREY }, yaxis: { title: { text: curve }, gridcolor: GREY }, title: { text: `${distributionLabel(specified.distribution)} (specified) — ${curve}` } },
           }),
         })
       }
@@ -480,7 +482,7 @@ function extractALT(modules: Record<string, unknown>, out: AssetDescriptor[]) {
           group: gp, label: 'ALT Fit Summary', type: 'table',
           getData: () => {
             const keys = Object.keys(r.results[0] ?? {})
-            return { tableHeaders: keys, tableRows: r.results.map(row => keys.map(k => String(row[k] ?? '—'))) }
+            return { tableHeaders: keys, tableRows: r.results.map(row => keys.map(k => k === 'Model' ? distributionLabel(row[k]) : String(row[k] ?? '—'))) }
           },
         })
       }
@@ -492,7 +494,7 @@ function extractALT(modules: Record<string, unknown>, out: AssetDescriptor[]) {
           getData: () => ({
             tableHeaders: ['Model', 'a', 'b', 'c', 'Shape', 'B10', 'B50 (median)', 'Mean'],
             tableRows: Object.entries(md).map(([name, d]) => [
-              name, fmt(d.a), fmt(d.b), fmt(d.c), fmt(d.shape),
+              distributionLabel(name), fmt(d.a), fmt(d.b), fmt(d.c), fmt(d.shape),
               fmt(d.life_b10), fmt(d.life_b50), fmt(d.life_mean),
             ]),
           }),
@@ -507,7 +509,7 @@ function extractALT(modules: Record<string, unknown>, out: AssetDescriptor[]) {
           getData: () => ({
             plotData: [
               { x: p.scatter_stress, y: p.scatter_life, mode: 'markers', name: 'Data', marker: { color: '#3b82f6', size: 7 } },
-              { x: p.line_stress, y: p.line_life, mode: 'lines', name: r.best_model, line: { color: '#ef4444', width: 2 } },
+              { x: p.line_stress, y: p.line_life, mode: 'lines', name: distributionLabel(r.best_model), line: { color: '#ef4444', width: 2 } },
             ],
             plotLayout: { ...BASE, xaxis: { title: { text: 'Stress' }, gridcolor: '#e5e7eb' }, yaxis: { title: { text: 'Life' }, type: 'log', gridcolor: '#e5e7eb' }, title: { text: 'Life-Stress Relationship' } },
           }),
@@ -1574,9 +1576,11 @@ function fmeaPDiagramPlot(analysis: Any, diagram: Any): AssetData {
 }
 
 function extractReliabilityProgram(modules: Record<string, unknown>, out: AssetDescriptor[]) {
-  const programs = extractFolioResult<{ result?: ReliabilityProgramResponse | null }>(
+  const programs = extractFolioResult<{ result?: ReliabilityProgramResponse | null } & FmeaReportState>(
     modules, 'reliabilityProgram')
   for (const { gp, st } of programs) {
+    const context = appendFmeaSourceAssets(modules, st, 'reliabilityProgram', 'Reliability Program', gp, out)
+    const firstResultAsset = out.length
     const result = st.result
     if (!result) continue
     const common = { module: 'reliabilityProgram', moduleLabel: 'Reliability Program', group: gp }
@@ -1920,14 +1924,96 @@ function extractReliabilityProgram(modules: Record<string, unknown>, out: AssetD
         ],
       }),
     })
+    attachFmeaResultContext(out.slice(firstResultAsset), context)
+  }
+}
+
+interface FmeaReportState {
+  id?: string
+  analyses?: AIAGVDAFMEAAnalysis[]
+  aiagAnalyses?: AIAGVDAFMEAAnalysis[]
+  sourceSystemFingerprint?: string
+  dirty?: boolean
+  sourceStale?: boolean
+  result?: unknown
+  canonicalDependencies?: { status: string; message: string }
+}
+
+function appendFmeaSourceAssets(
+  modules: Record<string, unknown>, stored: FmeaReportState, module: string,
+  moduleLabel: string, group: string, out: AssetDescriptor[],
+): NonNullable<AssetDescriptor['source']> | undefined {
+  const analyses = stored.analyses ?? stored.aiagAnalyses ?? []
+  const model = (modules.systemDefinition as SystemDefinitionState | undefined)?.model
+  const linked = analyses.filter(analysis => analysis.system_binding
+    || (model && canonicalFmeaBinding(model, analysis)))
+  if (!linked.length && !stored.sourceSystemFingerprint && !stored.dirty && !stored.sourceStale && !stored.canonicalDependencies) return undefined
+  const issues = model ? linked.flatMap(analysis => inspectFmeaBinding(model, analysis)) : []
+  const invalid = Boolean(linked.length && (!model || issues.some(issue => issue.code !== 'unbound_structure')))
+  const fingerprint = model ? fmeaSemanticFingerprint(model, analyses) : undefined
+  const changed = Boolean(stored.sourceSystemFingerprint && stored.sourceSystemFingerprint !== fingerprint)
+  const stale = Boolean(stored.dirty || stored.sourceStale || stored.canonicalDependencies || changed)
+  const status = invalid ? 'invalid' : !stored.result ? 'not-calculated' : stale ? 'stale' : 'current'
+  const reason = invalid ? issues.map(issue => issue.message).join(' ') || 'The canonical System Definition is unavailable.'
+    : stored.canonicalDependencies?.message || (changed ? 'Shared System Definition inputs changed since this FMEA was analyzed.'
+      : !stored.result ? 'Analyze this FMEA to calculate its results.'
+        : stale ? 'Analysis inputs changed since the last calculation.' : 'Shared system inputs match this calculation.')
+  const source: NonNullable<AssetDescriptor['source']> = {
+    module, tab: NAV_MAP[module]?.tab ?? 'dashboard', analysisId: stored.id ?? 'default',
+    analysisName: group, assetKey: '', inputFingerprint: fingerprint,
+    resultFingerprint: stored.sourceSystemFingerprint, resultStatus: status,
+  }
+  out.push({ id: mkId('fmea_source'), module, moduleLabel, group,
+    label: 'Shared FMEA Source Status', type: 'metrics', source,
+    getData: () => ({ metrics: [{ label: 'Result status', value: status }, { label: 'Source status', value: reason }] }),
+  })
+  const protectedIds = collectFmeaProtectedEntityIds(stored, modules.fmeaFailureFlow)
+  if (model) for (const analysis of linked) {
+    if (inspectFmeaBinding(model, analysis).some(issue => issue.code !== 'unbound_structure')) continue
+    const live = materializeFmeaAnalysis(model, analysis, protectedIds)
+    const common = { module, moduleLabel, group: `${group} · ${live.name}`,
+      source: { ...source, resultStatus: 'current' as const, resultFingerprint: undefined } }
+    out.push({ id: mkId('fmea_live_structure'), ...common, label: `${live.name} · Current Shared Structure`, type: 'table',
+      targetView: `fmea:${encodeURIComponent(live.id)}:structure:hierarchy`,
+      getData: () => ({ tableHeaders: ['ID', 'System element', 'Parent', 'Level', 'Description'],
+        tableRows: live.structure_nodes.map(node => [node.id, node.name, node.parent_id ?? '—', node.level, node.description]) }),
+    })
+    out.push({ id: mkId('fmea_live_functions'), ...common, label: `${live.name} · Current Shared Functions`, type: 'table',
+      targetView: `fmea:${encodeURIComponent(live.id)}:function:tree`,
+      getData: () => ({ tableHeaders: ['ID', 'System element', 'Function', 'Type', 'Operating modes'],
+        tableRows: live.functions.map(fn => [fn.id, fn.structure_node_id, fn.description, fn.function_type, fn.operating_modes.join(', ')]) }),
+    })
+    out.push({ id: mkId('fmea_live_diagram'), ...common, label: `${live.name} · Current Shared Block Diagram`, type: 'plot',
+      targetView: `fmea:${encodeURIComponent(live.id)}:structure:block_diagram`, getData: () => fmeaBlockDiagramPlot(live),
+    })
+  }
+  return source
+}
+
+function attachFmeaResultContext(assets: AssetDescriptor[], source: AssetDescriptor['source']): void {
+  if (!source) return
+  for (const asset of assets) {
+    asset.source = { ...source, ...asset.source }
+    if (source.resultStatus !== 'current') {
+      const original = asset.getData
+      asset.getData = () => {
+        const data = original()
+        if (data.metrics) return { ...data, metrics: [{ label: 'Result status', value: `${source.resultStatus} — historical calculation` }, ...data.metrics] }
+        if (data.tableHeaders) return { ...data, tableHeaders: ['Result status', ...data.tableHeaders],
+          tableRows: data.tableRows?.map(row => [`${source.resultStatus} — historical`, ...row]) }
+        return data
+      }
+    }
   }
 }
 
 function extractFmea(modules: Record<string, unknown>, out: AssetDescriptor[]) {
   const portfolios = extractFolioResult<{
     result?: FMEAAnalysisResponse|null
-  }>(modules, 'fmea')
+  } & FmeaReportState>(modules, 'fmea')
   for (const { gp, st } of portfolios) {
+    const context = appendFmeaSourceAssets(modules, st, 'fmea', 'FMEA', gp, out)
+    const firstResultAsset = out.length
     const result = st.result
     if (!result) continue
     const common = {
@@ -2136,6 +2222,7 @@ function extractFmea(modules: Record<string, unknown>, out: AssetDescriptor[]) {
         }),
       })
     }
+    attachFmeaResultContext(out.slice(firstResultAsset), context)
   }
 }
 
@@ -2163,7 +2250,7 @@ function extractWarranty(modules: Record<string, unknown>, out: AssetDescriptor[
       group: gp, label: 'Forecast Summary', type: 'metrics',
       getData: () => ({
         metrics: [
-          { label: 'Distribution', value: f.distribution },
+          { label: 'Distribution', value: distributionLabel(f.distribution) },
           ...Object.entries(f.params).map(([k, v]) => ({ label: k, value: fmt(v) })),
           { label: 'Total Forecasted Returns', value: fmt(f.totals.reduce((a, b) => a + b, 0)) },
         ],
@@ -5143,7 +5230,7 @@ function extractDegradation(modules: Record<string, unknown>, out: AssetDescript
         label: 'Projected Life Summary', type: 'metrics',
         getData: () => ({
           metrics: [
-            { label: 'Distribution', value: fit.distribution },
+            { label: 'Distribution', value: distributionLabel(fit.distribution) },
             { label: 'Mean life', value: fmt(fit.summary?.mean) },
             { label: 'B50 (median)', value: fmt(fit.summary?.B50) },
             { label: 'B10 life', value: fmt(fit.summary?.B10) },
@@ -5207,7 +5294,7 @@ function extractDegradation(modules: Record<string, unknown>, out: AssetDescript
         getData: () => ({
           tableHeaders: ['Distribution', 'AICc', 'AIC', 'BIC', 'LogLik', 'Status'],
           tableRows: dest.distribution_comparison!.map(row => [
-            row.distribution, fmt(row.AICc), fmt(row.AIC), fmt(row.BIC), fmt(row.LogLik), row.status,
+            distributionLabel(row.distribution), fmt(row.AICc), fmt(row.AIC), fmt(row.BIC), fmt(row.LogLik), row.status,
           ]),
         }),
       })
@@ -5321,7 +5408,13 @@ export function enumerateAssets(): AssetDescriptor[] {
       assetIdentity(asset.moduleLabel, asset.group, asset.label) === identity)
     // Preserve the manual descriptor's persisted source identity while using
     // the mounted chart's exact Plotly data and user-visible layout.
-    if (existingIndex >= 0) out[existingIndex].getData = descriptor.getData
+    if (existingIndex >= 0) {
+      const existing = out[existingIndex]
+      // A mounted chart cannot refresh a saved calculation whose inputs changed.
+      if ((runtime.module === 'fmea' || runtime.module === 'reliabilityProgram')
+          && existing.source?.resultStatus && existing.source.resultStatus !== 'current') continue
+      existing.getData = descriptor.getData
+    }
     else out.push(descriptor)
   }
   // Replace extractor-order IDs with durable semantic identities and attach a

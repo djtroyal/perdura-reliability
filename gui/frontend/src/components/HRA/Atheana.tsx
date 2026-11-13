@@ -76,7 +76,7 @@ export default function Atheana() {
 
   return (
     <ToolLayout
-      intro="Error-forcing-context elicitation screen: document an unsafe action and its context, then summarize one expert's triangular judgment. A full ATHEANA study adds structured search, review, dependency, and consensus steps."
+      intro="Screening only: one expert's triangular judgment, not a full ATHEANA study."
       controls={controls} err={error} loading={loading} onRun={run} runLabel="Estimate" results={results} />
   )
 }

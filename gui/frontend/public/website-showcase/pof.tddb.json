@@ -2,7 +2,7 @@
   "app": "Perdura",
   "subtitle": "Reliability Engineering and Statistics Suite",
   "website": "https://perdurareliability.com",
-  "schemaVersion": 6,
+  "schemaVersion": 11,
   "createdWith": {
     "version": "0.7.0",
     "commit": "dev",
@@ -427,7 +427,7 @@
                 "uncertainty": null,
                 "units": {
                   "electric_field": "MV/cm",
-                  "temperature_input": "°C",
+                  "temperature_input": "\u00b0C",
                   "temperature_equation": "K",
                   "activation_energy": "eV",
                   "gamma": "cm/MV for E; MV/cm for 1/E",

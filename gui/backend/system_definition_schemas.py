@@ -1,8 +1,7 @@
 """Strict contracts for the canonical, reusable System Definition graph.
 
-Version 2 deliberately remains portable JSON.  The richer MBSE semantics live in
-the model and graph services rather than requiring a particular graph database.
-Version 1 is accepted so existing saved projects can be upgraded in place.
+Version 4 is the canonical structured architecture contract. Older alpha
+formats are intentionally rejected instead of silently migrating analyses.
 """
 
 from typing import Annotated, Any, Literal, Optional, Union
@@ -81,6 +80,7 @@ class SystemMode(StrictModel):
 
 
 class SystemPort(StrictModel):
+    resource_id: Optional[str] = Field(None, max_length=128)
     id: str = Field(min_length=1, max_length=128)
     name: str = Field(min_length=1, max_length=512)
     interface_type: InterfaceType = "information"
@@ -89,21 +89,106 @@ class SystemPort(StrictModel):
     properties: dict[str, SystemParameterValue] = Field(default_factory=dict)
 
 
-class SystemFunction(StrictModel):
+class InterfaceFunctionOrigin(StrictModel):
+    interface_id: str = Field(min_length=1, max_length=128)
+    endpoint: Literal["source", "target"]
+    instance_id: str = Field(min_length=1, max_length=128)
+    generated_description: str = Field(max_length=2048)
+    generated_mode_ids: list[str] = Field(default_factory=list, max_length=100)
+
+
+class SystemResource(StrictModel):
     id: str = Field(min_length=1, max_length=128)
-    description: str = Field(min_length=1, max_length=2048)
+    name: str = Field(default="", max_length=512)
+    category: Literal["physical", "energy", "information", "material", "human_machine", "clearance", "state"]
+    quantity: Optional[str] = Field(None, max_length=128)
+    unit: Optional[str] = Field(None, max_length=128)
+
+
+class FunctionResourceIO(StrictModel):
+    id: str = Field(min_length=1, max_length=128)
+    resource_id: str = Field(default="", max_length=128)
+    direction: Literal["input", "output"]
+    port_id: Optional[str] = Field(None, max_length=128)
+
+
+class StructuredFunctionDefinition(StrictModel):
+    role: Literal["transform", "source", "maintain_state"]
+    action: str = Field(default="", max_length=2048)
+    state_verb: Optional[Literal["maintain", "secure", "support", "contain", "isolate", "protect"]] = None
+    io: list[FunctionResourceIO] = Field(default_factory=list, max_length=1000)
+
+
+class FunctionTransferEndpoint(StrictModel):
+    kind: Literal["function"] = "function"
+    instance_id: str = Field(min_length=1, max_length=128)
+    function_id: str = Field(min_length=1, max_length=128)
+    io_id: str = Field(min_length=1, max_length=128)
+
+
+class ExternalTransferEndpoint(StrictModel):
+    kind: Literal["external"] = "external"
+    external_id: str = Field(min_length=1, max_length=128)
+    port_id: str = Field(min_length=1, max_length=128)
+
+
+ResourceTransferEndpoint = Annotated[Union[FunctionTransferEndpoint, ExternalTransferEndpoint], Field(discriminator="kind")]
+
+
+class ResourceFlow(StrictModel):
+    id: str = Field(min_length=1, max_length=128)
+    resource_id: str = Field(min_length=1, max_length=128)
+    kind: Literal["flow"] = "flow"
+    source: ResourceTransferEndpoint
+    target: ResourceTransferEndpoint
+    mode_ids: list[str] = Field(default_factory=list, max_length=100)
+
+
+class BlockRelationEndpoint(StrictModel):
+    kind: Literal["block"] = "block"
+    instance_id: str = Field(min_length=1, max_length=128)
+    function_id: Optional[str] = Field(None, max_length=128)
+
+
+class ExternalRelationEndpoint(StrictModel):
+    kind: Literal["external"] = "external"
+    external_id: str = Field(min_length=1, max_length=128)
+    port_id: Optional[str] = Field(None, max_length=128)
+
+
+RelationEndpoint = Annotated[Union[BlockRelationEndpoint, ExternalRelationEndpoint], Field(discriminator="kind")]
+
+
+class PhysicalRelation(StrictModel):
+    id: str = Field(min_length=1, max_length=128)
+    kind: Literal["relation"] = "relation"
+    source: RelationEndpoint
+    target: RelationEndpoint
+    mode_ids: list[str] = Field(default_factory=list, max_length=100)
+
+
+ResourceTransfer = Annotated[Union[ResourceFlow, PhysicalRelation], Field(discriminator="kind")]
+
+
+class SystemFunction(StrictModel):
+    default_enabled: bool = True
+    id: str = Field(min_length=1, max_length=128)
+    description: str = Field(default="", max_length=2048)
     canonical_verb_id: Optional[str] = Field(None, max_length=128)
     function_type: Literal[
         "primary", "supporting", "interface", "monitoring", "system_response",
     ] = "primary"
     mode_ids: list[str] = Field(default_factory=list, max_length=100)
     port_ids: list[str] = Field(default_factory=list, max_length=1000)
+    interface_origin: Optional[InterfaceFunctionOrigin] = None
+    definition: Optional[StructuredFunctionDefinition] = None
 
 
 class SystemFailureMode(StrictModel):
+    default_enabled: bool = True
     id: str = Field(min_length=1, max_length=128)
     function_id: str = Field(min_length=1, max_length=128)
-    description: str = Field(min_length=1, max_length=2048)
+    description: str = Field(default="", max_length=2048)
     deviation_id: str = Field(default="custom", min_length=1, max_length=128)
     mode_ids: list[str] = Field(default_factory=list, max_length=100)
 
@@ -117,7 +202,7 @@ class SystemChildSlot(StrictModel):
 
 class SystemBlockDefinition(StrictModel):
     id: str = Field(min_length=1, max_length=128)
-    name: str = Field(min_length=1, max_length=512)
+    name: str = Field(default="", max_length=512)
     kind: BlockKind = "component"
     classification: str = Field(default="component", max_length=128)
     revision: str = Field(default="A", max_length=128)
@@ -138,18 +223,25 @@ class SystemBlockDefinition(StrictModel):
 
 
 class FunctionOverride(StrictModel):
+    resource_bindings: Optional[dict[str, str]] = None
+    definition: Optional[StructuredFunctionDefinition] = None
     function_id: str = Field(min_length=1, max_length=128)
-    enabled: bool = True
+    enabled: Optional[bool] = None
     description: Optional[str] = Field(None, max_length=2048)
     mode_ids: Optional[list[str]] = Field(None, max_length=100)
+    function_type: Optional[Literal[
+        "primary", "supporting", "interface", "monitoring", "system_response",
+    ]] = None
+    canonical_verb_id: Optional[str] = Field(None, max_length=128)
 
 
 class FailureModeOverride(StrictModel):
     failure_mode_id: str = Field(min_length=1, max_length=128)
-    enabled: bool = True
+    enabled: Optional[bool] = None
     description: Optional[str] = Field(None, max_length=2048)
     deviation_id: Optional[str] = Field(None, max_length=128)
     mode_ids: Optional[list[str]] = Field(None, max_length=100)
+    function_id: Optional[str] = Field(None, min_length=1, max_length=128)
 
 
 class SystemBlockInstance(StrictModel):
@@ -189,8 +281,6 @@ class SystemEndpoint(StrictModel):
         if bool(self.instance_id) == bool(self.external_id):
             raise ValueError(
                 "An endpoint requires exactly one instance_id or external_id.")
-        if self.instance_id and not self.port_id:
-            raise ValueError("An instance endpoint requires port_id.")
         return self
 
 
@@ -203,6 +293,8 @@ class SystemExternal(StrictModel):
 
 
 class SystemInterface(StrictModel):
+    generated: Optional[bool] = None
+    transfers: list[ResourceTransfer] = Field(default_factory=list, max_length=10000)
     id: str = Field(min_length=1, max_length=128)
     name: str = Field(default="", max_length=512)
     interface_type: InterfaceType = "information"
@@ -222,6 +314,7 @@ class SystemInterface(StrictModel):
 
 
 class SystemFunctionLink(StrictModel):
+    generated: Optional[bool] = None
     id: str = Field(min_length=1, max_length=128)
     source: SystemFunctionRef
     target: SystemFunctionRef
@@ -301,11 +394,13 @@ class SystemDiagramLayoutOptions(StrictModel):
 
 
 class SystemDiagram(StrictModel):
+    hidden_instance_ids: list[str] = Field(default_factory=list, max_length=100000)
     id: str = Field(min_length=1, max_length=128)
     name: str = Field(min_length=1, max_length=512)
     scope_instance_id: Optional[str] = Field(None, max_length=128)
     density: Literal["compact", "standard", "detailed"] = "standard"
     layoutOptions: Optional[SystemDiagramLayoutOptions] = None
+    connectorStyle: Literal["orthogonal", "curved", "straight"] = "curved"
     boundary: SystemDiagramBoundary = Field(default_factory=SystemDiagramBoundary)
     viewport: SystemDiagramViewport = Field(default_factory=SystemDiagramViewport)
     snap_to_grid: bool = True
@@ -314,7 +409,8 @@ class SystemDiagram(StrictModel):
 
 
 class SystemDefinitionModel(StrictModel):
-    version: Literal[1, 2] = 2
+    version: Literal[4]
+    resources: list[SystemResource] = Field(default_factory=list, max_length=10000)
     id: str = Field(min_length=1, max_length=128)
     root_instance_id: Optional[str] = Field(None, max_length=128)
     name: str = Field(min_length=1, max_length=512)

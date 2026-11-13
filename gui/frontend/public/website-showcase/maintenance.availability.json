@@ -2,7 +2,7 @@
   "app": "Perdura",
   "subtitle": "Reliability Engineering and Statistics Suite",
   "website": "https://perdurareliability.com",
-  "schemaVersion": 6,
+  "schemaVersion": 11,
   "createdWith": {
     "version": "0.7.0",
     "commit": "dev",
@@ -82,8 +82,8 @@
         "buildStatus": "development"
       },
       "runId": "run-45735656-0bfa-4b7b-9cca-ce105d43c542",
-      "moduleLabel": "Maintenance — Availability & Maintainability",
-      "analysisName": "Maintenance — Availability & Maintainability",
+      "moduleLabel": "Maintenance \u2014 Availability & Maintainability",
+      "analysisName": "Maintenance \u2014 Availability & Maintainability",
       "fingerprintSha256": "db356f6dcd3b37e5086aa8171436a2e9f70bd58406bf860b005151308b613684"
     }
   ],

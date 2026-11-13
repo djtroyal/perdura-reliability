@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import { useDismissiblePopover } from './useDismissiblePopover'
 import { Download } from 'lucide-react'
 import { exportDiagram, DiagramFormat, type DiagramExportPreparation } from './exportDiagram'
 
@@ -24,6 +25,10 @@ export default function ExportDiagramButton({
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState<DiagramFormat | null>(null)
   const [err, setErr] = useState<string | null>(null)
+  const wrap = useRef<HTMLDivElement>(null)
+  const trigger = useRef<HTMLButtonElement>(null)
+  useDismissiblePopover({ open, onDismiss: () => setOpen(false),
+    elements: () => [wrap.current], trigger: () => trigger.current })
 
   const run = async (fmt: DiagramFormat) => {
     setErr(null); setBusy(fmt)
@@ -38,18 +43,17 @@ export default function ExportDiagramButton({
   }
 
   return (
-    <div className="relative">
-      <button onClick={() => setOpen(o => !o)}
+    <div ref={wrap} className="relative">
+      <button ref={trigger} type="button" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(o => !o)}
         className={buttonClassName
           ?? 'flex items-center gap-1 text-xs text-gray-600 hover:text-blue-600 border border-gray-200 px-2 py-1 rounded bg-white'}>
         <Download size={12} /> Export
       </button>
       {open && (
         <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 mt-1 z-20 bg-white border border-gray-200 rounded-lg shadow-lg py-1 w-36">
+          <div role="menu" aria-label="Export diagram format" className="absolute right-0 mt-1 z-20 bg-white border border-gray-200 rounded-lg shadow-lg py-1 w-36">
             {FORMATS.map(f => (
-              <button key={f.value} onClick={() => run(f.value)} disabled={busy != null}
+              <button key={f.value} type="button" role="menuitem" onClick={() => run(f.value)} disabled={busy != null}
                 className="w-full text-left text-xs px-3 py-1.5 hover:bg-blue-50 disabled:opacity-50">
                 {busy === f.value ? 'Exporting…' : f.label}
               </button>

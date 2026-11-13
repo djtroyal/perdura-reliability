@@ -100,7 +100,7 @@ export default function Mermos() {
 
   return (
     <ToolLayout
-      intro="Mission-scenario screen: sum analyst-supplied failure probabilities after confirming the scenarios are mutually exclusive. A full MERMOS study adds mission analysis and crew-response modeling."
+      intro="Mission-scenario screening: sum mutually exclusive failure probabilities. Not a full MERMOS study."
       controls={controls} err={error} loading={loading} onRun={run} runLabel="Aggregate" results={results} />
   )
 }

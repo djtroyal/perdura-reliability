@@ -87,6 +87,10 @@ export default function ResultsTable({
         <tbody>
           {sorted.map((row, i) => {
             const key = rowKey ? String(row[rowKey]) : String(i)
+            const identityColumn = columns.find(col => col.key === (rowKey ?? columns[0]?.key))
+            const rowLabel = identityColumn?.format
+              ? identityColumn.format(row[identityColumn.key])
+              : String(row[rowKey ?? columns[0]?.key] ?? `row ${i + 1}`)
             const isSelected = selectedRow === key
             const isFirst = highlightFirst && i === 0 && !sortKey
             const customClass = rowClassName?.(row)
@@ -107,7 +111,7 @@ export default function ResultsTable({
                 ))}
                 {onRowClick && <td className="px-3 py-2">
                   <button type="button" aria-pressed={isSelected}
-                    aria-label={`Select ${String(row[rowKey ?? columns[0]?.key] ?? `row ${i + 1}`)}`}
+                    aria-label={`Select ${rowLabel}`}
                     className="secondary-button" onClick={event => { event.stopPropagation(); onRowClick(row) }}>
                     {isSelected ? 'Selected' : 'Select'}
                   </button>

@@ -31,7 +31,7 @@ try {
   const project = await vite.ssrLoadModule('/src/store/project.ts')
   const version = await vite.ssrLoadModule('/src/version.ts')
   assert.equal(project.PROJECT_STORAGE_NAMESPACE, `perdura:project-schema:${version.PROJECT_SCHEMA_VERSION}`)
-  assert.equal(project.getProjectState().projectName, 'Legacy browser tab')
+  assert.notEqual(project.getProjectState().projectName, 'Legacy browser tab', 'Older browser namespaces are not adopted')
   assert.equal(values.get(`${project.PROJECT_STORAGE_NAMESPACE}:session`), undefined,
     'opening legacy storage must not create another full localStorage snapshot')
   await assert.rejects(project.hydrateProjectStorage(), /IndexedDB is unavailable/,

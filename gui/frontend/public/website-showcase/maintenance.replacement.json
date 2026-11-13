@@ -2,7 +2,7 @@
   "app": "Perdura",
   "subtitle": "Reliability Engineering and Statistics Suite",
   "website": "https://perdurareliability.com",
-  "schemaVersion": 6,
+  "schemaVersion": 11,
   "createdWith": {
     "version": "0.7.0",
     "commit": "dev",
@@ -82,8 +82,8 @@
         "buildStatus": "development"
       },
       "runId": "run-710fa6a2-25b9-48c9-8669-ea320a119d0a",
-      "moduleLabel": "Maintenance — Replacement Planning",
-      "analysisName": "Maintenance — Replacement Planning",
+      "moduleLabel": "Maintenance \u2014 Replacement Planning",
+      "analysisName": "Maintenance \u2014 Replacement Planning",
       "fingerprintSha256": "5a6e1df0cffe8bf0eaa4a89495d5cbae35791be5d433e6886152acc8916533e7"
     }
   ],

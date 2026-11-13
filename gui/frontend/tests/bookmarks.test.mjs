@@ -63,6 +63,13 @@ try {
   const fittedLifeAssets = assetsModule.enumerateAssets().filter(asset => asset.module === 'lifeData')
   assert.ok(fittedLifeAssets.some(asset => asset.label === 'Weibull_2P Probability Plot'))
   assert.ok(fittedLifeAssets.some(asset => asset.label === 'Weibull_2P CDF'))
+  const fittedCdf = fittedLifeAssets.find(asset => asset.label === 'Weibull_2P CDF')
+  assert.match(fittedCdf.id, /weibull_2p-cdf$/,
+    'friendly presentation must retain existing report and bookmark identities')
+  assert.equal(fittedCdf.getData().plotData[0].name, 'Weibull (2-parameter)')
+  assert.equal(fittedCdf.getData().plotLayout.title.text, 'Weibull (2-parameter) — CDF')
+  assert.equal(fittedLifeAssets.find(asset => asset.label === 'Fit Summary Table').getData().tableRows[0][0],
+    'Weibull (2-parameter)', 'exported result tables use the same friendly family names as the UI')
   assert.ok(fittedLifeAssets.every(asset => !asset.label.includes('★')),
     'LDA Report Builder asset labels must not expose best-fit stars')
 

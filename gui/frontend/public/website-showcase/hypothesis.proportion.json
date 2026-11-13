@@ -2,7 +2,7 @@
   "app": "Perdura",
   "subtitle": "Reliability Engineering and Statistics Suite",
   "website": "https://perdurareliability.com",
-  "schemaVersion": 6,
+  "schemaVersion": 11,
   "createdWith": {
     "version": "0.7.0",
     "commit": "dev",
@@ -126,7 +126,7 @@
         "reject_null": false,
         "n_categories": 5,
         "warning": null,
-        "interpretation": "Fail to reject H₀: no significant result (chi-square goodness-of-fit)."
+        "interpretation": "Fail to reject H\u2080: no significant result (chi-square goodness-of-fit)."
       },
       "error": null
     }

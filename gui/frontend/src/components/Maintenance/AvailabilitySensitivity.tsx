@@ -121,7 +121,7 @@ function AvailabilitySensitivityContent() {
 
   return (
     <ToolLayout
-      intro="Shows how sensitive operational availability is to MTBF, MTTR and the admin/logistics delays (a tornado of ±swing impacts), and optionally solves for the repair time or maximum downtime needed to hit a target availability."
+      intro="Compare availability sensitivity to operating, repair, and delay times; solve for a target if needed."
       controls={controls} err={error} loading={loading} onRun={run} runLabel="Analyze" results={results}
     />
   )

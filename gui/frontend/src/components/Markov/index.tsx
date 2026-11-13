@@ -1,3 +1,4 @@
+import DropdownDetails from '../shared/DropdownDetails'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ReactFlow, Background, Controls, MiniMap, Handle, Position, MarkerType,
@@ -24,6 +25,7 @@ import ExportDiagramButton from '../shared/ExportDiagramButton'
 import CanvasAssetControls from '../shared/CanvasAssetControls'
 import DiagramLayoutMenu from '../shared/DiagramLayoutMenu'
 import { useMeasuredDiagramLayout } from '../shared/useMeasuredDiagramLayout'
+import { DiagramFullscreenButton, useDiagramFullscreen } from '../shared/useDiagramFullscreen'
 import { normalizeLayoutOptions, layoutRadialGraph, type DiagramLayoutOptions } from '../shared/adaptiveDiagramLayout.mjs'
 import { fitReactFlowForExport } from '../shared/exportDiagram'
 import FolioBar from '../shared/FolioBar'
@@ -484,6 +486,7 @@ export default function Markov() {
   const [error, setError] = useState('')
   const flowRef = useRef<ReactFlowInstance<Node, Edge> | null>(null)
   const flowWrapperRef = useRef<HTMLDivElement>(null)
+  const fullscreen = useDiagramFullscreen('Markov state diagram', () => flowRef.current)
   const ownerFolio = useRef(folios.activeId)
   const ownerProject = useRef(projectId)
   const runningAnalysis = useRef<symbol | null>(null)
@@ -1122,7 +1125,7 @@ export default function Markov() {
         <aside className="flex w-64 shrink-0 flex-col border-r border-slate-200 bg-white">
           <div className="border-b border-slate-100 p-3">
             <div className="mb-2 flex items-center justify-between">
-              <div><p className="text-xs font-semibold text-slate-700">State Library</p><p className="text-[10px] text-slate-400">Add public system states</p></div>
+              <div><p className="text-xs font-semibold text-slate-700">State Library</p><p className="text-[10px] text-slate-400">Add system states</p></div>
             </div>
             <div className="grid grid-cols-1 gap-1">
               {(['operational', 'degraded', 'failed'] as const).map(type => (
@@ -1179,6 +1182,7 @@ export default function Markov() {
           </div>
         </aside>
 
+        <div {...fullscreen.containerProps}>
         <CanvasErrorBoundary onReset={autoLayout} resetKey={folios.activeId}>
           <div ref={flowWrapperRef} tabIndex={0} className="relative min-w-0 flex-1 bg-slate-50 focus:outline-hidden"
             onPointerDown={event => { if (!(event.target as HTMLElement).closest('button,input,textarea,select')) event.currentTarget.focus() }}>
@@ -1200,7 +1204,7 @@ export default function Markov() {
                   onClick={() => copySelected(true)} disabled={!selectedStateIds.length}><Scissors size={12} /> Cut</button>
                 <button className="flex h-8 items-center gap-1 rounded border border-slate-300 bg-white px-2 text-[10px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-35"
                   onClick={paste} disabled={!clipboard}><Clipboard size={12} /> Paste</button>
-                <details className="group relative">
+                <DropdownDetails className="group relative">
                   <summary className="flex h-8 cursor-pointer list-none items-center gap-1 rounded border border-amber-300 bg-white px-2 text-[10px] font-medium text-amber-800 hover:bg-amber-50 marker:hidden">
                     <MessageSquarePlus size={12} /> Annotate
                   </summary>
@@ -1225,7 +1229,7 @@ export default function Markov() {
                       <Pencil size={11} /> Pencil
                     </button>
                   </div>
-                </details>
+                </DropdownDetails>
                 <button onClick={() => setSnapToGrid(value => !value)} aria-pressed={snapToGrid}
                   className={`flex h-8 items-center gap-1 whitespace-nowrap rounded border px-2 text-[10px] font-medium ${
                     snapToGrid
@@ -1240,6 +1244,7 @@ export default function Markov() {
                 <ExportDiagramButton getElement={() => flowWrapperRef.current} baseName="markov-state-model"
                   prepareExport={() => fitReactFlowForExport(flowRef.current)}
                   buttonClassName="flex h-8 items-center gap-1 rounded border border-slate-300 bg-white px-2 text-[10px] font-medium text-slate-700 hover:bg-slate-50" />
+                <DiagramFullscreenButton controls={fullscreen} />
               </div>
             </div>
             {pencilMode && (
@@ -1362,11 +1367,12 @@ export default function Markov() {
                 {resultTab === 'curves' && <div className="space-y-4"><div><p className="mb-1 text-xs font-semibold text-slate-700">State occupancy probabilities</p>{probPlot.length ? <div className="h-72 rounded border border-slate-200"><Plot data={probPlot} layout={{ margin: { t: 20, r: 15, b: 45, l: 55 }, xaxis: { title: { text: 'Time' }, gridcolor: '#e2e8f0' }, yaxis: { title: { text: 'P(state at t)' }, range: [0, 1.02], gridcolor: '#e2e8f0' }, legend: { orientation: 'h', y: -0.22 }, hovermode: 'x unified' }} config={{ responsive: true, scrollZoom: true }} style={{ width: '100%', height: '100%' }} /></div> : <p className="text-xs text-slate-400">No transient results.</p>}</div><div><p className="mb-1 text-xs font-semibold text-slate-700">Availability and reliability</p>{availabilityPlot.length ? <div className="h-72 rounded border border-slate-200"><Plot data={availabilityPlot} layout={{ margin: { t: 20, r: 15, b: 45, l: 55 }, xaxis: { title: { text: 'Time' }, gridcolor: '#e2e8f0' }, yaxis: { title: { text: 'Probability' }, range: [0, 1.02], gridcolor: '#e2e8f0' }, legend: { orientation: 'h', y: -0.22 }, hovermode: 'x unified' }} config={{ responsive: true, scrollZoom: true }} style={{ width: '100%', height: '100%' }} /></div> : null}</div></div>}
                 {resultTab === 'states' && <div className="space-y-4"><div><p className="mb-1 text-xs font-semibold text-slate-700">States</p><div className="space-y-1">{result.states.map(state => <button key={state.id} onClick={() => selectResultState(state.id)} className={`grid w-full grid-cols-[1fr_auto_auto] items-center gap-2 rounded border px-2 py-1.5 text-left text-[10px] ${highlightedStateIds.includes(state.id) ? 'border-amber-400 bg-amber-50' : 'border-slate-100'}`}><span className="truncate">{state.name}</span><span className="capitalize text-slate-500">{state.type}</span><span className="font-mono">{result.steady_state ? formatMetric(result.steady_state[state.id]) : '—'}</span></button>)}</div></div><div><p className="mb-1 text-xs font-semibold text-slate-700">Transitions</p><div className="space-y-1">{result.transitions.map(transition => <button key={transition.id} onClick={() => selectResultTransition(transition.id)} className={`grid w-full grid-cols-[1fr_auto] gap-2 rounded border px-2 py-1.5 text-left text-[10px] ${highlightedTransitionId === transition.id ? 'border-amber-400 bg-amber-50' : 'border-slate-100'}`}><span className="truncate">{states.find(state => state.id === transition.from)?.name ?? transition.from} → {states.find(state => state.id === transition.to)?.name ?? transition.to}</span><span className="font-mono">{formatMetric(transition.rate)}</span></button>)}</div></div></div>}
                 {resultTab === 'matrix' && <div><p className="mb-2 text-xs font-semibold text-slate-700">{result.phase_type.status === 'applied' ? 'Input-rate CTMC reference generator Q' : 'Infinitesimal generator Q'}</p><div className="h-64"><Plot data={[{ z: result.transition_matrix, x: result.states.map(state => state.name), y: result.states.map(state => state.name), type: 'heatmap', colorscale: 'RdBu', reversescale: true, hovertemplate: '%{y} → %{x}<br>Q=%{z:.6g}<extra></extra>' }]} layout={{ margin: { t: 15, r: 20, b: 70, l: 80 }, xaxis: { title: { text: 'Destination state' } }, yaxis: { title: { text: 'Source state' }, autorange: 'reversed' } }} config={{ responsive: true, scrollZoom: true }} style={{ width: '100%', height: '100%' }} /></div>{result.phase_type.matrix_note && <p className="mt-2 rounded bg-violet-50 p-2 text-[9px] leading-4 text-violet-700">{result.phase_type.matrix_note}</p>}</div>}
-                {resultTab === 'method' && <div className="space-y-3"><div><p className="text-xs font-semibold text-slate-700">Model contract</p><ul className="mt-1 list-disc space-y-1 pl-4 text-[10px] leading-4 text-slate-600">{result.model_contract.assumptions.map((assumption, index) => <li key={index}>{assumption}</li>)}</ul></div>{result.model_contract.warnings.map((warning, index) => <p key={index} className="rounded bg-amber-50 p-2 text-[10px] text-amber-700">{warning}</p>)}<div className="rounded border border-slate-200 p-2"><p className="mb-1 text-[10px] font-semibold text-slate-700">Governing equations</p><Latex block>{String.raw`\mathbf{p}(t)=\mathbf{p}(0)e^{Qt}`}</Latex><Latex block>{String.raw`Q_{ii}=-\sum_{j\ne i}Q_{ij}`}</Latex><Latex block>{String.raw`A(t)=\sum_{i\in\mathcal{U}}p_i(t)`}</Latex></div>{result.validation?.issues.length ? <div><p className="text-xs font-semibold text-slate-700">Analysis diagnostics</p>{result.validation.issues.map((issue, index) => <p key={index} className="mt-1 text-[10px] text-slate-600"><span className="font-semibold">{issue.code.replace(/_/g, ' ')}</span> — {issue.message}</p>)}</div> : null}</div>}
+                {resultTab === 'method' && <div className="space-y-3"><div><p className="text-xs font-semibold text-slate-700">Model assumptions</p><ul className="mt-1 list-disc space-y-1 pl-4 text-[10px] leading-4 text-slate-600">{result.model_contract.assumptions.map((assumption, index) => <li key={index}>{assumption}</li>)}</ul></div>{result.model_contract.warnings.map((warning, index) => <p key={index} className="rounded bg-amber-50 p-2 text-[10px] text-amber-700">{warning}</p>)}<div className="rounded border border-slate-200 p-2"><p className="mb-1 text-[10px] font-semibold text-slate-700">Governing equations</p><Latex block>{String.raw`\mathbf{p}(t)=\mathbf{p}(0)e^{Qt}`}</Latex><Latex block>{String.raw`Q_{ii}=-\sum_{j\ne i}Q_{ij}`}</Latex><Latex block>{String.raw`A(t)=\sum_{i\in\mathcal{U}}p_i(t)`}</Latex></div>{result.validation?.issues.length ? <div><p className="text-xs font-semibold text-slate-700">Analysis diagnostics</p>{result.validation.issues.map((issue, index) => <p key={index} className="mt-1 text-[10px] text-slate-600"><span className="font-semibold">{issue.code.replace(/_/g, ' ')}</span> — {issue.message}</p>)}</div> : null}</div>}
               </div>
             </>}
           </div>}
         </aside>
+        </div>
       </div>
     </div>
   )

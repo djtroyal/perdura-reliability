@@ -3,6 +3,7 @@ import type { Config, Data, Layout } from 'plotly.js'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { RotateCcw } from 'lucide-react'
 import { escapeHtmlText, htmlToPlainText } from './htmlSafety'
+import { useDismissiblePopover } from './useDismissiblePopover'
 import { buildInteractivePlotHtml } from './plotHtml'
 import { capturePlotFigure, plotFigureJson } from './plotFigure'
 import {
@@ -335,6 +336,13 @@ export default function ExportablePlot({
   const [selectedMarkup, setSelectedMarkup] = useState<MarkupSelection | null>(null)
   const [markupColor, setMarkupColor] = useState('#2563eb')
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false)
+  const downloadMenu = useRef<HTMLDivElement>(null)
+  const paletteMenu = useRef<HTMLDivElement>(null)
+  const modebarButton = (title: string) => graphDiv?.querySelector(`[data-title="${title}"]`) as HTMLElement | undefined
+  useDismissiblePopover({ open: downloadMenuOpen, onDismiss: () => setDownloadMenuOpen(false),
+    elements: () => [downloadMenu.current, modebarButton('Download plot')], trigger: () => modebarButton('Download plot') })
+  useDismissiblePopover({ open: paletteOpen, onDismiss: () => setPaletteOpen(false),
+    elements: () => [paletteMenu.current, modebarButton('Annotate plot')], trigger: () => modebarButton('Annotate plot') })
   const appliedSnapshotRequest = useRef(0)
   const baseAnnotationCount = rest.layout?.annotations?.length ?? 0
   const baseShapeCount = rest.layout?.shapes?.length ?? 0
@@ -484,23 +492,6 @@ export default function ExportablePlot({
     return () => document.removeEventListener('keydown', cancel)
   }, [placingNote, placingProjection, placingPencil])
 
-  useEffect(() => {
-    if (!downloadMenuOpen) return
-    const dismiss = (event: PointerEvent) => {
-      const target = event.target as HTMLElement | null
-      if (target?.closest('[data-perdura-download-menu]')) return
-      setDownloadMenuOpen(false)
-    }
-    const escape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setDownloadMenuOpen(false)
-    }
-    document.addEventListener('pointerdown', dismiss)
-    document.addEventListener('keydown', escape)
-    return () => {
-      document.removeEventListener('pointerdown', dismiss)
-      document.removeEventListener('keydown', escape)
-    }
-  }, [downloadMenuOpen])
 
   const saveDraft = () => {
     if (!draft || !draft.text.trim() || !onUserMarkupChange) return
@@ -778,7 +769,7 @@ export default function ExportablePlot({
       />
 
       {downloadMenuOpen && graphDiv && (
-        <div data-perdura-download-menu data-perdura-plot-tools data-export-ignore
+        <div ref={downloadMenu} data-perdura-download-menu data-perdura-plot-tools data-export-ignore
           role="menu" aria-label="Download plot format"
           className="absolute right-2 top-10 z-30 w-44 overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-xl">
           <p className="border-b border-gray-100 px-3 py-1.5 text-[9px] font-semibold uppercase tracking-wide text-gray-400">
@@ -885,7 +876,7 @@ export default function ExportablePlot({
       )}
 
       {paletteOpen && annotationEnabled && (
-        <div data-perdura-plot-tools className="absolute right-2 top-10 z-30 w-64 rounded-lg border border-gray-200 bg-white p-3 shadow-xl">
+        <div ref={paletteMenu} data-perdura-plot-tools className="absolute right-2 top-10 z-30 w-64 rounded-lg border border-gray-200 bg-white p-3 shadow-xl">
           <div className="mb-2 flex items-center justify-between">
             <p className="text-xs font-semibold text-gray-800">Plot tools</p>
             <button type="button" onClick={() => setPaletteOpen(false)} aria-label="Close plot tools"

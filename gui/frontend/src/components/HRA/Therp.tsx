@@ -98,7 +98,6 @@ export default function Therp() {
 
   return (
     <ToolLayout
-      intro="THERP — adjust a nominal (basic) HEP by stress and experience, and optionally combine two subtasks with the dependency model (ZD=independent … CD=complete). Conditional HEP: ZD=N, LD=(1+19N)/20, MD=(1+6N)/7, HD=(1+N)/2, CD=1."
       controls={controls} err={error} loading={loading} onRun={run} runLabel="Compute HEP" results={results} />
   )
 }

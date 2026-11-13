@@ -24,6 +24,28 @@ DEMO_PATHS = (
 )
 
 
+def test_downloadable_aircraft_example_matches_bundled_project():
+    bundled, downloadable = [json.loads(path.read_text(encoding="utf-8")) for path in DEMO_PATHS]
+    assert downloadable == bundled
+    model = bundled["modules"]["systemDefinition"]["model"]
+    instances = {item["id"]: item for item in model["instances"]}
+    assert instances[model["root_instance_id"]]["name"] == "Aircraft"
+
+    def ancestry(instance_id):
+        item = instances[instance_id]
+        parent = item.get("parent_instance_id")
+        return [*ancestry(parent), item] if parent else [item]
+
+    # The existing prediction remains a real installed aircraft assembly, and
+    # its piece parts remain below their owning L3/L4 equipment.
+    for part_id in ("demo-part-1", "demo-part-2", "demo-part-3"):
+        path = ancestry(part_id)
+        assert path[0]["id"] == model["root_instance_id"]
+        assert path[-2]["id"] == "b1"
+        assert len(path) >= 4
+    assert len({item["id"] for item in model["instances"]}) == len(model["instances"])
+
+
 def _active_prediction_state(path: Path) -> dict:
     demo = json.loads(path.read_text(encoding="utf-8"))
     wrapped = demo["modules"]["prediction"]

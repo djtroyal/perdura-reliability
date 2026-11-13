@@ -1,3 +1,4 @@
+import DropdownDetails from '../shared/DropdownDetails'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Papa from 'papaparse'
 import {
@@ -892,25 +893,6 @@ export default function TaskAnalysis({
   // patchWorkspace intentionally follows the current persisted workspace.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookmarkTarget])
-  useEffect(() => {
-    const closeMenus = (except?: Node | null) => {
-      toolbarRef.current?.querySelectorAll<HTMLDetailsElement>(
-        'details[data-dropdown-menu][open]',
-      ).forEach(menu => {
-        if (!except || !menu.contains(except)) menu.open = false
-      })
-    }
-    const onPointerDown = (event: PointerEvent) => closeMenus(event.target as Node)
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') closeMenus()
-    }
-    document.addEventListener('pointerdown', onPointerDown)
-    document.addEventListener('keydown', onKeyDown)
-    return () => {
-      document.removeEventListener('pointerdown', onPointerDown)
-      document.removeEventListener('keydown', onKeyDown)
-    }
-  }, [])
   const setModel = (patch: Partial<MaintenanceTaskAnalysisState>) => {
     setError(null)
     setNotice(null)
@@ -1461,7 +1443,7 @@ export default function TaskAnalysis({
         className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-blue-700">
         <Plus size={13} /> New task
       </button>
-      <details data-dropdown-menu className="group relative">
+      <DropdownDetails data-dropdown-menu className="group relative">
         <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 [&::-webkit-details-marker]:hidden">
           <Link2 size={13} /> Add from source
           <ChevronDown size={12} className="transition-transform group-open:rotate-180" />
@@ -1498,7 +1480,7 @@ export default function TaskAnalysis({
             </span>
           </button>
         </div>
-      </details>
+      </DropdownDetails>
       <button type="button" onClick={() => setState(EXAMPLE_STATE)}
         className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">
         <Sparkles size={13} className="text-amber-500" /> Worked example
@@ -1510,7 +1492,7 @@ export default function TaskAnalysis({
             const file = event.target.files?.[0]
             if (file) void importFile(file)
           }} />
-        <details data-dropdown-menu className="group relative">
+        <DropdownDetails data-dropdown-menu className="group relative">
           <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 [&::-webkit-details-marker]:hidden">
             <MoreHorizontal size={14} /> Exchange
             <ChevronDown size={12} className="transition-transform group-open:rotate-180" />
@@ -1535,7 +1517,7 @@ export default function TaskAnalysis({
               <Download size={13} /> Export CSV
             </button>
           </div>
-        </details>
+        </DropdownDetails>
       </div>
     </div>
   )
@@ -1546,7 +1528,7 @@ export default function TaskAnalysis({
         <div>
           <h2 className="text-base font-semibold text-gray-900">Task portfolio</h2>
           <p className="mt-0.5 text-xs text-gray-500">
-            Govern source-linked support work from definition through demonstrated execution.
+            Define maintenance tasks, resources, and schedules.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -2688,7 +2670,7 @@ export default function TaskAnalysis({
         <div className="border-b border-slate-200 p-4">
           <h2 className="text-sm font-semibold text-slate-900">Resource catalog</h2>
           <p className="mt-0.5 text-[11px] text-slate-500">
-            Reusable qualified capacity and material assumptions.
+            Personnel and resources shared across task steps.
           </p>
           <div className="mt-3 grid grid-cols-2 rounded-lg bg-slate-100 p-1">
             {([

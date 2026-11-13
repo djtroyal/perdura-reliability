@@ -2,7 +2,7 @@
   "app": "Perdura",
   "subtitle": "Reliability Engineering and Statistics Suite",
   "website": "https://perdurareliability.com",
-  "schemaVersion": 6,
+  "schemaVersion": 11,
   "createdWith": {
     "version": "0.7.0",
     "commit": "dev",
@@ -82,7 +82,7 @@
         "buildStatus": "development"
       },
       "runId": "run-1266ffe1-4a9c-4363-aa60-37c9a1d6ef17",
-      "moduleLabel": "Reliability Testing — Exponential Test Planning",
+      "moduleLabel": "Reliability Testing \u2014 Exponential Test Planning",
       "analysisName": "Temperature ALT",
       "fingerprintSha256": "ba53eda7fe5e218bc535de1edc6bc2c6db1f0e4c5e5019d6e2a18d14f2a6b2c4"
     }

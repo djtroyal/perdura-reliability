@@ -2,7 +2,7 @@
   "app": "Perdura",
   "subtitle": "Reliability Engineering and Statistics Suite",
   "website": "https://perdurareliability.com",
-  "schemaVersion": 6,
+  "schemaVersion": 11,
   "createdWith": {
     "version": "0.7.0",
     "commit": "dev",
@@ -220,8 +220,8 @@
                 },
                 "uncertainty": null,
                 "units": {
-                  "temperature_range": "°C or K difference",
-                  "absolute_temperature_input": "°C",
+                  "temperature_range": "\u00b0C or K difference",
+                  "absolute_temperature_input": "\u00b0C",
                   "absolute_temperature_equation": "K",
                   "frequency": "cycles/day",
                   "activation_energy": "eV",

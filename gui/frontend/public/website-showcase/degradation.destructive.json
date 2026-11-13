@@ -2,7 +2,7 @@
   "app": "Perdura",
   "subtitle": "Reliability Engineering and Statistics Suite",
   "website": "https://perdurareliability.com",
-  "schemaVersion": 6,
+  "schemaVersion": 11,
   "createdWith": {
     "version": "0.7.0",
     "commit": "dev",
@@ -82,7 +82,7 @@
         "buildStatus": "development"
       },
       "runId": "run-b2d6c6b5-620b-4e8b-80c8-d6457790c501",
-      "moduleLabel": "Reliability Testing — Degradation",
+      "moduleLabel": "Reliability Testing \u2014 Degradation",
       "analysisName": "Temperature ALT",
       "fingerprintSha256": "0d74af0ed5a48407600624bf0c411185e83198fa2dbb0e19311d4a55d3d1bac1"
     }
@@ -348,10 +348,10 @@
             "finite_parameters": true,
             "finite_objective": true,
             "gradient_finite": true,
-            "gradient_norm": 1.828541398191231e-8,
+            "gradient_norm": 1.828541398191231e-08,
             "gradient_tolerance": 0.0001,
-            "projected_gradient_raw_norm": 6.680006868108947e-7,
-            "raw_gradient_norm": 6.680006868108947e-7,
+            "projected_gradient_raw_norm": 6.680006868108947e-07,
+            "raw_gradient_norm": 6.680006868108947e-07,
             "boundary_parameters": [],
             "parameter_values": [
               -1.9624999994176715,
@@ -370,10 +370,10 @@
                 "finite_parameters": true,
                 "finite_objective": true,
                 "gradient_finite": true,
-                "gradient_norm": 1.828541398191231e-8,
+                "gradient_norm": 1.828541398191231e-08,
                 "gradient_tolerance": 0.0001,
-                "projected_gradient_raw_norm": 6.680006868108947e-7,
-                "raw_gradient_norm": 6.680006868108947e-7,
+                "projected_gradient_raw_norm": 6.680006868108947e-07,
+                "raw_gradient_norm": 6.680006868108947e-07,
                 "boundary_parameters": [],
                 "parameter_values": [
                   -1.9624999994176715,
@@ -392,10 +392,10 @@
                 "finite_parameters": true,
                 "finite_objective": true,
                 "gradient_finite": true,
-                "gradient_norm": 0.00000161497886259407,
+                "gradient_norm": 1.61497886259407e-06,
                 "gradient_tolerance": 0.0001,
-                "projected_gradient_raw_norm": 0.000058998226153047725,
-                "raw_gradient_norm": 0.000058998226153047725,
+                "projected_gradient_raw_norm": 5.8998226153047725e-05,
+                "raw_gradient_norm": 5.8998226153047725e-05,
                 "boundary_parameters": [],
                 "parameter_values": [
                   -1.962499998686949,
@@ -446,7 +446,7 @@
           },
           "degradation_curve": {
             "t": [
-              0.000001,
+              1e-06,
               0.3529421680672269,
               0.7058833361344539,
               1.0588245042016806,
@@ -692,7 +692,7 @@
           },
           "reliability_curve": {
             "t": [
-              0.000001,
+              1e-06,
               0.5316465569620253,
               1.0632921139240505,
               1.5949376708860759,
@@ -851,9 +851,9 @@
               0.006989575812014537,
               0.0018812863300281535,
               0.0004234062063884769,
-              0.0000794811291208175,
-              0.00001242017488933822,
-              0.000001613178952419858
+              7.94811291208175e-05,
+              1.242017488933822e-05,
+              1.613178952419858e-06
             ]
           },
           "gof": {

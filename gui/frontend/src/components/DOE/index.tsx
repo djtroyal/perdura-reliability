@@ -422,8 +422,7 @@ export default function DOE() {
         {/* ---- Plackett-Burman note ---- */}
         {isPB && (
           <p className="text-[10px] text-gray-500">
-            Uses a validated 4–64 run construction for 1–63 factors; unsupported
-            intermediate sizes advance to the next available orthogonal run size.
+            Supports 1–63 factors in 4–64 runs. Intermediate sizes round up to the next orthogonal design.
           </p>
         )}
 

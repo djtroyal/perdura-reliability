@@ -133,7 +133,6 @@ export default function Cream() {
 
   return (
     <ToolLayout
-      intro="CREAM (basic method) — rate the 9 Common Performance Conditions. The counts of conditions that reduce vs improve reliability determine the control mode (Strategic / Tactical / Opportunistic / Scrambled) and its HEP interval."
       controls={controls} err={error} loading={loading} onRun={run} runLabel="Evaluate" results={results} />
   )
 }

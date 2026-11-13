@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { createServer as createHttpServer } from 'node:http'
 import { createServer } from 'vite'
+import { readFile } from 'node:fs/promises'
 
 const hmrServer = createHttpServer()
 const vite = await createServer({
@@ -11,119 +12,89 @@ const vite = await createServer({
 
 try {
   const model = await vite.ssrLoadModule('/src/components/SystemDefinition/model.ts')
-  const legacy = {
-    prediction: {
-      _folioWrap: true,
-      activeId: 'pred-1',
-      folios: [{
-        id: 'pred-1', name: 'Controller', state: {
-          blocks: [{ id: 'b1', name: 'Electronics', parentId: null }],
-          parts: [{
-            id: 'p1', name: 'Pressure sensor', category: 'generic', quantity: 1,
-            parentId: 'b1', part_number: 'PS-1', manufacturer: 'Perdura',
-            reference_designators: ['PS1'], params: {},
-          }],
-        },
-      }],
-    },
-    system: {
-      _folioWrap: true, activeId: 'rbd-1', folios: [{ id: 'rbd-1', name: 'RBD', state: {
-        nodes: [{ id: 'n1', type: 'component', data: { label: 'Pressure sensor' } }], edges: [],
-      } }],
-    },
+  const shared = await vite.ssrLoadModule('/src/store/sharedSystemModel.ts')
+  const project = await vite.ssrLoadModule('/src/store/project.ts')
+  const architecture = await vite.ssrLoadModule('/src/store/systemArchitecture.ts')
+  const fmeaBinding = await vite.ssrLoadModule('/src/store/sharedFmeaModel.ts')
+  const editor = await vite.ssrLoadModule('/src/components/ReliabilityProgram/fmeaModel.ts')
+  const current = shared.createProjectSystem('Canonical project')
+  assert.equal(current.model.version, 4)
+  assert.deepEqual(current.model.resources, [])
+  assert.equal(current.model.instances.length, 1, 'A project begins with one canonical root')
+  shared.validateProjectSystem(current.model)
+  for (const version of [1, 2, 3]) assert.throws(() => shared.validateProjectSystem({ ...current.model, version }), /version 4/)
+  project.newProject('Current destination')
+  const original = project.getProjectState(), payload = project.buildExport(undefined, true)
+  for (const schemaVersion of [6, 7, 9]) {
+    assert.throws(() => project.importPayload({ ...payload, schemaVersion }), /Unsupported project schema/)
+    assert.equal(project.getProjectState(), original, 'Rejected old files leave the current project untouched')
   }
-  const migrated = model.migrateSystemDefinitionModules(legacy)
-  assert.ok(migrated.systemDefinition)
-  assert.equal(migrated.systemDefinition.folios.length, 1)
-  const state = migrated.systemDefinition.folios[0].state
-  assert.equal(state.model.instances.length, 3, 'system, block, and part instances migrate')
-  assert.equal(state.model.instances.find(item => item.name === 'Pressure sensor').quantity, 1)
-  assert.equal(migrated.prediction.folios[0].state.parts[0].system_ref.system_model_id, state.model.id)
-  assert.equal(migrated.system.folios[0].state.nodes[0].data.systemRef.system_model_id, state.model.id)
-  assert.strictEqual(model.migrateSystemDefinitionModules(migrated), migrated,
-    'migration is idempotent once the canonical slice exists')
-
-  const fmeaOnly = model.migrateSystemDefinitionModules({
-    fmea: {
-      _folioWrap: true, activeId: 'fmea-1', folios: [{ id: 'fmea-1', name: 'Pump FMEA', state: {
-        analyses: [{
-          id: 'a1', name: 'Pump FMEA',
-          structure_nodes: [{ id: 's1', name: 'Pump', element_type: 'component' }],
-          functions: [{
-            id: 'fn1', structure_node_id: 's1', description: 'Move fluid',
-            function_type: 'primary', operating_modes: ['run'],
-          }],
-          failure_chains: [{
-            id: 'fm1', function_id: 'fn1', failure_mode: 'No flow', deviation_id: 'absent',
-          }],
-          interfaces: [{
-            id: 'if1', name: 'Pump discharge', source_structure_node_id: 's1',
-            external_target: 'Plant header', interface_type: 'material',
-            function_ids: ['fn1'],
-          }],
-        }],
-      } }],
-    },
-  })
-  const fmeaState = fmeaOnly.systemDefinition.folios[0].state
-  assert.equal(fmeaState.model.modes[0].id, 'run', 'FMEA operating modes migrate as canonical modes')
-  assert.equal(fmeaState.model.definitions[0].failure_modes[0].description, 'No flow')
-  assert.equal(fmeaState.model.externals[0].name, 'Plant header')
-  assert.equal(fmeaState.model.interfaces[0].target.external_id, fmeaState.model.externals[0].id)
-
-  for (const count of [1, 2, 3, 4, 5]) {
-    const ambiguous = model.migrateSystemDefinitionModules({
-      prediction: {
-        blocks: [], parts: Array.from({ length: count }, (_, index) => ({
-          id: `pump-${index}`, name: index === 0 ? 'Pump' : ' PUMP ',
-          category: 'generic', quantity: 1, params: {},
-        })),
-      },
-      system: { nodes: [{ id: 'pump', type: 'component', data: { label: 'Pump' } }], edges: [] },
-      fmea: { analyses: [{
-        id: 'a1', name: 'Failures',
-        structure_nodes: [{ id: 's1', name: 'Failure source', element_type: 'component' }],
-        functions: [{ id: 'fn1', structure_node_id: 's1', description: 'Move fluid' }],
-        failure_chains: Array.from({ length: count }, (_, index) => ({
-          id: `failure-${index}`, function_id: 'fn1',
-          failure_mode: index === 0 ? 'No flow' : 'no-flow', deviation_id: 'absent',
-        })),
-      }] },
-      faultTree: { nodes: [{ id: 'no-flow', data: { label: 'No flow' } }], edges: [] },
-      markov: { states: [{ id: 'pump', name: 'Pump' }, { id: 'no-flow', name: 'No flow' }] },
-    })
-    const linked = count === 1
-    assert.equal(Boolean(ambiguous.system.nodes[0].data.systemRef), linked,
-      `${count} normalized instance-name matches must ${linked ? '' : 'not '}link RBD records`)
-    assert.equal(Boolean(ambiguous.faultTree.nodes[0].data.systemRef), linked,
-      `${count} normalized failure-name matches must ${linked ? '' : 'not '}link FTA records`)
-    assert.equal(Boolean(ambiguous.markov.states[0].systemRef), linked)
-    assert.equal(Boolean(ambiguous.markov.states[1].systemRef), linked)
+  const demo = JSON.parse(await readFile(new URL('../src/data/demoProject.json', import.meta.url), 'utf8'))
+  assert.equal(demo.schemaVersion, 11)
+  const aircraft = demo.modules.systemDefinition.model
+  const instances = new Map(aircraft.instances.map(item => [item.id, item]))
+  const definitions = new Map(aircraft.definitions.map(item => [item.id, item]))
+  const aircraftRoot = instances.get(aircraft.root_instance_id)
+  assert.equal(aircraftRoot.name, 'Aircraft', 'The bundled example opens a complete aircraft architecture')
+  const depth = item => item.parent_instance_id ? 1 + depth(instances.get(item.parent_instance_id)) : 1
+  const systemItems = aircraft.instances.filter(item => definitions.get(item.definition_id)?.kind !== 'piece_part')
+  const l2Systems = systemItems.filter(item => depth(item) === 2)
+  assert.ok(l2Systems.length >= 6, 'Aircraft example spans multiple major aircraft systems')
+  assert.ok(systemItems.filter(item => depth(item) === 3).length >= 12,
+    'The example contains subsystem detail beyond a flat list of systems')
+  assert.ok(systemItems.filter(item => depth(item) === 4).length >= 24,
+    'Installed components reach L4 across the aircraft; piece parts do not stand in for components')
+  for (const branch of l2Systems) {
+    const descendsFrom = item => item?.parent_instance_id === branch.id
+      || Boolean(item?.parent_instance_id && descendsFrom(instances.get(item.parent_instance_id)))
+    assert.ok(systemItems.some(item => depth(item) >= 4 && descendsFrom(item)),
+      `${branch.name} includes components at L4 or deeper`)
   }
-
-  const rbdOnly = model.migrateSystemDefinitionModules({
-    system: { nodes: [{ id: 'pump', type: 'component', data: { label: 'Pump' } }], edges: [] },
-  })
-  assert.equal(rbdOnly.systemDefinition.folios[0].state.model.instances.length, 2,
-    'an RBD-only project receives a system root and canonical component')
-
-  const unrelated = { growth: { input: 1 } }
-  assert.strictEqual(model.migrateSystemDefinitionModules(unrelated), unrelated,
-    'unrelated module exports do not gain a blank canonical slice')
+  const owners = architecture.systemResourceProducers(aircraft)
+  assert.equal(new Set(owners.map(owner => owner.resourceId)).size, owners.length,
+    'Every output resource has exactly one producer, including reused equipment')
+  assert.ok(aircraft.interfaces.length >= l2Systems.length,
+    'The aircraft includes an interconnected resource architecture')
+  shared.validateProjectSystem(demo.modules.systemDefinition.model)
+  assert.deepEqual(architecture.inspectArchitectureCompleteness(demo.modules.systemDefinition.model), [],
+    'Bundled architecture demonstrates complete structured functions, resource exchanges, and parent support')
+  for (const folio of demo.modules.fmea.folios) for (const study of folio.state.analyses) {
+    assert.deepEqual(editor.normalizeFmeaAnalysis(study), study, 'Bundled studies must already use current structured records')
+    if (study.kind !== 'pfmea') {
+      assert.deepEqual(fmeaBinding.inspectFmeaBinding(aircraft, study), [], 'Aircraft FMEA retains valid canonical references')
+      assert.deepEqual(JSON.parse(JSON.stringify(fmeaBinding.materializeFmeaAnalysis(aircraft, study))), study,
+        'Bundled FMEA already matches its aircraft architecture without needing a repair on first load')
+      const structures = new Map(study.structure_nodes.map(item => [item.id, item]))
+      const blocks = new Map(study.block_diagram.nodes.map(item => [item.id, item]))
+      for (const edge of study.interfaces) {
+        const canonical = aircraft.interfaces.find(item => item.id === edge.system_definition_ref?.interface_id)
+        assert.ok(canonical, `FMEA interface ${edge.id} has a canonical source`)
+        for (const end of ['source', 'target']) {
+          const block = blocks.get(edge[`${end}_block_id`])
+          assert.ok(block, `FMEA interface ${edge.id} ${end} block is present`)
+          if (canonical[end].instance_id) assert.equal(structures.get(block.structure_node_id)?.system_definition_ref?.instance_id,
+            canonical[end].instance_id, `FMEA interface ${edge.id} ${end} retains its actual installed endpoint`)
+        }
+      }
+      const authored = study.failure_chains.find(item => item.id === (study.kind === 'dfmea' ? 'DFC-1' : 'MFC-1'))
+      assert.equal(authored?.severity, 9, 'Existing authored risk ratings remain attached to their failure chain')
+      assert.ok(authored.actions.some(item => item.id === (study.kind === 'dfmea' ? 'DACT-1' : 'MACT-1')),
+        'Existing authored actions remain attached to their failure chain')
+      assert.equal(study.system_binding.scope_instance_id, 'b1')
+      assert.equal(instances.get('b1').parent_instance_id, 'pump-system')
+      assert.equal(instances.get('pump-system').parent_instance_id, aircraft.root_instance_id)
+    }
+    const model = study.kind === 'pfmea' ? architecture.processArchitectureModel(study) : demo.modules.systemDefinition.model
+    assert.deepEqual(architecture.inspectArchitectureCompleteness(model, {
+      scopeInstanceId: study.system_binding?.scope_instance_id,
+    }), [], `${study.kind} architecture prerequisites are complete`)
+  }
 
   const blank = model.emptySystemDefinition('Pump', 'pump-1')
-  assert.equal(blank.model.version, 2)
+  assert.equal(blank.model.version, 4)
   assert.deepEqual(blank.model.propagation_assertions, [])
   assert.equal(blank.view, 'structure')
   assert.equal(model.decisionStatus(blank, 'missing'), 'pending')
-
-  const upgradedV1 = model.migrateSystemDefinitionModules({
-    systemDefinition: {
-      ...blank, model: { ...blank.model, version: 1 }, view: 'architecture',
-    },
-  })
-  assert.equal(upgradedV1.systemDefinition.model.version, 2,
-    'existing canonical v1 folios upgrade without a global project schema bump')
 
   blank.model.instances = [
     { id: 'root', definition_id: 'd-root', name: 'Root' },
@@ -159,8 +130,8 @@ try {
   assert.ok(branchCollapsed.some(item => item.instance_id === 'child-11'))
   assert.ok(!branchCollapsed.some(item => item.instance_id === 'grandchild'),
     'a collapsed branch keeps its parent visible while hiding descendants')
-  assert.deepEqual(model.emptySystemDefinition().collapsedInstanceIds, [],
-    'new system diagrams start fully expanded')
+  assert.deepEqual(model.emptySystemDefinition().structureCollapsedIds, [],
+    'the structure tree owns its own expansion state')
   console.log('system definition contracts passed')
 } finally {
   await vite.close()

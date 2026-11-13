@@ -7,7 +7,7 @@ import { AlertTriangle } from 'lucide-react'
  */
 export default function StaleBanner({
   show,
-  message = 'The data has changed since these results were computed. Re-run the analysis for up-to-date results.',
+  message = 'Inputs changed. Recalculate results.',
   onRerun,
   rerunLabel = 'Re-run',
 }: {

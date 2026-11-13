@@ -21,9 +21,11 @@ from reliability.FMEA import (  # noqa: E402
     transition_lifecycle,
     verify_release,
 )
+from reliability.FMEA_readiness import evaluate_fmea_readiness, FMEAPrerequisiteError
 from reliability.AIAG_VDA_FMEA import builtin_rating_profiles  # noqa: E402
 from schemas import (  # noqa: E402
     FMEAAnalyzeRequest,
+    FMEAReadinessRequest,
     FMEADiffRequest,
     FMEAEvidenceImpactRequest,
     FMEALibraryInstantiateRequest,
@@ -51,16 +53,29 @@ def ratings() -> list[dict[str, Any]]:
     return builtin_rating_profiles()
 
 
+@router.post("/readiness", response_model=dict[str, Any],
+             summary="Evaluate canonical FMEA prerequisites without analysis")
+def readiness(request: FMEAReadinessRequest) -> dict[str, Any]:
+    return evaluate_fmea_readiness(
+        request.study.model_dump(),
+        request.canonical_system.model_dump() if request.canonical_system else None,
+        rating_profiles=[item.model_dump() for item in request.rating_profiles],
+        program_requirements=[item.model_dump() for item in request.program_requirements],
+    )
+
+
 @router.post("/analyze", response_model=dict[str, Any],
              summary="Analyze controlled FMEA studies")
 def analyze(request: FMEAAnalyzeRequest) -> dict[str, Any]:
-    return analyze_studies(
-        [item.model_dump() for item in request.studies],
-        rating_profiles=[item.model_dump() for item in request.rating_profiles],
-        program_requirements=[
-            item.model_dump() for item in request.program_requirements
-        ],
-    )
+    try:
+        return analyze_studies(
+            [item.model_dump() for item in request.studies],
+            canonical_system=request.canonical_system.model_dump() if request.canonical_system else None,
+            rating_profiles=[item.model_dump() for item in request.rating_profiles],
+            program_requirements=[item.model_dump() for item in request.program_requirements],
+        )
+    except FMEAPrerequisiteError as exc:
+        raise HTTPException(status_code=409, detail=exc.readiness) from exc
 
 
 @router.post("/diff", response_model=dict[str, Any],
@@ -74,11 +89,17 @@ def diff(request: FMEADiffRequest) -> dict[str, Any]:
 @router.post("/revisions", response_model=dict[str, Any],
              summary="Create a content-addressed FMEA revision record")
 def revision(request: FMEARevisionRequest) -> dict[str, Any]:
-    return create_revision(
-        request.study.model_dump(),
-        created_by=request.created_by,
-        change_summary=request.change_summary,
-    )
+    try:
+        return create_revision(
+            request.study.model_dump(),
+            created_by=request.created_by,
+            change_summary=request.change_summary,
+            canonical_system=request.canonical_system.model_dump() if request.canonical_system else None,
+        )
+    except FMEAPrerequisiteError as exc:
+        raise HTTPException(status_code=409, detail=exc.readiness) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.post("/releases", response_model=dict[str, Any],
@@ -87,6 +108,7 @@ def release(request: FMEAReleaseRequest) -> dict[str, Any]:
     try:
         return create_release(
             request.study.model_dump(),
+            canonical_system=request.canonical_system.model_dump() if request.canonical_system else None,
             rating_profiles=[
                 item.model_dump() for item in request.rating_profiles
             ],
@@ -99,6 +121,8 @@ def release(request: FMEAReleaseRequest) -> dict[str, Any]:
                 item.model_dump() for item in request.attestations
             ],
         )
+    except FMEAPrerequisiteError as exc:
+        raise HTTPException(status_code=409, detail=exc.readiness) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -116,6 +140,9 @@ def transition(request: FMEALifecycleTransitionRequest) -> dict[str, Any]:
     try:
         return transition_lifecycle(
             request.study.model_dump(),
+            canonical_system=request.canonical_system.model_dump() if request.canonical_system else None,
+            rating_profiles=[item.model_dump() for item in request.rating_profiles],
+            program_requirements=[item.model_dump() for item in request.program_requirements],
             target_status=request.target_status,
             actor=request.actor,
             rationale=request.rationale,
@@ -123,6 +150,8 @@ def transition(request: FMEALifecycleTransitionRequest) -> dict[str, Any]:
                 item.model_dump() for item in request.attestations
             ],
         )
+    except FMEAPrerequisiteError as exc:
+        raise HTTPException(status_code=409, detail=exc.readiness) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -153,6 +182,8 @@ def instantiate_library(
             request.item.model_dump(),
             instance_id=request.instance_id,
         )
+    except FMEAPrerequisiteError as exc:
+        raise HTTPException(status_code=409, detail=exc.readiness) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 

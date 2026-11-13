@@ -1,7 +1,8 @@
+import { distributionTitle } from '../shared/distributionLabels'
 import { useState } from 'react'
 import {
   ArrowRight, Atom, Bookmark, CircleCheck, CircleDashed, CircleDot, Cpu,
-  FileText, FlaskConical, GitFork, LineChart, Network, ScatterChart,
+  FileText, FlaskConical, GitFork, LineChart, Network, ScatterChart, Layers3,
   ShieldCheck, Sparkles, Target, Thermometer, TrendingUp, Users, Wrench, X, FileCode2, ClipboardList,
 } from 'lucide-react'
 import {
@@ -45,8 +46,9 @@ const BOOKMARK_MODULE_ICONS: Record<string, typeof Network> = {
  * folios hold input data or computed results, with quick navigation. Re-derives
  * on every store write via useStoreVersion().
  */
-export default function Dashboard({ onNavigate, onOpenBookmark, update, onOpenAbout }: {
+export default function Dashboard({ onNavigate, onOpenSystemDefinition, onOpenBookmark, update, onOpenAbout }: {
   onNavigate: (tabId: string) => void
+  onOpenSystemDefinition: () => void
   onOpenBookmark: (request: BookmarkOpenRequest) => void
   update?: UpdateInfo | null
   onOpenAbout?: () => void
@@ -86,6 +88,10 @@ export default function Dashboard({ onNavigate, onOpenBookmark, update, onOpenAb
             </span>
           </p>
         </div>
+        <button type="button" onClick={onOpenSystemDefinition}
+          className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm font-medium text-blue-800 hover:bg-blue-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700">
+          <Layers3 size={17} aria-hidden="true" /> System Definition <ArrowRight size={15} aria-hidden="true" />
+        </button>
       </div>
 
       {/* Update banner (when a newer release exists) */}
@@ -131,7 +137,7 @@ export default function Dashboard({ onNavigate, onOpenBookmark, update, onOpenAb
           <CircleDashed size={28} className="mx-auto text-gray-300" />
           <p className="mt-3 text-sm font-medium text-gray-700">This project is empty</p>
           <p className="text-xs text-gray-500 mt-1">
-            Pick an area below to enter data and run an analysis — your work autosaves to this browser.
+            Choose a module below to begin.
           </p>
         </div>
       )}
@@ -164,7 +170,7 @@ export default function Dashboard({ onNavigate, onOpenBookmark, update, onOpenAb
                       <Icon size={14} />
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-xs font-medium text-gray-800">{bookmark.label}</span>
+                      <span className="block truncate text-xs font-medium text-gray-800">{distributionTitle(bookmark.label)}</span>
                       <span className="block truncate text-[10px] text-gray-500">
                         {bookmark.moduleLabel} · {bookmark.group}
                       </span>
@@ -241,7 +247,7 @@ function KpiBreakdown({
           <p>
             <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1.5 align-middle ${dirty ? 'bg-amber-500' : 'bg-emerald-500'}`} />
             {dirty
-              ? 'You have unsaved changes. Press Ctrl/Cmd-S, or use Save in the top bar, to store the project in this browser.'
+              ? 'Unsaved changes. Use Save or Ctrl/Cmd-S to save in this browser.'
               : 'All changes are saved to this browser’s storage.'}
           </p>
           {dirty && (
@@ -260,13 +266,13 @@ function KpiBreakdown({
             </>
           )}
           <p className="text-gray-400">
-            Browser storage is per-machine and per-browser — use Export (top bar) to write the
-            project to a .json file for backup or sharing, and Export → All assets for a full .zip.
+            Saved projects stay in this browser. Export a project file for backup or sharing,
+            or choose Export → All assets for a full ZIP.
           </p>
         </div>
       ) : rows.length === 0 ? (
         <p className="text-xs text-gray-400">
-          Nothing here yet — pick a module below to enter data and run an analysis.
+          No analyses yet. Choose a module below to begin.
         </p>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-1">

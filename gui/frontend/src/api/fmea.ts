@@ -1,4 +1,5 @@
 import { api } from './client'
+import type { SystemDefinitionModel } from './systemDefinition'
 import type {
   AIAGVDAFMEAAnalysis,
   AIAGVDAFMEAResult,
@@ -227,6 +228,8 @@ export interface FMEAAttestation {
 }
 
 export interface FMEARevisionRecord {
+  canonical_system?: SystemDefinitionModel|null
+  canonical_context_sha256?: string|null
   id: string
   revision: string
   created_at: string
@@ -238,6 +241,8 @@ export interface FMEARevisionRecord {
 }
 
 export interface FMEAReleaseRecord {
+  canonical_system?: SystemDefinitionModel|null
+  canonical_context_sha256?: string|null
   id: string
   study_id: string
   revision: string
@@ -346,7 +351,7 @@ export type FMEALifecycleStatus =
   'draft'|'in_review'|'approved'|'released'|'superseded'|'retired'
 
 export interface FMEAStudy {
-  schema_version: 2
+  schema_version: 4
   id: string
   lifecycle_status: FMEALifecycleStatus
   method_profile_id: string
@@ -471,6 +476,27 @@ export interface FMEASemanticChange {
   after: unknown
 }
 
+export interface FMEAReadinessFinding {
+  code: string
+  message: string
+  step: number
+  record_type?: string
+  record_id?: string
+  path?: string
+  severity: 'error'|'warning'
+}
+export interface FMEAReadiness {
+  semantic_fingerprint: string
+  stages: { step: number; eligible: boolean; complete: boolean; findings: FMEAReadinessFinding[] }[]
+  findings: FMEAReadinessFinding[]
+  can_analyze: boolean
+  can_release: boolean
+}
+export const inspectFmeaReadiness = (study: FMEAStudy, canonicalSystem?: SystemDefinitionModel,
+  ratingProfiles: FMEARatingProfile[] = [], programRequirements: RequirementInput[] = []) =>
+  api.post<FMEAReadiness>('/fmea/readiness', { study, canonical_system: canonicalSystem,
+    rating_profiles: ratingProfiles, program_requirements: programRequirements }).then(response => response.data)
+
 export const getFmeaMethodProfiles = () =>
   api.get<FMEAMethodProfile[]>('/fmea/method-profiles')
     .then(response => response.data)
@@ -479,20 +505,24 @@ export const analyzeFmeaStudies = (
   studies: FMEAStudy[],
   ratingProfiles: FMEARatingProfile[],
   programRequirements: RequirementInput[],
+  canonicalSystem?: SystemDefinitionModel,
 ) => api.post<FMEAAnalysisResponse>('/fmea/analyze', {
   studies,
   rating_profiles: ratingProfiles,
   program_requirements: programRequirements,
+  canonical_system: canonicalSystem,
 }).then(response => response.data)
 
 export const createFmeaRevision = (
   study: FMEAStudy,
   createdBy: string,
   changeSummary: string,
+  canonicalSystem?: SystemDefinitionModel,
 ) => api.post<FMEARevisionRecord>('/fmea/revisions', {
   study,
   created_by: createdBy,
   change_summary: changeSummary,
+  canonical_system: canonicalSystem,
 }).then(response => response.data)
 
 export const diffFmeaStudies = (before: FMEAStudy, after: FMEAStudy) =>
@@ -508,6 +538,7 @@ export const createFmeaRelease = (
   softwareVersion: string,
   softwareCommit: string,
   attestations: FMEAAttestation[],
+  canonicalSystem?: SystemDefinitionModel,
 ) => api.post<FMEAReleaseRecord>('/fmea/releases', {
   study,
   rating_profiles: ratingProfiles,
@@ -515,6 +546,7 @@ export const createFmeaRelease = (
   software_version: softwareVersion,
   software_commit: softwareCommit,
   attestations,
+  canonical_system: canonicalSystem,
 }).then(response => response.data)
 
 export const verifyFmeaRelease = (
@@ -528,6 +560,7 @@ export const verifyFmeaRelease = (
   content_sha256: string
   manifest_sha256: string
   snapshot_matches: boolean
+  canonical_context_matches: boolean
 }>('/fmea/releases/verify', { study, release })
   .then(response => response.data)
 
@@ -537,12 +570,18 @@ export const transitionFmeaLifecycle = (
   actor: string,
   rationale: string,
   attestations: FMEAAttestation[] = [],
+  canonicalSystem?: SystemDefinitionModel,
+  ratingProfiles: FMEARatingProfile[] = [],
+  programRequirements: RequirementInput[] = [],
 ) => api.post<FMEAStudy>('/fmea/lifecycle/transition', {
   study,
   target_status: targetStatus,
   actor,
   rationale,
   attestations,
+  canonical_system: canonicalSystem,
+  rating_profiles: ratingProfiles,
+  program_requirements: programRequirements,
 }).then(response => response.data)
 
 export interface FMEASourceRecord {

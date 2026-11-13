@@ -89,6 +89,10 @@ try {
     await compatibility.waitFor({ timeout: 60_000 })
     await expect(compatibility).toHaveCSS('opacity', '1')
     await page.waitForTimeout(250)
+    // A contained module crash can leave an accessible shell. It is still a
+    // failed journey; capture the error alongside the accessibility evidence.
+    const errorBoundary = page.locator('[data-module-error]')
+    const moduleError = await errorBoundary.count() ? await errorBoundary.first().textContent() : null
     const readyMilliseconds = performance.now() - started
     const navigation = await page.evaluate(() => {
       const entry = performance.getEntriesByType('navigation')[0]
@@ -111,7 +115,7 @@ try {
       const allowance = allowances.get(`${moduleId}:${item.id}:${item.impact}`)
       return allowance == null || item.nodes.length > allowance
     })
-    const status = response?.ok() && unbaselined.length === 0 ? 'passed' : 'failed'
+    const status = response?.ok() && !moduleError && unbaselined.length === 0 ? 'passed' : 'failed'
     let failureEvidence = null
     if (status === 'failed') {
       // Keep the complete axe node records, including computed contrast colors
@@ -134,6 +138,7 @@ try {
       status,
       failureEvidence,
       httpStatus: response?.status() ?? null,
+      moduleError,
       readyMilliseconds,
       navigation,
       knownBlockingFindingCount: blocking.length - unbaselined.length,
@@ -194,11 +199,12 @@ await writeFile(outputPath, `${JSON.stringify(report, null, 2)}\n`)
 
 const testcases = cases.map(item => {
   const detail = JSON.stringify({
+    moduleError: item.moduleError,
     unbaselined: item.unbaselinedViolations,
     allViolations: item.violations,
   })
   const failure = item.status === 'failed'
-    ? `<failure message="New or enlarged critical/serious accessibility finding">${xml(detail)}</failure>`
+    ? `<failure message="${item.moduleError ? 'Module failed to render' : 'New or enlarged critical/serious accessibility finding'}">${xml(detail)}</failure>`
     : ''
   return `<testcase classname="browser-assurance" name="${xml(item.id)}" time="${(item.readyMilliseconds / 1000).toFixed(6)}">${failure}<system-out>${xml(detail)}</system-out></testcase>`
 }).join('')
