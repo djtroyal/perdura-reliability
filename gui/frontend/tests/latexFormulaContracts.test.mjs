@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { createServer as createHttpServer } from 'node:http'
-import { createServer } from 'vite'
+import { createSsrTestServer } from './viteTestLifecycle.mjs'
 import katex from 'katex'
 
 const hmrServer = createHttpServer()
-const vite = await createServer({
+const vite = await createSsrTestServer({
   root: new URL('..', import.meta.url).pathname,
   appType: 'custom',
   server: { middlewareMode: true, ws: { server: hmrServer } },

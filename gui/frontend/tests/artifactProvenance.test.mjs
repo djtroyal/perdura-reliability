@@ -3,17 +3,15 @@ import { createServer as createHttpServer } from 'node:http'
 import { mkdtemp, readFile, readdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { extname, join, relative, resolve } from 'node:path'
-import { createServer } from 'vite'
-import { closeViteTestServer, ssrOnlyVitePlugin } from './viteTestLifecycle.mjs'
+import { closeViteTestServer, createSsrTestServer } from './viteTestLifecycle.mjs'
 
 const frontendRoot = resolve(new URL('..', import.meta.url).pathname)
 const hmrServer = createHttpServer()
 const cacheDir = await mkdtemp(join(tmpdir(), 'perdura-artifact-vite-'))
-const vite = await createServer({
+const vite = await createSsrTestServer({
   cacheDir,
   root: frontendRoot,
   appType: 'custom',
-  plugins: [ssrOnlyVitePlugin()],
   server: { middlewareMode: true, ws: { server: hmrServer } },
 })
 

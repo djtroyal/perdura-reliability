@@ -44,4 +44,3 @@ export function FmeaTransferEditor({ analysis, interfaceId, model, update }: {
   return <SystemInterfaceTransferEditor model={processArchitectureModel(analysis)} interfaceId={edge.id}
     onChange={next => update(applyProcessArchitecture(analysis, next))} />
 }
-

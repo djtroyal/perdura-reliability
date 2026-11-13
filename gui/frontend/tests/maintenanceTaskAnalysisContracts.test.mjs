@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { createServer as createHttpServer } from 'node:http'
-import { createServer } from 'vite'
+import { createSsrTestServer } from './viteTestLifecycle.mjs'
 
 const component = readFileSync(new URL(
   '../src/components/Maintenance/TaskAnalysis.tsx',
@@ -61,7 +61,7 @@ assert.match(component, /overtime_rate_multiplier/)
 assert.match(router, /task-analysis\/analyze\/stream/)
 
 const hmrServer = createHttpServer()
-const vite = await createServer({
+const vite = await createSsrTestServer({
   root: new URL('..', import.meta.url).pathname,
   appType: 'custom',
   server: { middlewareMode: true, ws: { server: hmrServer } },

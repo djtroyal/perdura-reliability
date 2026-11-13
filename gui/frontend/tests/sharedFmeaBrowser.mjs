@@ -77,10 +77,20 @@ try {
   checks.push('Canonical function creation stays within study scope while required peer and ancestor functions remain context')
   await page.evaluate(() => { const w = window.sharedFmea, state = w.shared.currentProjectSystem(); w.shared.commitProjectSystem({ ...state, model: { ...state.model, resources: state.model.resources.map(resource => resource.id === 'dc-power' ? { ...resource, name: 'Protected DC supply' } : resource) } }) })
   const updated = await page.evaluate(() => { const w = window.sharedFmea; return w.project.getProjectState().modules.fmea.folios.map(folio => w.fmea.materializeFmeaAnalysis(w.shared.currentProjectSystem().model, folio.state.analyses[0])) })
-  assert(updated.every(study => study.functions.some(fn => fn.description === 'Import Protected DC supply')))
+  for (const study of updated) {
+    const receiver = study.functions.find(fn => fn.system_definition_ref?.instance_id === 'motor-controller'
+      && fn.system_definition_ref?.function_id === 'receive-power')
+    assert.ok(receiver, 'Every study retains the canonical receiving function')
+    assert.equal(receiver.description, 'Import 28 V DC supply', 'Renaming a resource must preserve the authored function action')
+    assert.equal(receiver.definition.action, 'Import 28 V DC supply')
+    assert.ok(receiver.definition.io.some(io => io.direction === 'input' && io.resource_id === 'dc-power'),
+      'The receiving function retains its canonical input resource binding')
+    assert.equal(study.resources.find(resource => resource.id === 'dc-power')?.name, 'Protected DC supply',
+      'Every study resolves its input resource to the renamed shared resource')
+  }
   assert(updated.every(study => study.interfaces[0].flow_description === 'Protected DC supply'))
   assert(updated.every(study => study.interfaces[0].transfers[0].resource_id === 'dc-power'))
-  checks.push('Named resource changes refresh structured function statements and shared interface content in all studies')
+  checks.push('Resource renames refresh shared inputs and interface content in all studies while preserving authored function actions')
   assert.deepEqual(errors, [])
   await page.screenshot({ path: join(output, 'focused-system-fmea.png'), fullPage: true })
   await writeFile(join(output, 'report.json'), JSON.stringify({ checks, errors }, null, 2))

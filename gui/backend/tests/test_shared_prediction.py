@@ -20,7 +20,7 @@ def fixture():
     def instance(identity, definition_id, parent=None, quantity=1):
         return {'id': identity, 'name': identity, 'definition_id': definition_id,
                 'parent_instance_id': parent, 'quantity': quantity}
-    model = {'version': 2, 'id': 'project-system', 'name': 'Plant', 'root_instance_id': 'root',
+    model = {'version': 4, 'id': 'project-system', 'name': 'Plant', 'root_instance_id': 'root',
              'definitions': [definition('system', 'system'), definition('assembly', 'assembly'),
                              definition('part', 'piece_part')],
              'instances': [instance('root', 'system'), instance('a', 'assembly', 'root', 2),

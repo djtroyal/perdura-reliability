@@ -5,7 +5,7 @@
 <script language="javascript" src="https://www.google.com/jsapi"></script>
 <meta name="google-site-verification" content="cBccqdfyynKcGEirmXQbX_ZO0KydBSfCJTvSPr15_PY" />
 <link rel="shortcut icon" href="static/rat.ico">
-<meta charset="utf-8" /> 
+<meta charset="utf-8" />
 <title>/sample_size</title>
 <meta name="description" content="How reliable is my product? This sample size calculator determines the samples required to demonstrate a certain level of reliability at a given confidence level." >
 <meta name="copyright" content="2010 - 2023">
@@ -35,7 +35,7 @@
 
         <h1 class="pagetitle">Sample Size Calculator - Binomial Reliability Demonstration Test</h1>
         <p>
-This calculator is used to calculate the number of test samples required to demonstrate a required level of reliability at a given confidence level. 
+This calculator is used to calculate the number of test samples required to demonstrate a required level of reliability at a given confidence level.
 It can be used to answer questions such as:<br><br>
 1. How many test samples are required to demonstrate 95% reliability at a 95% confidence level?<br>
 2. How much test time is needed to demonstrate 90% reliability at a 90% confidence level?<br>
@@ -67,15 +67,15 @@ the estimate of &#946 is accurate. Method 2A solves for required sample size.  C
         <h2>
         Calculation Inputs:
         </h2>
-        <form action=/sample_size_solution method="post"> 
+        <form action=/sample_size_solution method="post">
         <div>
-1. Select method: 
+1. Select method:
 <select name="method">
 <option value="Method 1">Method 1</option>
 <option value="Method 2A">Method 2A (Calculate Samples)</option>
 <option value="Method 2B">Method 2B (Calculate Test Time)</option>
 </select>
-</div>   
+</div>
 
 <table id="tools">
 <tr>
@@ -85,9 +85,9 @@ the estimate of &#946 is accurate. Method 2A solves for required sample size.  C
 </tr>
 <tr>
 <td>
-                
+
 <div>
-2. Number of allowable test failures (f): 
+2. Number of allowable test failures (f):
 <select name="f1">
 <option value="0">0</option>
 <option value="1">1</option>
@@ -106,8 +106,8 @@ the estimate of &#946 is accurate. Method 2A solves for required sample size.  C
 <option value="14">14</option>
 <option value="15">15</option>
 </select>
-</div>                
-                
+</div>
+
 <div>
 3. Reliability requirement (R):
 <input type="text"
@@ -115,9 +115,9 @@ name="R1"
 value=0.80
 size="6"></input>
 </div>
-                
+
 <div>
-4. Test confidence level (C): 
+4. Test confidence level (C):
 <select name="C1">
 <option value=".90">90%</option>
 <option value=".99">99%</option>
@@ -149,7 +149,7 @@ size="6"></input>
 <td>
 
 <div>
-2. Number of allowable test failures (f): 
+2. Number of allowable test failures (f):
 <select name="f2">
 <option value="0">0</option>
 <option value="1">1</option>
@@ -166,13 +166,13 @@ size="6"></input>
 <option value="12">12</option>
 <option value="13">13</option>
 <option value="14">14</option>
-<option value="15">15</option>     
+<option value="15">15</option>
 </select>
 </div>
 
 
 <div>
-3a. Reliability requirement at T<sub>mission</sub> (R<sub>rqmt</sub>): 
+3a. Reliability requirement at T<sub>mission</sub> (R<sub>rqmt</sub>):
 <input type="text"
 name="R2"
 value=0.80
@@ -180,7 +180,7 @@ size="6"></input>
 </div>
 
 <div>
-3b. Mission time (T<sub>mission</sub>, hours): 
+3b. Mission time (T<sub>mission</sub>, hours):
 <input type="text"
 name="mission_time"
 value=2000
@@ -188,7 +188,7 @@ size="6"></input>
 </div>
 
 <div>
-3c. Weibull shape parameter (&#946): 
+3c. Weibull shape parameter (&#946):
 <select name="beta">
 <option value="2.0">2.0</option>
 <option value="0.5">0.5</option>
@@ -239,10 +239,10 @@ size="6"></input>
 <option value="5.0">5.0</option>
 </select>
 </div>
-        
-                
+
+
 <div>
-4. Test confidence level (C): 
+4. Test confidence level (C):
 <select name="C2">
 <option value=".90">90%</option>
 <option value=".99">99%</option>
@@ -261,7 +261,7 @@ size="6"></input>
 </div>
 
 <div>
-5. Available test time (T<sub>test</sub>, hours): 
+5. Available test time (T<sub>test</sub>, hours):
 <input type="text"
 name="test_time"
 value=1500
@@ -277,7 +277,7 @@ size="6"></input>
 <td>
 
 <div>
-2. Number of allowable test failures (f): 
+2. Number of allowable test failures (f):
 <select name="f3">
 <option value="0">0</option>
 <option value="1">1</option>
@@ -294,13 +294,13 @@ size="6"></input>
 <option value="12">12</option>
 <option value="13">13</option>
 <option value="14">14</option>
-<option value="15">15</option>     
+<option value="15">15</option>
 </select>
 </div>
 
 
 <div>
-3a. Reliability requirement at T<sub>mission</sub> (R<sub>rqmt</sub>): 
+3a. Reliability requirement at T<sub>mission</sub> (R<sub>rqmt</sub>):
 <input type="text"
 name="R3"
 value=0.80
@@ -308,7 +308,7 @@ size="6"></input>
 </div>
 
 <div>
-3b. Mission time (T<sub>mission</sub>, hours): 
+3b. Mission time (T<sub>mission</sub>, hours):
 <input type="text"
 name="mission_time3"
 value=2000
@@ -316,7 +316,7 @@ size="6"></input>
 </div>
 
 <div>
-3c. Weibull shape parameter (&#946): 
+3c. Weibull shape parameter (&#946):
 <select name="beta3">
 <option value="2.0">2.0</option>
 <option value="0.5">0.5</option>
@@ -367,10 +367,10 @@ size="6"></input>
 <option value="5.0">5.0</option>
 </select>
 </div>
-        
-                
+
+
 <div>
-4. Test confidence level (C): 
+4. Test confidence level (C):
 <select name="C3">
 <option value=".90">90%</option>
 <option value=".99">99%</option>
@@ -389,7 +389,7 @@ size="6"></input>
 </div>
 
 <div>
-5. Sample size (n): 
+5. Sample size (n):
 <input type="text"
 name="n3"
 value=19

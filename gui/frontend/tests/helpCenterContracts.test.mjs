@@ -3,10 +3,10 @@ import { createServer as createHttpServer } from 'node:http'
 import katex from 'katex'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { createServer } from 'vite'
+import { createSsrTestServer } from './viteTestLifecycle.mjs'
 
 const hmrServer = createHttpServer()
-const vite = await createServer({
+const vite = await createSsrTestServer({
   root: new URL('..', import.meta.url).pathname,
   appType: 'custom',
   server: { middlewareMode: true, ws: { server: hmrServer } },

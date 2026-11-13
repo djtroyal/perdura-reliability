@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { createServer as createHttpServer } from 'node:http'
-import { createServer } from 'vite'
+import { createSsrTestServer } from './viteTestLifecycle.mjs'
 const hmrServer = createHttpServer()
-const vite = await createServer({ root: new URL('..', import.meta.url).pathname, appType: 'custom',
+const vite = await createSsrTestServer({ root: new URL('..', import.meta.url).pathname, appType: 'custom',
   server: { middlewareMode: true, ws: { server: hmrServer } } })
 try {
   const m = await vite.ssrLoadModule('/src/store/sharedSystemModel.ts')

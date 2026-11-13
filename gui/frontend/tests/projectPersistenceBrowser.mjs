@@ -64,6 +64,8 @@ try {
   assert.equal(legacyIsolation.saved, false)
   assert.equal(legacyIsolation.legacyRetained, true)
   assert.equal(legacyIsolation.legacyLoaded, false)
+  const storageNamespace = await page.evaluate(async () =>
+    (await import('/src/store/project.ts')).PROJECT_STORAGE_NAMESPACE)
 
   const scale = await page.evaluate(async () => {
     const project = await import('/src/store/project.ts')
@@ -102,7 +104,7 @@ try {
       result: loaded.modules.faultTree.folios[1].state.result.top_event_probability,
       puts: puts.filter(item => item.store === 'records').map(item => item.key), saved, opened,
       active: project.getProjectState().modules.faultTree.activeId,
-      localProjectKeys: Object.keys(localStorage).filter(key => key.startsWith('perdura:project-schema:10:') && !key.endsWith('recent-projects')) }
+      localProjectKeys: Object.keys(localStorage).filter(key => key.startsWith(`${project.PROJECT_STORAGE_NAMESPACE}:`) && !key.endsWith('recent-projects')) }
   })
   assert.equal(scale.count, 500)
   assert.equal(scale.nodeCount, 50000)
@@ -113,7 +115,7 @@ try {
   assert.equal(scale.active, 'tree-0')
   assert.deepEqual(scale.localProjectKeys, [])
 
-  const reports = await page.evaluate(async () => {
+  const reports = await page.evaluate(async namespace => {
     const { ProjectPersistence } = await import('/src/store/projectPersistence.ts')
     const adapter = new ProjectPersistence()
     const image = `data:image/png;base64,${'a'.repeat(100000)}`
@@ -135,7 +137,7 @@ try {
     } finally { IDBObjectStore.prototype.put = originalPut }
     const loaded = await new ProjectPersistence().read('named:Reports')
     const db = await new Promise((resolve, reject) => {
-      const req = indexedDB.open('perdura:project-schema:10')
+      const req = indexedDB.open(namespace)
       req.onsuccess = () => resolve(req.result)
       req.onerror = () => reject(req.error)
     })
@@ -150,7 +152,7 @@ try {
       otherReport: loaded.modules.reportBuilder.reports[1].title,
       snapshotRoundtrip: loaded.modules.reportBuilder.plotSnapshots[0].png === image,
       reportRecordsContainImage: rows.filter(row => row.key.startsWith('report:')).some(row => JSON.stringify(row.value).includes(image)) }
-  })
+  }, storageNamespace)
   assert.deepEqual(reports.puts, ['report:report-a'])
   assert.equal(reports.blobCount, 1, 'the same image in multiple reports and snapshots has one committed blob')
   assert.equal(reports.imageRoundtrip, true)
@@ -225,7 +227,7 @@ try {
   assert.equal(failures.finalName, 'Other tab committed')
   const recoveryPage = await browser.newPage()
   await recoveryPage.goto(`${origin}/__storage_test`)
-  const malformedRecovery = await recoveryPage.evaluate(async () => {
+  const malformedRecovery = await recoveryPage.evaluate(async namespace => {
     const source = { projectName: 'Malformed current library', identity: { projectId: 'malformed-current' }, units: 'hours', analysisRuns: [], exportLedger: [], modules: { faultTree: {
       _folioWrap: true, activeId: 'valid', folios: [{ id: 'valid', state: { nodes: [], edges: [] } },
         { name: 'Missing identity must survive', state: { nodes: [{ id: 'saved-event' }], edges: [] } }],
@@ -236,7 +238,7 @@ try {
     // database write would. Normal saves correctly reject missing identities.
     await persistence.read('session')
     const db = await new Promise((resolve, reject) => {
-      const request = indexedDB.open('perdura:project-schema:10')
+      const request = indexedDB.open(namespace)
       request.onsuccess = () => resolve(request.result)
       request.onerror = () => reject(request.error)
     })
@@ -257,7 +259,7 @@ try {
       recoveredFolios: recovery.modules.faultTree.folios.length,
       recoveredEvent: recovery.modules.faultTree.folios[1].state.nodes[0].id,
       savedSession: await persistence.read('session'), migrated: await persistence.migrationComplete() }
-  })
+  }, storageNamespace)
   assert.match(malformedRecovery.error, /FTA library contains/)
   assert.equal(malformedRecovery.retained, true)
   assert.equal(malformedRecovery.recoveredFolios, 2)

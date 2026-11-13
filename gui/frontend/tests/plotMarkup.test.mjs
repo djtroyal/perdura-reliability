@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict'
 import { createServer as createHttpServer } from 'node:http'
-import { createServer } from 'vite'
+import { createSsrTestServer } from './viteTestLifecycle.mjs'
 
 // Vite creates its HMR transport even in middleware mode. Supplying an
 // unbound HTTP server keeps this contract test network-free in sandboxes.
 const hmrServer = createHttpServer()
-const vite = await createServer({
+const vite = await createSsrTestServer({
   root: new URL('..', import.meta.url).pathname,
   appType: 'custom',
   server: { middlewareMode: true, ws: { server: hmrServer } },

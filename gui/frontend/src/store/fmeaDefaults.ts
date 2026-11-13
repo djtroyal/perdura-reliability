@@ -20,4 +20,3 @@ export function createFmeaFailureChain(kind: FMEAKind, id: string): FMEAFailureC
     management_review_evidence_ids: [], remarks: '',
   }
 }
-

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { createServer as createHttpServer } from 'node:http'
-import { createServer } from 'vite'
+import { createSsrTestServer } from './viteTestLifecycle.mjs'
 
 const values = new Map()
 globalThis.localStorage = {
@@ -21,7 +21,7 @@ const legacy = JSON.stringify({
 values.set('reliability-suite-session', legacy)
 
 const hmrServer = createHttpServer()
-const vite = await createServer({
+const vite = await createSsrTestServer({
   root: new URL('..', import.meta.url).pathname,
   appType: 'custom',
   server: { middlewareMode: true, ws: { server: hmrServer } },

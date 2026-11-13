@@ -1,4 +1,12 @@
 import fs from 'node:fs/promises'
+import { createServer } from 'vite'
+
+export function createSsrTestServer(config) {
+  return createServer({
+    ...config,
+    plugins: [...(config.plugins ?? []), ssrOnlyVitePlugin()],
+  })
+}
 
 // These contracts load real application modules through SSR, but never request
 // browser modules. Replace includes after config merging so the application
