@@ -1,4 +1,5 @@
 import importlib.util
+from datetime import date
 import re
 from pathlib import Path
 
@@ -48,6 +49,38 @@ def test_assurance_report_does_not_claim_external_assessment():
 
     assert any("independent" in item.lower() for item in report["external_evidence_not_evaluated"])
     assert "not" in report["interpretation"].lower()
+
+
+@pytest.mark.parametrize("deadline, expected", [
+    ("2026-10-31", False),
+    ("2026-11-12", True),
+    ("2026-12-31", True),
+    ("2026-02-30", False),
+])
+def test_zap_suppression_review_dates_are_enforced(deadline, expected):
+    rules = f"10049\tIGNORE\tIntentional no-store response. Review by {deadline}."
+    passed, _ = MODULE._zap_suppression_check(rules, today=date(2026, 11, 12))
+    assert passed is expected
+
+
+@pytest.mark.parametrize("rule", [
+    "10049\tIGNORE\tReview by 2026-12-31.",
+    "10049\tIGNORE\tIntentional no-store response.",
+    "10049 IGNORE Intentional no-store response. Review by 2026-12-31.",
+])
+def test_zap_suppression_without_valid_reason_and_deadline_fails(rule):
+    passed, _ = MODULE._zap_suppression_check(rule, today=date(2026, 11, 12))
+    assert not passed
+
+
+def test_one_expired_zap_suppression_fails_the_review():
+    rules = "\n".join([
+        "10049\tIGNORE\tIntentional no-store response. Review by 2026-12-31.",
+        "10055\tIGNORE\tRequired renderer styles. Review by 2026-10-31.",
+    ])
+    passed, detail = MODULE._zap_suppression_check(rules, today=date(2026, 11, 12))
+    assert not passed
+    assert "10055" in detail and "expired" in detail
 
 
 def test_container_removes_build_only_python_packaging_tools():

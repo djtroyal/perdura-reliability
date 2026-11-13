@@ -205,27 +205,35 @@ service targets remain deployment requirements; ISO/IEC 25023 supplies
 measurement terminology but does not supply universal passing values.
 
 PR CI measures the exact base SHA and candidate scientific source using
-`--compare-source-root` with the **same candidate workload harness and interpreter**.
+`--compare-source-root --compare-locked-environments` with the same candidate
+workload harness and Python version. Each revision receives a fresh temporary
+environment synchronized from its own lock with the `app` extra, without
+development tools or an installed Perdura package. The benchmark imports the
+requested scientific source directly. Dependency changes are therefore measured
+as part of the candidate release rather than rejected solely because the lock
+changed or accidentally measured using the candidate's dependencies for both
+revisions.
 Four fresh processes run in a fixed base/candidate/candidate/base order. This
 counterbalances order and exposes variation between processes instead of relying
 on one short sample from each revision. The runner checks
 the imported `reliability` package path. It compares only matching workload and
-runner hashes, workload selection, repeat/warm-up protocol, Python runtime
-dependency closure, installed scientific libraries, CPU/affinity, OS, and native
-thread pools. The runtime projection starts at the editable Perdura package and
+runner hashes, workload selection, repeat/warm-up protocol, Python version,
+CPU/affinity, OS, and threading configuration. Lock and installed-package evidence
+are retained separately for each revision. The runtime projection starts at the
+editable Perdura package and
 its `app` extra, follows every transitive dependency and selected extra, and
 retains all locked platform/Python variants, sources, artifacts/hashes, dependency
 markers and lock metadata. It excludes development/release dependency groups and
 packages reachable only through those groups. A package shared with runtime
 remains included. Missing or ambiguous dependency evidence fails closed.
 
-Exact runtime-projection equality is required; a changed runtime version,
-artifact, source or dependency remains incompatible. Development/release-only
-updates can therefore compare the two scientific sources under the same runtime
-without skipping any workload or relaxing numerical, timing or memory gates.
-The complete `uv.lock` hash remains in provenance for every process block, even
-when those full hashes differ. Comparison protocols `v3` (single process) and
-`v4` (A/B/B/A) identify this policy; old-protocol records are incompatible.
+The default source-only comparison still requires exact runtime-projection and
+installed-library equality. Its protocols remain `v3` (single process) and `v4`
+(A/B/B/A). The explicit locked-environment comparison uses `v5-locked`:
+runtime dependency changes are the tested variable, while synchronization,
+source origin, lock integrity, and the common execution context must all verify.
+Neither mode relaxes numerical, timing, or memory gates. The complete `uv.lock`
+hash remains in provenance for every process block, even when those hashes differ.
 Push runs without a supplied baseline report `comparison.status=unavailable`;
 they establish smoke execution only. Incompatible or absent records never
 produce a percentage improvement or a passing comparison. Use
@@ -290,6 +298,14 @@ The default browser gate applies the selected complete WCAG ruleset to all 18
 top-level modules and fails any serious or critical finding in those journeys.
 The empty baseline remains owned and dated. These sampled automated checks do
 not establish accessibility or WCAG conformance for every application state.
+
+The [2026-11-12 baseline review](../audit/evidence/security-integration-2026-11-12/accessibility-review.json)
+retains zero allowances after all 18 Chromium module journeys and the shared
+keyboard, focus, forced-color and reflow regressions passed. Its evidence records
+the tested working-tree dependency hashes and the local Firefox/WebKit setup
+limitations. The review is due again on 2026-12-31. The unchanged GitHub browser
+jobs must still pass against the committed integration candidate; the local
+review does not waive those checks or claim complete manual WCAG evaluation.
 
 ## Independent assessment package
 

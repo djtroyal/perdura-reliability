@@ -18,6 +18,8 @@ evidence/
 docs/audit/evidence/*
 !docs/audit/evidence/modernization-2026-09-14/
 !docs/audit/evidence/modernization-2026-09-14/**
+!docs/audit/evidence/security-integration-2026-11-12/
+!docs/audit/evidence/security-integration-2026-11-12/**
 evidence-*/
 test-evidence/
 gui/frontend/test-evidence/

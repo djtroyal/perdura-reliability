@@ -373,3 +373,256 @@ def test_missing_or_malformed_lock_cannot_produce_comparable_hash(runner, tmp_pa
         path.write_text(contents)
     with pytest.raises(ValueError, match='Cannot establish runtime lock closure'):
         runner.runtime_lock_hash(path)
+
+
+def fake_locked_blocks(runner, monkeypatch, *, timings=None, peaks=None, mutation=None):
+    calls, reports = fake_process_blocks(runner, monkeypatch, timings or [1, 1, 1, 1], peaks)
+    measure = runner.measure_source_block
+    monkeypatch.setattr(runner, "prepare_locked_environment", lambda root, directory: {"role": root.name})
+
+    def locked_measure(root, repeats, selected, environment):
+        assert environment["role"] == root.name
+        report = measure(root, repeats, selected)
+        report["comparison_context"].update({
+            "runtime_lock_sha256": root.name,
+            "workload_sha256": "same-workload",
+            "environment": {
+                "cpu_model": "same-cpu", "python": "3.13.18",
+                "thread_limits": {"OPENBLAS_NUM_THREADS": "1"},
+                "libraries": {"numpy": "1" if root.name == "base" else "2"},
+                "native_pools": [{"user_api": "blas", "num_threads": 1, "version": root.name}],
+            },
+        })
+        if mutation:
+            mutation(report, root.name, len(calls))
+        return report
+    monkeypatch.setattr(runner, "measure_source_block", locked_measure)
+    return calls, reports
+
+
+def test_explicit_locked_mode_compares_runtime_changes_with_all_observations(runner, monkeypatch):
+    calls, reports = fake_locked_blocks(runner, monkeypatch)
+    cases, comparison, blocks = runner.compare_sources(Path("candidate"), Path("base"), 3, ["case"], locked_environments=True)
+    assert calls == ["base", "candidate", "candidate", "base"]
+    assert [block["report"] for block in blocks] == reports
+    assert comparison["status"] == "available"
+    assert comparison["dependency_environment_mode"] == "separate-locked-runtime-environments"
+    assert comparison["runtime_locks"] == {"baseline": "base", "candidate": "candidate"}
+    assert comparison["numerical_result_check"]["status"] == "matched"
+    assert cases[0]["status"] == "passed"
+    assert len(cases[0]["observations_seconds"]) == 6
+
+
+@pytest.mark.parametrize("field", ["cpu_model", "python", "thread_limits", "native_pools", "protocol", "workload_sha256"])
+def test_locked_mode_still_rejects_hardware_python_threads_and_protocol_changes(runner, monkeypatch, field):
+    def mutate(report, role, _index):
+        if role != "candidate":
+            return
+        context = report["comparison_context"]
+        if field in {"protocol", "workload_sha256"}:
+            context[field] = "changed"
+        elif field == "native_pools":
+            context["environment"][field][0]["num_threads"] = 2
+        else:
+            context["environment"][field] = "changed"
+    fake_locked_blocks(runner, monkeypatch, mutation=mutate)
+    cases, comparison, _ = runner.compare_sources(Path("candidate"), Path("base"), 3, ["case"], locked_environments=True)
+    assert comparison["status"] == "incompatible"
+    assert cases[0]["status"] == "inconclusive"
+    assert cases[0]["baseline"]["available"] is False
+
+
+@pytest.mark.parametrize("field", ["runtime_lock_sha256", "libraries", "native_pools"])
+def test_locked_mode_rejects_dependency_drift_within_a_revision(runner, monkeypatch, field):
+    def mutate(report, _role, index):
+        if index == 3:
+            context = report["comparison_context"]
+            if field == "runtime_lock_sha256":
+                context[field] = "unexpected-third-lock"
+            else:
+                context["environment"][field] = {"changed": True} if field == "libraries" else []
+    fake_locked_blocks(runner, monkeypatch, mutation=mutate)
+    _, comparison, _ = runner.compare_sources(Path("candidate"), Path("base"), 3, ["case"], locked_environments=True)
+    assert comparison["status"] == "incompatible"
+
+
+@pytest.mark.parametrize("timings,peaks,expected", [
+    ([1, 1.11, 1.11, 1], None, "regressed"),
+    ([1, 2, 4, 1], [100, 116, 116, 100], "regressed"),
+    ([1, 1.2, 1.2, 1.4], None, "inconclusive"),
+])
+def test_locked_mode_keeps_time_memory_and_noise_gates(runner, monkeypatch, timings, peaks, expected):
+    fake_locked_blocks(runner, monkeypatch, timings=timings, peaks=peaks)
+    cases, _, _ = runner.compare_sources(Path("candidate"), Path("base"), 3, ["case"], locked_environments=True)
+    assert cases[0]["status"] == expected
+    assert cases[0]["baseline"]["time_regression_threshold_fraction"] == .10
+    assert cases[0]["baseline"]["memory_regression_threshold_fraction"] == .15
+
+
+def test_locked_mode_rejects_numerical_changes(runner, monkeypatch):
+    def mutate(report, role, _index):
+        if role == "candidate":
+            report["cases"][0]["result_checksum"] = 9
+    fake_locked_blocks(runner, monkeypatch, mutation=mutate)
+    _, comparison, _ = runner.compare_sources(Path("candidate"), Path("base"), 3, ["case"], locked_environments=True)
+    assert comparison["status"] == "incompatible"
+    assert comparison["numerical_result_check"]["status"] == "different"
+
+
+def test_locked_cli_reports_measured_candidate_environment_not_orchestrator(tmp_path, runner, monkeypatch):
+    fake_locked_blocks(runner, monkeypatch)
+    monkeypatch.setattr(runner, "WORKLOADS", {"case": lambda: 1})
+    monkeypatch.setattr(runner, "load_workloads", lambda root: "test-origin")
+    monkeypatch.setattr(runner, "comparison_context", lambda *args: {"environment": {"parent-dev-env": True}})
+    output = tmp_path / "paired.json"
+    assert runner.main(["--source-root", "candidate", "--compare-source-root", "base",
+                        "--compare-locked-environments", "--only", "case", "--repeats", "3",
+                        "--output", str(output)]) == 0
+    report = json.loads(output.read_text())
+    assert report["comparison_context"]["protocol"] == "perdura.performance-comparison/v5-locked"
+    assert report["environment"]["libraries"]["numpy"] == "2"
+    assert "parent-dev-env" not in report["environment"]
+
+
+def test_locked_cli_requires_source_pair(runner):
+    with pytest.raises(SystemExit) as error:
+        runner.main(["--compare-locked-environments"])
+    assert error.value.code == 2
+
+
+def test_locked_environment_sanitizes_inherited_interpreter_and_uv_policy(runner, monkeypatch):
+    for key in ("PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV", "UV_PROJECT_ENVIRONMENT", "UV_INEXACT", "UV_NO_SYNC"):
+        monkeypatch.setenv(key, "wrong")
+    monkeypatch.setenv("OMP_NUM_THREADS", "1")
+    monkeypatch.setenv("UV_CACHE_DIR", "/tmp/allowed-cache")
+    environment = runner.isolated_environment()
+    assert not any(key in environment for key in (
+        "PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV", "UV_PROJECT_ENVIRONMENT", "UV_INEXACT", "UV_NO_SYNC"))
+    assert environment["OMP_NUM_THREADS"] == "1"
+    assert environment["UV_CACHE_DIR"] == "/tmp/allowed-cache"
+
+
+@pytest.mark.parametrize("changed", ["source", "workload", "sync"])
+def test_locked_environment_fails_closed_on_source_or_sync_drift(runner, monkeypatch, tmp_path, changed):
+    environment = {"source_root": str(tmp_path), "source_fingerprint": {"source": "before"},
+                   "workload_sha256": "workload", "sync_check_command": ["uv", "sync", "--check"],
+                   "process_environment": {}}
+    monkeypatch.setattr(runner, "source_fingerprint", lambda root: {"source": "after" if changed == "source" else "before"})
+    monkeypatch.setattr(runner, "workload_hash", lambda: "after" if changed == "workload" else "workload")
+    def failed_sync(*args, **kwargs):
+        raise RuntimeError("sync failed")
+    monkeypatch.setattr(runner, "checked_process", failed_sync)
+    with pytest.raises((ValueError, RuntimeError), match="changed|sync failed"):
+        runner.verify_locked_environment(environment)
+
+
+def test_inventory_is_limited_to_venv_site_packages_even_with_checkout_metadata(runner, monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    prefix = tmp_path / "venv"
+    site_packages = prefix / "lib/site-packages"
+    monkeypatch.setattr(runner.sys, "prefix", str(prefix))
+    monkeypatch.setattr(runner.site, "getsitepackages", lambda: [str(site_packages)])
+    def distributions(*, path):
+        assert path == [str(site_packages)]
+        return [SimpleNamespace(metadata={"Name": "locked_package"}, version="1.0",
+                                locate_file=lambda _: site_packages)]
+    monkeypatch.setattr(runner.importlib.metadata, "distributions", distributions)
+    assert runner.environment_inventory()["packages"] == {"locked-package": "1.0"}
+
+
+def test_inventory_rejects_system_site_packages(runner, monkeypatch, tmp_path):
+    monkeypatch.setattr(runner.sys, "prefix", str(tmp_path / "venv"))
+    monkeypatch.setattr(runner.site, "getsitepackages", lambda: [str(tmp_path / "system/site-packages")])
+    with pytest.raises(ValueError, match="System site-packages"):
+        runner.environment_inventory()
+
+
+@pytest.mark.parametrize("failure", [None, "prefix", "executable", "python", "isolated", "packages", "package_roots", "sync"])
+def test_prepare_locked_environment_verifies_sync_interpreter_and_installed_closure(runner, monkeypatch, tmp_path, failure):
+    root = tmp_path / "source"
+    root.mkdir()
+    (root / "uv.lock").write_text("version = 1\n")
+    directory = tmp_path / "environment"
+    python = directory / ("Scripts/python.exe" if runner.os.name == "nt" else "bin/python")
+    inventory = {
+        "prefix": str(directory), "executable": str(python),
+        "base_executable": str(Path(getattr(sys, "_base_executable", sys.executable)).resolve()),
+        "python": runner.platform.python_version(), "implementation": runner.platform.python_implementation(),
+        "isolated": True, "packages": {"numpy": "1.0"},
+        "package_roots": {"numpy": str(directory / "lib/site-packages")},
+    }
+    if failure in {"prefix", "executable", "python"}:
+        inventory[failure] = "wrong"
+    elif failure == "isolated":
+        inventory[failure] = False
+    elif failure == "packages":
+        inventory[failure] = {"unexpected": "9.0"}
+    elif failure == "package_roots":
+        inventory[failure] = {"numpy": str(tmp_path / "outside")}
+    monkeypatch.setattr(runner.shutil, "which", lambda _: "/test/uv")
+    monkeypatch.setattr(runner, "source_fingerprint", lambda _: {"uv.lock": "lock"})
+    monkeypatch.setattr(runner, "runtime_lock_hash", lambda _: "runtime")
+    monkeypatch.setattr(runner, "runtime_lock_projection", lambda _: {"packages": [{"name": "numpy", "version": "1.0"}]})
+    calls = []
+    def checked(command, **kwargs):
+        calls.append((command, kwargs))
+        if failure == "sync" and "sync" in command:
+            raise RuntimeError("sync failed")
+        return subprocess.CompletedProcess(command, 0, json.dumps(inventory) if "--describe-environment" in command else "uv 0.11.29", "")
+    monkeypatch.setattr(runner, "checked_process", checked)
+    if failure:
+        with pytest.raises((ValueError, RuntimeError)):
+            runner.prepare_locked_environment(root, directory)
+        return
+    environment = runner.prepare_locked_environment(root, directory)
+    command = environment["sync_command"]
+    for flag in ("--locked", "--no-dev", "--no-default-groups", "--no-install-project", "--no-python-downloads"):
+        assert flag in command
+    assert command[command.index("--extra") + 1] == "app"
+    assert command[command.index("--python") + 1] == str(Path(sys.executable).absolute())
+    assert calls[1][0][:2] == [str(python), "-I"]
+    assert calls[0][1]["env"]["UV_PROJECT_ENVIRONMENT"] == str(directory)
+    assert environment["sync_check_command"] == [*command, "--check"]
+    assert environment["sync_returncode"] == 0
+
+
+@pytest.mark.parametrize("failure", [None, "inventory", "lock", "source", "origin"])
+def test_measured_locked_process_must_match_verified_environment(runner, monkeypatch, tmp_path, failure):
+    source = tmp_path / "source"
+    python = tmp_path / "venv/bin/python"
+    # A real symlink ensures the command keeps the venv executable path.
+    python.parent.mkdir(parents=True)
+    python.symlink_to(sys.executable)
+    environment = {
+        "python": str(python), "source_root": str(source), "inventory": {"prefix": str(python.parent.parent)},
+        "process_environment": {"SECRET": "never-in-report"},
+        "uv_lock_sha256": "lock", "runtime_lock_sha256": "runtime",
+    }
+    report = {"provenance": {
+        "python_environment": deepcopy(environment["inventory"]), "uv_lock_sha256": "lock",
+        "scientific_source_root": str(source), "scientific_import_origin": str(source / "src/reliability/__init__.py")},
+        "comparison_context": {"runtime_lock_sha256": "runtime"}}
+    if failure == "inventory":
+        report["provenance"]["python_environment"]["prefix"] = "outside"
+    elif failure == "lock":
+        report["comparison_context"]["runtime_lock_sha256"] = "changed"
+    elif failure == "source":
+        report["provenance"]["scientific_source_root"] = "other"
+    elif failure == "origin":
+        report["provenance"]["scientific_import_origin"] = str(tmp_path / "wrong/__init__.py")
+    verified = []
+    monkeypatch.setattr(runner, "verify_locked_environment", lambda env: verified.append(env))
+    def run(command, **kwargs):
+        assert command[:2] == [str(python), "-I"]
+        assert kwargs["env"] == environment["process_environment"]
+        assert "--locked-environment-prefix" in command
+        Path(command[command.index("--output") + 1]).write_text(json.dumps(report))
+        return subprocess.CompletedProcess(command, 0, "", "")
+    monkeypatch.setattr(runner.subprocess, "run", run)
+    if failure:
+        with pytest.raises(ValueError, match="differs from"):
+            runner.measure_source_block(source, 3, ["case"], environment)
+    else:
+        measured = runner.measure_source_block(source, 3, ["case"], environment)
+        assert "SECRET" not in json.dumps(measured)
+        assert len(verified) == 2

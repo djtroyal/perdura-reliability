@@ -59,7 +59,7 @@ def _toml_string(value: str) -> str:
 def _staged_pyproject(version: str, requirements: list[str]) -> str:
     locked = "\n".join(f"    {_toml_string(requirement)}," for requirement in requirements)
     return f'''[build-system]
-requires = ["setuptools==83.0.0"]
+requires = ["setuptools==84.1.0"]
 build-backend = "setuptools.build_meta"
 
 [project]

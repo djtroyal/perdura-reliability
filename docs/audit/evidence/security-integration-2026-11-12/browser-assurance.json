@@ -1,0 +1,395 @@
+{
+  "schema": "perdura.browser-assurance/v1",
+  "generatedAt": "2026-11-12T16:23:41.526Z",
+  "status": "passed",
+  "commit": "working-tree-security-integration-20261112",
+  "baseUrl": "http://127.0.0.1:8127",
+  "browser": "chromium",
+  "browserVersion": "153.0.8010.12",
+  "compatibilityChecks": [
+    {
+      "id": "compatible",
+      "status": "passed"
+    },
+    {
+      "id": "refresh",
+      "status": "passed"
+    },
+    {
+      "id": "incompatible",
+      "status": "passed"
+    },
+    {
+      "id": "unavailable",
+      "status": "passed"
+    }
+  ],
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "coverage": {
+    "completeWcagModules": [
+      "dashboard",
+      "life-data",
+      "alt",
+      "system-modeling",
+      "allocation",
+      "prediction",
+      "pof",
+      "growth",
+      "software-reliability",
+      "fmea",
+      "reliability-program",
+      "maintenance",
+      "hra",
+      "warranty",
+      "hypothesis",
+      "data-analysis",
+      "six-sigma",
+      "report-builder"
+    ],
+    "visualContrastModules": [],
+    "fullCatalog": true
+  },
+  "wcagTags": [
+    "wcag2a",
+    "wcag2aa",
+    "wcag21aa",
+    "wcag22aa"
+  ],
+  "baseline": {
+    "path": "/tmp/perdura-security-integration-20261112/assurance/accessibility-baseline.json",
+    "capturedAt": "2026-09-14",
+    "reviewBy": "2026-10-31",
+    "knownBlockingFindingCount": 0,
+    "interpretation": "No serious or critical findings are currently allowed in the sampled module journeys. New serious or critical findings fail CI."
+  },
+  "cases": [
+    {
+      "id": "dashboard",
+      "coverage": "wcag-aa",
+      "status": "passed",
+      "failureEvidence": null,
+      "httpStatus": 200,
+      "readyMilliseconds": 2660.3606529999997,
+      "navigation": {
+        "domContentLoadedMilliseconds": 617,
+        "loadMilliseconds": 618.2000000001863,
+        "transferBytes": 1656,
+        "decodedBodyBytes": 1356
+      },
+      "knownBlockingFindingCount": 0,
+      "unbaselinedBlockingFindingCount": 0,
+      "unbaselinedViolations": [],
+      "violations": []
+    },
+    {
+      "id": "life-data",
+      "coverage": "wcag-aa",
+      "status": "passed",
+      "failureEvidence": null,
+      "httpStatus": 200,
+      "readyMilliseconds": 2417.5547810000007,
+      "navigation": {
+        "domContentLoadedMilliseconds": 484.70000000018626,
+        "loadMilliseconds": 485.5,
+        "transferBytes": 1656,
+        "decodedBodyBytes": 1356
+      },
+      "knownBlockingFindingCount": 0,
+      "unbaselinedBlockingFindingCount": 0,
+      "unbaselinedViolations": [],
+      "violations": []
+    },
+    {
+      "id": "alt",
+      "coverage": "wcag-aa",
+      "status": "passed",
+      "failureEvidence": null,
+      "httpStatus": 200,
+      "readyMilliseconds": 4166.259439000001,
+      "navigation": {
+        "domContentLoadedMilliseconds": 751.5,
+        "loadMilliseconds": 757.5999999996275,
+        "transferBytes": 1656,
+        "decodedBodyBytes": 1356
+      },
+      "knownBlockingFindingCount": 0,
+      "unbaselinedBlockingFindingCount": 0,
+      "unbaselinedViolations": [],
+      "violations": []
+    },
+    {
+      "id": "system-modeling",
+      "coverage": "wcag-aa",
+      "status": "passed",
+      "failureEvidence": null,
+      "httpStatus": 200,
+      "readyMilliseconds": 4759.424399999996,
+      "navigation": {
+        "domContentLoadedMilliseconds": 808.3999999999069,
+        "loadMilliseconds": 828.1999999997206,
+        "transferBytes": 1656,
+        "decodedBodyBytes": 1356
+      },
+      "knownBlockingFindingCount": 0,
+      "unbaselinedBlockingFindingCount": 0,
+      "unbaselinedViolations": [],
+      "violations": []
+    },
+    {
+      "id": "allocation",
+      "coverage": "wcag-aa",
+      "status": "passed",
+      "failureEvidence": null,
+      "httpStatus": 200,
+      "readyMilliseconds": 3649.4420919999975,
+      "navigation": {
+        "domContentLoadedMilliseconds": 701.7999999998137,
+        "loadMilliseconds": 744.6999999997206,
+        "transferBytes": 1656,
+        "decodedBodyBytes": 1356
+      },
+      "knownBlockingFindingCount": 0,
+      "unbaselinedBlockingFindingCount": 0,
+      "unbaselinedViolations": [],
+      "violations": []
+    },
+    {
+      "id": "prediction",
+      "coverage": "wcag-aa",
+      "status": "passed",
+      "failureEvidence": null,
+      "httpStatus": 200,
+      "readyMilliseconds": 3164.694147999995,
+      "navigation": {
+        "domContentLoadedMilliseconds": 628.3999999999069,
+        "loadMilliseconds": 629.5,
+        "transferBytes": 1656,
+        "decodedBodyBytes": 1356
+      },
+      "knownBlockingFindingCount": 0,
+      "unbaselinedBlockingFindingCount": 0,
+      "unbaselinedViolations": [],
+      "violations": []
+    },
+    {
+      "id": "pof",
+      "coverage": "wcag-aa",
+      "status": "passed",
+      "failureEvidence": null,
+      "httpStatus": 200,
+      "readyMilliseconds": 2296.8164679999973,
+      "navigation": {
+        "domContentLoadedMilliseconds": 413.29999999981374,
+        "loadMilliseconds": 414.89999999990687,
+        "transferBytes": 1656,
+        "decodedBodyBytes": 1356
+      },
+      "knownBlockingFindingCount": 0,
+      "unbaselinedBlockingFindingCount": 0,
+      "unbaselinedViolations": [],
+      "violations": []
+    },
+    {
+      "id": "growth",
+      "coverage": "wcag-aa",
+      "status": "passed",
+      "failureEvidence": null,
+      "httpStatus": 200,
+      "readyMilliseconds": 2125.6723860000056,
+      "navigation": {
+        "domContentLoadedMilliseconds": 458.09999999962747,
+        "loadMilliseconds": 459.09999999962747,
+        "transferBytes": 1656,
+        "decodedBodyBytes": 1356
+      },
+      "knownBlockingFindingCount": 0,
+      "unbaselinedBlockingFindingCount": 0,
+      "unbaselinedViolations": [],
+      "violations": []
+    },
+    {
+      "id": "software-reliability",
+      "coverage": "wcag-aa",
+      "status": "passed",
+      "failureEvidence": null,
+      "httpStatus": 200,
+      "readyMilliseconds": 2802.1680589999887,
+      "navigation": {
+        "domContentLoadedMilliseconds": 528.1999999997206,
+        "loadMilliseconds": 529.2999999998137,
+        "transferBytes": 1656,
+        "decodedBodyBytes": 1356
+      },
+      "knownBlockingFindingCount": 0,
+      "unbaselinedBlockingFindingCount": 0,
+      "unbaselinedViolations": [],
+      "violations": []
+    },
+    {
+      "id": "fmea",
+      "coverage": "wcag-aa",
+      "status": "passed",
+      "failureEvidence": null,
+      "httpStatus": 200,
+      "readyMilliseconds": 3159.5617569999886,
+      "navigation": {
+        "domContentLoadedMilliseconds": 674,
+        "loadMilliseconds": 675.1999999997206,
+        "transferBytes": 1656,
+        "decodedBodyBytes": 1356
+      },
+      "knownBlockingFindingCount": 0,
+      "unbaselinedBlockingFindingCount": 0,
+      "unbaselinedViolations": [],
+      "violations": []
+    },
+    {
+      "id": "reliability-program",
+      "coverage": "wcag-aa",
+      "status": "passed",
+      "failureEvidence": null,
+      "httpStatus": 200,
+      "readyMilliseconds": 3112.867059000011,
+      "navigation": {
+        "domContentLoadedMilliseconds": 528.3000000002794,
+        "loadMilliseconds": 529.2000000001863,
+        "transferBytes": 1656,
+        "decodedBodyBytes": 1356
+      },
+      "knownBlockingFindingCount": 0,
+      "unbaselinedBlockingFindingCount": 0,
+      "unbaselinedViolations": [],
+      "violations": []
+    },
+    {
+      "id": "maintenance",
+      "coverage": "wcag-aa",
+      "status": "passed",
+      "failureEvidence": null,
+      "httpStatus": 200,
+      "readyMilliseconds": 2852.398372999989,
+      "navigation": {
+        "domContentLoadedMilliseconds": 582.2999999998137,
+        "loadMilliseconds": 583.3999999999069,
+        "transferBytes": 1656,
+        "decodedBodyBytes": 1356
+      },
+      "knownBlockingFindingCount": 0,
+      "unbaselinedBlockingFindingCount": 0,
+      "unbaselinedViolations": [],
+      "violations": []
+    },
+    {
+      "id": "hra",
+      "coverage": "wcag-aa",
+      "status": "passed",
+      "failureEvidence": null,
+      "httpStatus": 200,
+      "readyMilliseconds": 2843.473807999995,
+      "navigation": {
+        "domContentLoadedMilliseconds": 578,
+        "loadMilliseconds": 579.2000000001863,
+        "transferBytes": 1656,
+        "decodedBodyBytes": 1356
+      },
+      "knownBlockingFindingCount": 0,
+      "unbaselinedBlockingFindingCount": 0,
+      "unbaselinedViolations": [],
+      "violations": []
+    },
+    {
+      "id": "warranty",
+      "coverage": "wcag-aa",
+      "status": "passed",
+      "failureEvidence": null,
+      "httpStatus": 200,
+      "readyMilliseconds": 2596.5867410000064,
+      "navigation": {
+        "domContentLoadedMilliseconds": 664.2999999998137,
+        "loadMilliseconds": 665.5,
+        "transferBytes": 1656,
+        "decodedBodyBytes": 1356
+      },
+      "knownBlockingFindingCount": 0,
+      "unbaselinedBlockingFindingCount": 0,
+      "unbaselinedViolations": [],
+      "violations": []
+    },
+    {
+      "id": "hypothesis",
+      "coverage": "wcag-aa",
+      "status": "passed",
+      "failureEvidence": null,
+      "httpStatus": 200,
+      "readyMilliseconds": 2987.926127999992,
+      "navigation": {
+        "domContentLoadedMilliseconds": 572.6000000000931,
+        "loadMilliseconds": 609.3000000002794,
+        "transferBytes": 1656,
+        "decodedBodyBytes": 1356
+      },
+      "knownBlockingFindingCount": 0,
+      "unbaselinedBlockingFindingCount": 0,
+      "unbaselinedViolations": [],
+      "violations": []
+    },
+    {
+      "id": "data-analysis",
+      "coverage": "wcag-aa",
+      "status": "passed",
+      "failureEvidence": null,
+      "httpStatus": 200,
+      "readyMilliseconds": 2147.4171540000098,
+      "navigation": {
+        "domContentLoadedMilliseconds": 349.90000000037253,
+        "loadMilliseconds": 399.40000000037253,
+        "transferBytes": 1656,
+        "decodedBodyBytes": 1356
+      },
+      "knownBlockingFindingCount": 0,
+      "unbaselinedBlockingFindingCount": 0,
+      "unbaselinedViolations": [],
+      "violations": []
+    },
+    {
+      "id": "six-sigma",
+      "coverage": "wcag-aa",
+      "status": "passed",
+      "failureEvidence": null,
+      "httpStatus": 200,
+      "readyMilliseconds": 3031.1670539999905,
+      "navigation": {
+        "domContentLoadedMilliseconds": 658.0999999996275,
+        "loadMilliseconds": 659.2999999998137,
+        "transferBytes": 1656,
+        "decodedBodyBytes": 1356
+      },
+      "knownBlockingFindingCount": 0,
+      "unbaselinedBlockingFindingCount": 0,
+      "unbaselinedViolations": [],
+      "violations": []
+    },
+    {
+      "id": "report-builder",
+      "coverage": "wcag-aa",
+      "status": "passed",
+      "failureEvidence": null,
+      "httpStatus": 200,
+      "readyMilliseconds": 2799.3425009999773,
+      "navigation": {
+        "domContentLoadedMilliseconds": 434.70000000018626,
+        "loadMilliseconds": 439.29999999981374,
+        "transferBytes": 1656,
+        "decodedBodyBytes": 1356
+      },
+      "knownBlockingFindingCount": 0,
+      "unbaselinedBlockingFindingCount": 0,
+      "unbaselinedViolations": [],
+      "violations": []
+    }
+  ],
+  "interpretation": "Automated axe coverage does not establish WCAG conformance. The default checks every top-level module with the complete selected WCAG ruleset; explicit visual-smoke runs report their narrower coverage. Manual evaluation remains required."
+}

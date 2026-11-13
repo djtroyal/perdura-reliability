@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import ExitStack
+from copy import deepcopy
 from datetime import datetime, timezone
 import gc
 import hashlib
@@ -15,6 +17,9 @@ import math
 import os
 from pathlib import Path
 import platform
+import re
+import shutil
+import site
 import statistics
 import subprocess
 import sys
@@ -172,6 +177,126 @@ def runtime_lock_hash(path: Path) -> str:
     return hashlib.sha256(json.dumps(projection, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
+def isolated_environment() -> dict[str, str]:
+    """Do not inherit another project, interpreter, or uv selection policy."""
+    return {key: value for key, value in os.environ.items()
+            if key not in {"PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV"}
+            and not (key.startswith("UV_") and key != "UV_CACHE_DIR")}
+
+
+def environment_inventory() -> dict[str, Any]:
+    packages = {}
+    roots = {}
+    paths = sorted({str(Path(path).resolve()) for path in site.getsitepackages()})
+    if any(not Path(path).is_relative_to(Path(sys.prefix).resolve()) for path in paths):
+        raise ValueError("System site-packages leaked into the locked environment")
+    for distribution in importlib.metadata.distributions(path=paths):
+        name = re.sub(r"[-_.]+", "-", distribution.metadata["Name"]).lower()
+        if name in packages:
+            raise ValueError(f"Duplicate installed distribution: {name}")
+        packages[name] = distribution.version
+        roots[name] = str(Path(distribution.locate_file("")).resolve())
+    return {
+        "python": platform.python_version(),
+        "implementation": platform.python_implementation(),
+        # Resolving the venv executable itself would lose its environment.
+        "executable": str(Path(sys.executable).absolute()),
+        "base_executable": str(Path(getattr(sys, "_base_executable", sys.executable)).resolve()),
+        "prefix": str(Path(sys.prefix).resolve()),
+        "isolated": bool(sys.flags.isolated),
+        "packages": dict(sorted(packages.items())),
+        "package_roots": dict(sorted(roots.items())),
+        "site_packages": paths,
+    }
+
+
+def source_fingerprint(root: Path) -> dict[str, str]:
+    """Detect checkout/configuration changes during the paired experiment."""
+    paths = [root / "uv.lock", root / "pyproject.toml"]
+    paths.extend(sorted((root / "src/reliability").rglob("*.py")))
+    if len(paths) == 2:
+        raise ValueError(f"Scientific source package is missing: {root}")
+    return {str(path.relative_to(root)): hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in paths}
+
+
+def checked_process(command: list[str], *, cwd: Path, env: dict[str, str]) -> subprocess.CompletedProcess:
+    result = subprocess.run(command, cwd=cwd, env=env, capture_output=True, text=True, timeout=600)
+    if result.returncode:
+        raise RuntimeError(f"Locked performance environment command failed ({result.returncode}): "
+                           f"{command!r}\n{result.stdout}\n{result.stderr}")
+    return result
+
+
+def prepare_locked_environment(root: Path, directory: Path) -> dict[str, Any]:
+    root = root.resolve()
+    uv = shutil.which("uv")
+    if not uv:
+        raise ValueError("--compare-locked-environments requires uv")
+    fingerprint = source_fingerprint(root)
+    runtime_hash = runtime_lock_hash(root / "uv.lock")
+    process_env = isolated_environment()
+    process_env["UV_PROJECT_ENVIRONMENT"] = str(directory)
+    command = [uv, "sync", "--project", str(root), "--locked", "--no-dev",
+               "--no-default-groups", "--extra", "app", "--no-install-project",
+               "--python", str(Path(sys.executable).absolute()), "--no-python-downloads"]
+    checked_process(command, cwd=root, env=process_env)
+    python = directory / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    probe = [str(python), "-I", str(Path(__file__).resolve()), "--describe-environment"]
+    inventory = json.loads(checked_process(probe, cwd=root, env=process_env).stdout)
+    if (inventory["prefix"] != str(directory.resolve())
+            or inventory["executable"] != str(python.absolute())
+            or inventory["base_executable"] != str(Path(getattr(sys, "_base_executable", sys.executable)).resolve())
+            or inventory["python"] != platform.python_version()
+            or inventory["implementation"] != platform.python_implementation()
+            or not inventory["isolated"]):
+        raise ValueError("Locked performance environment selected the wrong interpreter")
+    projection = runtime_lock_projection(tomllib.loads((root / "uv.lock").read_text()))
+    allowed = {(package["name"], package["version"]) for package in projection["packages"]
+               if package["name"] != "perdura"}
+    if not inventory["packages"] or any((name, version) not in allowed
+            for name, version in inventory["packages"].items()):
+        raise ValueError("Installed packages are outside the locked runtime closure")
+    if any(not Path(path).is_relative_to(directory.resolve())
+           for path in inventory["package_roots"].values()):
+        raise ValueError("Installed distribution escaped the locked environment")
+    environment = {
+        "source_root": str(root), "source_fingerprint": fingerprint,
+        "runtime_lock_sha256": runtime_hash,
+        "uv_lock_sha256": fingerprint["uv.lock"],
+        "python": str(python), "inventory": inventory,
+        "sync_command": command, "sync_check_command": [*command, "--check"],
+        "sync_returncode": 0,
+        "process_environment": process_env,
+        "uv_version": checked_process([uv, "--version"], cwd=root, env=process_env).stdout.strip(),
+        "workload_sha256": workload_hash(),
+    }
+    verify_locked_environment(environment)
+    return environment
+
+
+def verify_locked_environment(environment: dict[str, Any]) -> None:
+    root = Path(environment["source_root"])
+    if (source_fingerprint(root) != environment["source_fingerprint"]
+            or workload_hash() != environment["workload_sha256"]):
+        raise ValueError("Source, lock, or workload changed during locked comparison")
+    # uv checks the exact host-marker/extras closure; do not recreate its resolver.
+    checked_process(environment["sync_check_command"], cwd=root,
+                    env=environment["process_environment"])
+
+
+def locked_comparison_context(context: dict[str, Any]) -> dict[str, Any]:
+    """Only dependency identities are experimental variables in locked mode."""
+    result = deepcopy(context)
+    result.pop("runtime_lock_sha256")
+    environment = result["environment"]
+    environment.pop("libraries")
+    pools = environment.pop("native_pools")
+    environment["native_thread_configuration"] = sorted({
+        (pool["user_api"], pool["num_threads"]) for pool in pools})
+    return result
+
+
 def load_workloads(source_root: Path) -> str:
     """Use this harness with a selected source revision and verify the import."""
     global SOURCE_ROOT, WORKLOADS
@@ -325,23 +450,45 @@ def summarize_case(identifier: str, observations: list[float], peak_bytes: int,
     }
 
 
-def measure_source_block(source_root: Path, repeats: int, selected: list[str]) -> dict[str, Any]:
+def measure_source_block(source_root: Path, repeats: int, selected: list[str],
+                         environment: dict[str, Any] | None = None) -> dict[str, Any]:
     """A fresh interpreter prevents imports from leaking across source revisions."""
     with tempfile.TemporaryDirectory(prefix="perdura-performance-block-") as directory:
         output = Path(directory) / "report.json"
-        command = [sys.executable, str(Path(__file__).resolve()),
+        if environment:
+            verify_locked_environment(environment)
+        interpreter = [environment["python"], "-I"] if environment else [sys.executable]
+        command = [*interpreter, str(Path(__file__).resolve()),
                    "--source-root", str(source_root.resolve()), "--repeats", str(repeats),
                    "--output", str(output)]
+        if environment:
+            command.extend(["--locked-environment-prefix", environment["inventory"]["prefix"]])
         for identifier in selected:
             command.extend(["--only", identifier])
-        result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, timeout=300)
+        result = subprocess.run(command, cwd=source_root if environment else ROOT,
+                                env=environment["process_environment"] if environment else None,
+                                capture_output=True, text=True, timeout=300)
         if result.returncode:
             raise RuntimeError(f"Performance block for {source_root} failed: {result.stderr}")
-        return json.loads(output.read_text(encoding="utf-8"))
+        report = json.loads(output.read_text(encoding="utf-8"))
+        if environment:
+            verify_locked_environment(environment)
+            provenance = report["provenance"]
+            if (provenance["python_environment"] != environment["inventory"]
+                    or provenance["uv_lock_sha256"] != environment["uv_lock_sha256"]
+                    or report["comparison_context"]["runtime_lock_sha256"] != environment["runtime_lock_sha256"]
+                    or provenance["scientific_source_root"] != environment["source_root"]
+                    or not Path(provenance["scientific_import_origin"]).is_relative_to(source_root.resolve() / "src/reliability")):
+                raise ValueError("Measured process differs from its verified locked environment or source")
+            provenance["locked_environment"] = {
+                key: value for key, value in environment.items()
+                if key not in {"process_environment", "inventory", "python"}}
+        return report
 
 
 def compare_sources(candidate_root: Path, baseline_root: Path, repeats: int,
-                    selected: list[str]) -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
+                    selected: list[str], *, locked_environments: bool = False
+                    ) -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
     """Counterbalance order and retain between-process variability, without retries.
 
     An A/B pair alone cannot distinguish a revision effect from a stable offset
@@ -350,11 +497,30 @@ def compare_sources(candidate_root: Path, baseline_root: Path, repeats: int,
     This remains a diagnostic, not proof that hosted-runner noise is eliminated.
     """
     blocks = []
-    for role in ("baseline", "candidate", "candidate", "baseline"):
-        root = baseline_root if role == "baseline" else candidate_root
-        blocks.append({"role": role, "report": measure_source_block(root, repeats, selected)})
+    with ExitStack() as stack:
+        environments = {}
+        roots = {"baseline": baseline_root, "candidate": candidate_root}
+        if locked_environments:
+            directory = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix="perdura-performance-envs-")))
+            environments = {role: prepare_locked_environment(root, directory / role)
+                            for role, root in roots.items()}
+        for role in ("baseline", "candidate", "candidate", "baseline"):
+            arguments = {"environment": environments[role]} if locked_environments else {}
+            blocks.append({"role": role, "report": measure_source_block(roots[role], repeats, selected, **arguments)})
     context = blocks[0]["report"]["comparison_context"]
-    comparisons = [baseline_record(block["report"], context)[1] for block in blocks]
+    if locked_environments:
+        # Every role must remain identical across its two independent processes.
+        # Only cross-role comparisons can treat locked dependencies as variables.
+        role_contexts = {}
+        comparisons = []
+        for block in blocks:
+            report = block["report"]
+            role_context = role_contexts.setdefault(block["role"], report["comparison_context"])
+            comparisons.append(baseline_record(report, role_context)[1])
+            comparable = {**report, "comparison_context": locked_comparison_context(report["comparison_context"])}
+            comparisons.append(baseline_record(comparable, locked_comparison_context(context))[1])
+    else:
+        comparisons = [baseline_record(block["report"], context)[1] for block in blocks]
     reasons = sorted({reason for comparison in comparisons for reason in comparison["reasons"]})
     checksum_mismatches = []
     for identifier in selected:
@@ -386,6 +552,13 @@ def compare_sources(candidate_root: Path, baseline_root: Path, repeats: int,
         },
         "interpretation": "All observations are retained; pooled CV includes between-process variation. No retry or best-run selection.",
     }
+    if locked_environments:
+        comparison["dependency_environment_mode"] = "separate-locked-runtime-environments"
+        comparison["experimental_variables"] = ["scientific source revision", "locked library + app runtime dependencies"]
+        comparison["runtime_locks"] = {
+            role: next(block["report"]["comparison_context"]["runtime_lock_sha256"]
+                       for block in blocks if block["role"] == role)
+            for role in ("baseline", "candidate")}
     pooled = {}
     for role in ("baseline", "candidate"):
         role_cases = [block["report"]["cases"] for block in blocks if block["role"] == role]
@@ -444,6 +617,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--baseline", type=Path)
     parser.add_argument("--compare-source-root", type=Path,
                         help="Compare this checkout to another source using fresh A/B/B/A process blocks.")
+    parser.add_argument("--compare-locked-environments", action="store_true",
+                        help="With --compare-source-root, measure each revision in its own freshly synced runtime environment; dependency changes are explicit experimental variables.")
+    parser.add_argument("--describe-environment", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--locked-environment-prefix", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--source-root", type=Path, default=ROOT,
                         help="Run this exact harness against another checkout's scientific source.")
     parser.add_argument("--require-comparison", action="store_true",
@@ -453,10 +630,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--reference-platform", action="store_true")
     parser.add_argument("--no-gate", action="store_true")
     args = parser.parse_args(argv)
+    if args.describe_environment:
+        print(json.dumps(environment_inventory(), sort_keys=True))
+        return 0
     if args.repeats < 3:
         parser.error("--repeats must be at least 3")
     if args.baseline and args.compare_source_root:
         parser.error("--baseline and --compare-source-root are mutually exclusive")
+    if args.compare_locked_environments and not args.compare_source_root:
+        parser.error("--compare-locked-environments requires --compare-source-root")
+    if args.locked_environment_prefix:
+        if not sys.flags.isolated or Path(sys.prefix).resolve() != args.locked_environment_prefix.resolve():
+            parser.error("Locked measurement requires its isolated environment interpreter")
+        # The harness is shared, but its checkout must not supply dependencies
+        # or scientific modules to the baseline interpreter.
+        sys.path[:] = [path for path in sys.path if Path(path).resolve() not in {ROOT, ROOT / "src"}]
 
     try:
         source_origin = load_workloads(args.source_root)
@@ -471,8 +659,12 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(str(error))
     blocks = None
     if args.compare_source_root:
-        cases, comparison, blocks = compare_sources(args.source_root, args.compare_source_root, args.repeats, selected)
-        context = {**context, "protocol": "perdura.performance-comparison/v4",
+        arguments = {"locked_environments": True} if args.compare_locked_environments else {}
+        cases, comparison, blocks = compare_sources(args.source_root, args.compare_source_root, args.repeats, selected, **arguments)
+        if args.compare_locked_environments:
+            context = next(block["report"]["comparison_context"] for block in blocks if block["role"] == "candidate")
+        context = {**context, "protocol": ("perdura.performance-comparison/v5-locked" if args.compare_locked_environments
+                                          else "perdura.performance-comparison/v4"),
                    "repeats": args.repeats * 2, "warmups": 2,
                    "measurement_order": comparison["measurement_order"]}
     else:
@@ -507,7 +699,10 @@ def main(argv: list[str] | None = None) -> int:
             "commit": git_value("rev-parse", "HEAD"),
             "scientific_source_root": str(SOURCE_ROOT),
             "scientific_import_origin": source_origin,
-            "dependency_environment": "Current interpreter; exact library + app runtime-lock closure equality is required for release comparisons. Full lock hashes retain tooling provenance.",
+            "dependency_environment": (
+                "Each source measured in its own freshly locked library + app environment; runtime dependencies are explicit experimental variables. See measurement_blocks for interpreter, installed packages, locks, and sync provenance."
+                if args.compare_locked_environments else
+                "Current interpreter; exact library + app runtime-lock closure equality is required for release comparisons. Full lock hashes retain tooling provenance."),
             "worktree_clean": clean,
             "workload_sha256": workload_hash(),
             "uv_lock_sha256": file_hash("uv.lock"),
@@ -522,6 +717,8 @@ def main(argv: list[str] | None = None) -> int:
             "the controlled reference profile, five stable runs, a clean revision, and the raw evidence."
         ),
     }
+    if args.locked_environment_prefix:
+        report["provenance"]["python_environment"] = environment_inventory()
     if blocks is not None:
         report["measurement_blocks"] = blocks
     rendered = json.dumps(report, indent=2, sort_keys=True) + "\n"
