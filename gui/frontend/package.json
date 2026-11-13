@@ -51,6 +51,7 @@
     "test:bookmarks": "node tests/bookmarks.test.mjs",
     "test:plot-snapshots": "node tests/plotSnapshots.test.mjs",
     "test:bom-import": "node --experimental-strip-types tests/bomImport.test.mjs",
+    "test:re2-prefilter": "node --test tests/re2Prefilter.test.mjs",
     "test:bom-spreadsheet": "node tests/bomSpreadsheet.test.mjs",
     "assurance:browser": "node tests/browserAssurance.mjs",
     "assurance:plotly": "node tests/plotlyBrowserAssurance.mjs",

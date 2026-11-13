@@ -2,7 +2,7 @@ import DropdownDetails from '../shared/DropdownDetails'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ReactFlow, Background, Controls, MiniMap, Handle, Position, MarkerType,
-  BackgroundVariant, NodeResizer, useEdgesState, useNodesState,
+  BackgroundVariant, NodeResizer, useEdgesState, useNodesState, getNodesBounds, getViewportForBounds,
   type Connection, type Edge, type EdgeChange, type Node, type NodeChange,
   type FitViewOptions, type NodeProps, type ReactFlowInstance, type Viewport,
 } from '@xyflow/react'
@@ -780,16 +780,25 @@ export default function Markov() {
       return before && after ? { ...node, position: {
         x: node.position.x + after.x - before.x, y: node.position.y + after.y - before.y } } : node
     })
-    setModelNodes(nextNodes); setAnnotations(nextAnnotations)
+    const canvas = flowWrapperRef.current
+    const visibleNodes = [...nextNodes, ...nextAnnotations].filter(node => !node.hidden)
+    const nextViewport = canvas && canvas.clientWidth && canvas.clientHeight && visibleNodes.length
+      ? clampViewport(getViewportForBounds(
+        getNodesBounds(visibleNodes), canvas.clientWidth, canvas.clientHeight, 0.25, 2.5, 0.18,
+      ))
+      : viewport
+    setModelNodes(nextNodes); setAnnotations(nextAnnotations); setViewport(nextViewport)
     if (persistTimer.current) clearTimeout(persistTimer.current)
+    // Save the fitted viewport with the geometry. Saving it after the animation
+    // would add a second history entry, so one Undo would only undo the zoom.
     const committed = { ...latest.current, canvasNodes: nextNodes,
       positions: Object.fromEntries(nextNodes.map(node => [node.id, node.position])),
-      annotations: nextAnnotations, density: nextDensity, layoutOptions: options }
+      annotations: nextAnnotations, viewport: nextViewport, density: nextDensity, layoutOptions: options }
     latest.current = committed
     pendingLocalWrite.current = committed
     writeFolioState('markov', ownerFolio.current, committed, `layout-${Date.now()}`)
     pendingLocalWrite.current = readFolioState<MarkovModuleState>('markov', ownerFolio.current) ?? null
-    window.setTimeout(() => fitViewAndRemember({ padding: 0.18, duration: 350 }), 30)
+    void flowRef.current?.setViewport(nextViewport, { duration: 350 })
   }
   const scheduleLayout = useMeasuredDiagramLayout(applyLayout, options => {
     if (persistTimer.current) clearTimeout(persistTimer.current)
