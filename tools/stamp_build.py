@@ -28,13 +28,18 @@ def main() -> int:
             r"[0-9a-fA-F]{64}", args.verification_report_sha256):
         raise ValueError("Verification report SHA-256 must be a 64-character hexadecimal digest")
     target = ROOT / "src/reliability/_build.py"
+    schema_match = re.search(r"^export const PROJECT_SCHEMA_VERSION = (\d+)$",
+                             (ROOT / "gui/frontend/src/version.ts").read_text(), re.MULTILINE)
+    if schema_match is None:
+        raise ValueError("Frontend project schema declaration is missing")
+    project_schema = int(schema_match.group(1))
     target.write_text(
         '"""Build diagnostics generated during release packaging."""\n\n'
         f'BUILD_COMMIT = "{args.commit.lower()}"\n'
         f'BUILD_TIMESTAMP = "{timestamp}"\n'
         f'BUILD_VERIFICATION_REPORT_SHA256 = "{args.verification_report_sha256.lower()}"\n'
         f'BUILD_VERIFICATION_RUN_URL = {args.verification_run_url!r}\n'
-        'PROJECT_SCHEMA_VERSION = 9\n',
+        f'PROJECT_SCHEMA_VERSION = {project_schema}\n',
         encoding="utf-8",
     )
     print(f"Stamped build {args.commit[:12]} at {timestamp}")

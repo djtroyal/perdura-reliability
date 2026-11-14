@@ -52,16 +52,14 @@ are in [`docs/RELEASING.md`](docs/RELEASING.md).
 Application version, project schema, and analytical engine revisions are
 independent:
 
-- `schemaVersion` defines the shape and meaning of a project file. The current
-  development source exports schema 8 and explicitly accepts schema 6 and 7 imports. Other schemas fail
-  with a clear version error instead of being interpreted approximately.
-  Schema 8 adds the project-local FTA catalog with stable reference codes and
-  qualified System Definition associations. Transfer nodes define the hierarchy.
-  Browser storage uses a schema-specific IndexedDB database with separate tree
-  input, result, report, and image records. Schema 6/7 browser data is migrated
-  transactionally while retaining the original localStorage keys. Failed saves
-  remain visible; malformed legacy data can be downloaded for recovery.
-  Exporting a project backup before upgrading remains recommended.
+- `schemaVersion` defines the shape and meaning of a project file. Version 0.8.4
+  exports and accepts schema 12. Other alpha schemas fail with a clear version
+  error and are not migrated. Schema 12 stores physical-system requirements,
+  verification cases, and evidence in the canonical System Model; physical FMEA
+  and Reliability Program edit shared views of these records. Process FMEA
+  requirements remain process-scoped. Browser storage uses a schema-specific
+  IndexedDB database with separate input, result, report, and image records.
+  Existing databases remain separate, and failed saves remain visible.
 - `createdWith` records the Perdura version, source commit, and build timestamp
   that created an export. It is diagnostic metadata, not a compatibility rule.
 - `identity`, `analysisRuns`, and `exportLedger` preserve project identity and

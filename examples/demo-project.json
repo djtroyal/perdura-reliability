@@ -15857,7 +15857,432 @@
             ],
             "hidden_instance_ids": []
           }
-        ]
+        ],
+        "requirements": [
+          {
+            "id": "REQ-AIRCRAFT-CONTROL",
+            "statement": "The aircraft shall translate crew intent into controlled aircraft motion.",
+            "requirement_type": "functional",
+            "measure": "",
+            "target": "",
+            "unit": "",
+            "acceptance_criteria": "Demonstrate traceability from crew commands through propulsion and control-surface functions to aircraft motion.",
+            "operating_condition": "",
+            "source": "Illustrative aircraft design intent",
+            "owner": "",
+            "confidence": "",
+            "verification_method": "analysis",
+            "evidence_ids": [],
+            "special_characteristic": "",
+            "lifecycle": "draft",
+            "derived_from_ids": [],
+            "allocations": [
+              {
+                "system_model_id": "system-demo-aircraft",
+                "instance_id": "aircraft",
+                "function_id": "fly-aircraft"
+              }
+            ],
+            "mode_ids": [
+              "run",
+              "takeoff",
+              "landing"
+            ],
+            "mission_profile": "",
+            "failure_definition": "",
+            "supporting_analyses": []
+          },
+          {
+            "id": "REQ-PROPULSION-COMMAND",
+            "statement": "The propulsion system shall provide thrust in response to aircraft control demands.",
+            "requirement_type": "functional",
+            "measure": "",
+            "target": "",
+            "unit": "",
+            "acceptance_criteria": "Show a complete command, electrical-power, and thrust path for each propulsion channel.",
+            "operating_condition": "",
+            "source": "Illustrative aircraft design intent",
+            "owner": "",
+            "confidence": "",
+            "verification_method": "analysis",
+            "evidence_ids": [],
+            "special_characteristic": "",
+            "lifecycle": "draft",
+            "derived_from_ids": [
+              "REQ-AIRCRAFT-CONTROL"
+            ],
+            "allocations": [
+              {
+                "system_model_id": "system-demo-aircraft",
+                "instance_id": "propulsion",
+                "function_id": "perform"
+              }
+            ],
+            "mode_ids": [
+              "run",
+              "takeoff",
+              "landing"
+            ],
+            "mission_profile": "",
+            "failure_definition": "",
+            "supporting_analyses": []
+          },
+          {
+            "id": "REQ-ESSENTIAL-POWER",
+            "statement": "The electrical power system shall supply the essential DC loads required for controlled flight.",
+            "requirement_type": "functional",
+            "measure": "",
+            "target": "",
+            "unit": "",
+            "acceptance_criteria": "Review every essential load against its allocated supply, interfaces, and failure response.",
+            "operating_condition": "",
+            "source": "Illustrative aircraft design intent",
+            "owner": "",
+            "confidence": "",
+            "verification_method": "analysis",
+            "evidence_ids": [],
+            "special_characteristic": "",
+            "lifecycle": "draft",
+            "derived_from_ids": [
+              "REQ-AIRCRAFT-CONTROL"
+            ],
+            "allocations": [
+              {
+                "system_model_id": "system-demo-aircraft",
+                "instance_id": "electrical-power",
+                "function_id": "supply-essential-power"
+              }
+            ],
+            "mode_ids": [
+              "run",
+              "takeoff",
+              "landing"
+            ],
+            "mission_profile": "",
+            "failure_definition": "",
+            "supporting_analyses": []
+          },
+          {
+            "id": "REQ-LEFT-MOTOR-CONVERSION",
+            "statement": "The left motor shall convert supplied phase power into commanded shaft torque.",
+            "requirement_type": "functional",
+            "measure": "",
+            "target": "",
+            "unit": "",
+            "acceptance_criteria": "Demonstrate the phase-power input, torque output, and associated failure-mode coverage for the installed left motor.",
+            "operating_condition": "",
+            "source": "Illustrative aircraft design intent",
+            "owner": "",
+            "confidence": "",
+            "verification_method": "analysis",
+            "evidence_ids": [],
+            "special_characteristic": "",
+            "lifecycle": "draft",
+            "derived_from_ids": [
+              "REQ-PROPULSION-COMMAND"
+            ],
+            "allocations": [
+              {
+                "system_model_id": "system-demo-aircraft",
+                "instance_id": "motor-left",
+                "function_id": "perform"
+              }
+            ],
+            "mode_ids": [
+              "run",
+              "takeoff",
+              "landing"
+            ],
+            "mission_profile": "",
+            "failure_definition": "",
+            "supporting_analyses": []
+          },
+          {
+            "id": "DFREQ-1",
+            "statement": "The hydraulic controller power connector shall deliver protected 28 V DC power without an interruption longer than 20 ms.",
+            "requirement_type": "performance",
+            "measure": "Maximum power interruption",
+            "target": "20",
+            "unit": "ms",
+            "acceptance_criteria": "No interruption longer than 20 ms and contact resistance below 20 mΩ during the defined qualification exposure.",
+            "operating_condition": "Defined controller qualification environment",
+            "source": "Illustrative aircraft hydraulic controller design target",
+            "owner": "Electrical lead",
+            "confidence": "",
+            "verification_method": "Continuity monitoring during vibration and thermal testing",
+            "evidence_ids": [],
+            "special_characteristic": "",
+            "lifecycle": "draft",
+            "derived_from_ids": [
+              "DFREQ-3"
+            ],
+            "allocations": [
+              {
+                "system_model_id": "system-demo-aircraft",
+                "instance_id": "power-connector",
+                "definition_id": "definition-power-connector",
+                "function_id": "DFN-1"
+              }
+            ],
+            "mode_ids": [],
+            "mission_profile": "Controller ground qualification exposure",
+            "failure_definition": "",
+            "supporting_analyses": [
+              {
+                "module_key": "fmea",
+                "analysis_id": "DFMEA-DEMO"
+              }
+            ]
+          },
+          {
+            "id": "DFREQ-2",
+            "statement": "The hydraulic pressure sensor shall report delivery manifold pressure within ±2% of full scale.",
+            "requirement_type": "interface",
+            "measure": "Pressure measurement error",
+            "target": "±2",
+            "unit": "% full scale",
+            "acceptance_criteria": "Absolute error does not exceed 2% of full scale over the defined calibration and temperature points.",
+            "operating_condition": "Defined controller qualification environment",
+            "source": "Illustrative aircraft hydraulic controller design target",
+            "owner": "Controls lead",
+            "confidence": "",
+            "verification_method": "Multi-point calibration over temperature",
+            "evidence_ids": [],
+            "special_characteristic": "",
+            "lifecycle": "draft",
+            "derived_from_ids": [
+              "DFREQ-3"
+            ],
+            "allocations": [
+              {
+                "system_model_id": "system-demo-aircraft",
+                "instance_id": "pressure-sensor",
+                "definition_id": "definition-pressure-sensor",
+                "function_id": "DFN-2"
+              }
+            ],
+            "mode_ids": [],
+            "mission_profile": "Controller ground qualification exposure",
+            "failure_definition": "",
+            "supporting_analyses": [
+              {
+                "module_key": "fmea",
+                "analysis_id": "DFMEA-DEMO"
+              }
+            ]
+          },
+          {
+            "id": "DFREQ-3",
+            "statement": "The hydraulic controller shall maintain commanded hydraulic pressure during its 1,000-hour ground qualification exposure.",
+            "requirement_type": "performance",
+            "measure": "Controller mission reliability",
+            "target": "R(1000 h) ≥ 0.99",
+            "unit": "",
+            "acceptance_criteria": "No loss of commanded hydraulic pressure for more than 2 seconds; demonstrate R(1000 h) ≥ 0.99 at 90% confidence.",
+            "operating_condition": "Defined controller qualification environment",
+            "source": "Illustrative aircraft hydraulic controller design target",
+            "owner": "Reliability lead",
+            "confidence": "",
+            "verification_method": "Reliability demonstration with an agreed exposure and failure definition",
+            "evidence_ids": [],
+            "special_characteristic": "",
+            "lifecycle": "draft",
+            "derived_from_ids": [
+              "REQ-AIRCRAFT-CONTROL"
+            ],
+            "allocations": [
+              {
+                "system_model_id": "system-demo-aircraft",
+                "instance_id": "b1",
+                "definition_id": "definition-b1",
+                "function_id": "DFN-3"
+              }
+            ],
+            "mode_ids": [],
+            "mission_profile": "Controller ground qualification exposure",
+            "failure_definition": "",
+            "supporting_analyses": [
+              {
+                "module_key": "fmea",
+                "analysis_id": "DFMEA-DEMO"
+              }
+            ]
+          },
+          {
+            "id": "MFREQ-1",
+            "statement": "The hydraulic controller shall issue a safe-state command and maintenance indication within 100 ms of a detectable power-path fault.",
+            "requirement_type": "safety",
+            "measure": "Detection and response time",
+            "target": "≤ 100",
+            "unit": "ms",
+            "acceptance_criteria": "The safe-state command and maintenance indication occur within the illustrative 100 ms fault-tolerant interval.",
+            "operating_condition": "Defined controller qualification environment",
+            "source": "Illustrative aircraft hydraulic controller design target",
+            "owner": "Systems lead",
+            "confidence": "",
+            "verification_method": "Boundary fault injection with timestamped response capture",
+            "evidence_ids": [],
+            "special_characteristic": "",
+            "lifecycle": "draft",
+            "derived_from_ids": [
+              "DFREQ-3"
+            ],
+            "allocations": [
+              {
+                "system_model_id": "system-demo-aircraft",
+                "instance_id": "b1",
+                "definition_id": "definition-b1",
+                "function_id": "MFN-1"
+              },
+              {
+                "system_model_id": "system-demo-aircraft",
+                "instance_id": "b1",
+                "definition_id": "definition-b1",
+                "function_id": "MFN-2"
+              }
+            ],
+            "mode_ids": [],
+            "mission_profile": "Controller ground qualification exposure",
+            "failure_definition": "",
+            "supporting_analyses": [
+              {
+                "module_key": "fmea",
+                "analysis_id": "FMEA-MSR-DEMO"
+              }
+            ]
+          }
+        ],
+        "verification_cases": [
+          {
+            "id": "VER-AIRCRAFT-CONTROL",
+            "objective": "Review REQ-AIRCRAFT-CONTROL",
+            "requirement_ids": [
+              "REQ-AIRCRAFT-CONTROL"
+            ],
+            "failure_chain_ids": [],
+            "method": "analysis",
+            "level": "System",
+            "sample_size": "",
+            "acceptance_criteria": "Demonstrate traceability from crew commands through propulsion and control-surface functions to aircraft motion.",
+            "owner": "",
+            "status": "planned",
+            "evidence_link_ids": [],
+            "mode_ids": [
+              "run",
+              "takeoff",
+              "landing"
+            ],
+            "outcome": "not_assessed",
+            "assessment": "",
+            "reviewed_by": "",
+            "reviewed_at": "",
+            "reviewed_fingerprint": "",
+            "reviewed_revision": ""
+          },
+          {
+            "id": "VER-PROPULSION-COMMAND",
+            "objective": "Review REQ-PROPULSION-COMMAND",
+            "requirement_ids": [
+              "REQ-PROPULSION-COMMAND"
+            ],
+            "failure_chain_ids": [],
+            "method": "analysis",
+            "level": "Allocated item",
+            "sample_size": "",
+            "acceptance_criteria": "Show a complete command, electrical-power, and thrust path for each propulsion channel.",
+            "owner": "",
+            "status": "planned",
+            "evidence_link_ids": [],
+            "mode_ids": [
+              "run",
+              "takeoff",
+              "landing"
+            ],
+            "outcome": "not_assessed",
+            "assessment": "",
+            "reviewed_by": "",
+            "reviewed_at": "",
+            "reviewed_fingerprint": "",
+            "reviewed_revision": ""
+          },
+          {
+            "id": "VER-ESSENTIAL-POWER",
+            "objective": "Review REQ-ESSENTIAL-POWER",
+            "requirement_ids": [
+              "REQ-ESSENTIAL-POWER"
+            ],
+            "failure_chain_ids": [],
+            "method": "analysis",
+            "level": "Allocated item",
+            "sample_size": "",
+            "acceptance_criteria": "Review every essential load against its allocated supply, interfaces, and failure response.",
+            "owner": "",
+            "status": "planned",
+            "evidence_link_ids": [],
+            "mode_ids": [
+              "run",
+              "takeoff",
+              "landing"
+            ],
+            "outcome": "not_assessed",
+            "assessment": "",
+            "reviewed_by": "",
+            "reviewed_at": "",
+            "reviewed_fingerprint": "",
+            "reviewed_revision": ""
+          },
+          {
+            "id": "VER-LEFT-MOTOR-CONVERSION",
+            "objective": "Review REQ-LEFT-MOTOR-CONVERSION",
+            "requirement_ids": [
+              "REQ-LEFT-MOTOR-CONVERSION"
+            ],
+            "failure_chain_ids": [],
+            "method": "analysis",
+            "level": "Allocated item",
+            "sample_size": "",
+            "acceptance_criteria": "Demonstrate the phase-power input, torque output, and associated failure-mode coverage for the installed left motor.",
+            "owner": "",
+            "status": "planned",
+            "evidence_link_ids": [],
+            "mode_ids": [
+              "run",
+              "takeoff",
+              "landing"
+            ],
+            "outcome": "not_assessed",
+            "assessment": "",
+            "reviewed_by": "",
+            "reviewed_at": "",
+            "reviewed_fingerprint": "",
+            "reviewed_revision": ""
+          },
+          {
+            "id": "DVP-DEMO-1",
+            "objective": "Verify hydraulic controller power continuity through its qualification exposure.",
+            "requirement_ids": [
+              "DFREQ-1"
+            ],
+            "failure_chain_ids": [
+              "DFC-1"
+            ],
+            "method": "Instrumented vibration and thermal test",
+            "level": "Controller",
+            "sample_size": "3 controllers",
+            "acceptance_criteria": "No interruption longer than 20 ms and contact resistance below 20 mΩ during the defined qualification exposure.",
+            "owner": "Test lead",
+            "status": "planned",
+            "evidence_link_ids": [],
+            "mode_ids": [],
+            "outcome": "not_assessed",
+            "assessment": "",
+            "reviewed_by": "",
+            "reviewed_at": "",
+            "reviewed_fingerprint": "",
+            "reviewed_revision": ""
+          }
+        ],
+        "verification_evidence": []
       },
       "selectedModeId": "run",
       "selectedInstanceId": "aircraft",
@@ -17185,21 +17610,7 @@
                   "fmeaLinks": "FM-1"
                 }
               ],
-              "requirements": [
-                {
-                  "id": "REQ-1",
-                  "statement": "The controller shall complete the 1,000-hour mission without loss of pumping with reliability at least 0.99 at 90% confidence.",
-                  "measure": "Mission reliability",
-                  "target": "R(1000 h) >= 0.99",
-                  "confidence": "0.90",
-                  "missionProfile": "Illustrative controller ground qualification mission; not an aircraft mission or certification target",
-                  "failureDefinition": "Loss of required flow for more than 2 seconds",
-                  "verification": "Reliability demonstration and linked analyses",
-                  "owner": "Reliability lead",
-                  "status": "accepted",
-                  "evidence": "TEST-SYS-42, LDA-CONTROLLER-1"
-                }
-              ],
+              "requirements": [],
               "testability": [
                 {
                   "id": "TF-1",
@@ -17244,7 +17655,8 @@
             },
             "totalExposure": "10000",
             "ciText": "0.95",
-            "isolationThreshold": "1"
+            "isolationThreshold": "1",
+            "aiagAnalyses": []
           }
         }
       ]
@@ -19498,7 +19910,7 @@
                       "source_name": "Aircraft",
                       "entity_type": "system",
                       "imported_at": "live",
-                      "source_checksum": "1860abcd4ccd80d22d3c3a8ee0b294ccffc4a9c0845cf9b7ec840eba205c13de",
+                      "source_checksum": "2f9d61ef396cc057f9a209400c485c3bd82e992b1d37bc13dbe0fb3981dfb06c",
                       "reference_designators": [],
                       "quantity": 1,
                       "category": "Illustrative aircraft equipment"
@@ -19526,7 +19938,7 @@
                       "parent_entity_id": "aircraft",
                       "entity_type": "block",
                       "imported_at": "live",
-                      "source_checksum": "1860abcd4ccd80d22d3c3a8ee0b294ccffc4a9c0845cf9b7ec840eba205c13de",
+                      "source_checksum": "2f9d61ef396cc057f9a209400c485c3bd82e992b1d37bc13dbe0fb3981dfb06c",
                       "reference_designators": [],
                       "quantity": 1,
                       "category": "Illustrative aircraft equipment"
@@ -19554,7 +19966,7 @@
                       "parent_entity_id": "aircraft",
                       "entity_type": "block",
                       "imported_at": "live",
-                      "source_checksum": "1860abcd4ccd80d22d3c3a8ee0b294ccffc4a9c0845cf9b7ec840eba205c13de",
+                      "source_checksum": "2f9d61ef396cc057f9a209400c485c3bd82e992b1d37bc13dbe0fb3981dfb06c",
                       "reference_designators": [],
                       "quantity": 1,
                       "category": "Illustrative aircraft equipment"
@@ -19585,7 +19997,7 @@
                       "source_name": "Hydraulic Power System",
                       "entity_type": "block",
                       "imported_at": "live",
-                      "source_checksum": "1860abcd4ccd80d22d3c3a8ee0b294ccffc4a9c0845cf9b7ec840eba205c13de",
+                      "source_checksum": "2f9d61ef396cc057f9a209400c485c3bd82e992b1d37bc13dbe0fb3981dfb06c",
                       "reference_designators": [],
                       "quantity": 1,
                       "category": "Illustrative aircraft equipment",
@@ -19610,7 +20022,7 @@
                       "parent_entity_id": "avionics",
                       "entity_type": "block",
                       "imported_at": "live",
-                      "source_checksum": "1860abcd4ccd80d22d3c3a8ee0b294ccffc4a9c0845cf9b7ec840eba205c13de",
+                      "source_checksum": "2f9d61ef396cc057f9a209400c485c3bd82e992b1d37bc13dbe0fb3981dfb06c",
                       "reference_designators": [],
                       "quantity": 1,
                       "category": "Illustrative aircraft equipment"
@@ -19638,7 +20050,7 @@
                       "parent_entity_id": "crew-interface",
                       "entity_type": "block",
                       "imported_at": "live",
-                      "source_checksum": "1860abcd4ccd80d22d3c3a8ee0b294ccffc4a9c0845cf9b7ec840eba205c13de",
+                      "source_checksum": "2f9d61ef396cc057f9a209400c485c3bd82e992b1d37bc13dbe0fb3981dfb06c",
                       "reference_designators": [],
                       "quantity": 1,
                       "category": "Illustrative aircraft equipment"
@@ -19666,7 +20078,7 @@
                       "parent_entity_id": "crew-interface",
                       "entity_type": "block",
                       "imported_at": "live",
-                      "source_checksum": "1860abcd4ccd80d22d3c3a8ee0b294ccffc4a9c0845cf9b7ec840eba205c13de",
+                      "source_checksum": "2f9d61ef396cc057f9a209400c485c3bd82e992b1d37bc13dbe0fb3981dfb06c",
                       "reference_designators": [],
                       "quantity": 1,
                       "category": "Illustrative aircraft equipment"
@@ -19694,7 +20106,7 @@
                       "parent_entity_id": "pump-system",
                       "entity_type": "block",
                       "imported_at": "live",
-                      "source_checksum": "1860abcd4ccd80d22d3c3a8ee0b294ccffc4a9c0845cf9b7ec840eba205c13de",
+                      "source_checksum": "2f9d61ef396cc057f9a209400c485c3bd82e992b1d37bc13dbe0fb3981dfb06c",
                       "reference_designators": [],
                       "quantity": 1,
                       "category": "Illustrative aircraft equipment"
@@ -19722,7 +20134,7 @@
                       "parent_entity_id": "hydraulic-supply",
                       "entity_type": "block",
                       "imported_at": "live",
-                      "source_checksum": "1860abcd4ccd80d22d3c3a8ee0b294ccffc4a9c0845cf9b7ec840eba205c13de",
+                      "source_checksum": "2f9d61ef396cc057f9a209400c485c3bd82e992b1d37bc13dbe0fb3981dfb06c",
                       "reference_designators": [
                         "P-A"
                       ],
@@ -19752,7 +20164,7 @@
                       "parent_entity_id": "hydraulic-supply",
                       "entity_type": "block",
                       "imported_at": "live",
-                      "source_checksum": "1860abcd4ccd80d22d3c3a8ee0b294ccffc4a9c0845cf9b7ec840eba205c13de",
+                      "source_checksum": "2f9d61ef396cc057f9a209400c485c3bd82e992b1d37bc13dbe0fb3981dfb06c",
                       "reference_designators": [
                         "P-B"
                       ],
@@ -19782,7 +20194,7 @@
                       "parent_entity_id": "pump-system",
                       "entity_type": "block",
                       "imported_at": "live",
-                      "source_checksum": "1860abcd4ccd80d22d3c3a8ee0b294ccffc4a9c0845cf9b7ec840eba205c13de",
+                      "source_checksum": "2f9d61ef396cc057f9a209400c485c3bd82e992b1d37bc13dbe0fb3981dfb06c",
                       "reference_designators": [],
                       "quantity": 1,
                       "category": "Illustrative aircraft equipment"
@@ -19810,7 +20222,7 @@
                       "parent_entity_id": "hydraulic-distribution",
                       "entity_type": "block",
                       "imported_at": "live",
-                      "source_checksum": "1860abcd4ccd80d22d3c3a8ee0b294ccffc4a9c0845cf9b7ec840eba205c13de",
+                      "source_checksum": "2f9d61ef396cc057f9a209400c485c3bd82e992b1d37bc13dbe0fb3981dfb06c",
                       "reference_designators": [],
                       "quantity": 1,
                       "category": "Illustrative aircraft equipment"
@@ -19843,7 +20255,7 @@
                       "parent_entity_id": "pump-system",
                       "entity_type": "block",
                       "imported_at": "live",
-                      "source_checksum": "1860abcd4ccd80d22d3c3a8ee0b294ccffc4a9c0845cf9b7ec840eba205c13de",
+                      "source_checksum": "2f9d61ef396cc057f9a209400c485c3bd82e992b1d37bc13dbe0fb3981dfb06c",
                       "reference_designators": [],
                       "quantity": 1,
                       "category": "Illustrative aircraft equipment"
@@ -19871,7 +20283,7 @@
                       "parent_entity_id": "b1",
                       "entity_type": "block",
                       "imported_at": "live",
-                      "source_checksum": "1860abcd4ccd80d22d3c3a8ee0b294ccffc4a9c0845cf9b7ec840eba205c13de",
+                      "source_checksum": "2f9d61ef396cc057f9a209400c485c3bd82e992b1d37bc13dbe0fb3981dfb06c",
                       "reference_designators": [],
                       "quantity": 1,
                       "category": "Illustrative aircraft equipment"
@@ -19899,7 +20311,7 @@
                       "parent_entity_id": "b1",
                       "entity_type": "block",
                       "imported_at": "live",
-                      "source_checksum": "1860abcd4ccd80d22d3c3a8ee0b294ccffc4a9c0845cf9b7ec840eba205c13de",
+                      "source_checksum": "2f9d61ef396cc057f9a209400c485c3bd82e992b1d37bc13dbe0fb3981dfb06c",
                       "reference_designators": [],
                       "quantity": 1,
                       "category": "Illustrative aircraft equipment"
@@ -19922,7 +20334,7 @@
                       "parent_entity_id": "b1",
                       "entity_type": "block",
                       "imported_at": "live",
-                      "source_checksum": "1860abcd4ccd80d22d3c3a8ee0b294ccffc4a9c0845cf9b7ec840eba205c13de",
+                      "source_checksum": "2f9d61ef396cc057f9a209400c485c3bd82e992b1d37bc13dbe0fb3981dfb06c",
                       "reference_designators": [],
                       "quantity": 1,
                       "category": "Illustrative aircraft equipment"
@@ -21479,61 +21891,7 @@
                     "mode_ids": []
                   }
                 ],
-                "functional_requirements": [
-                  {
-                    "id": "DFREQ-1",
-                    "statement": "The power path shall deliver controller power without an interruption longer than 20 ms.",
-                    "requirement_type": "performance",
-                    "measure": "Maximum power interruption",
-                    "target": "20",
-                    "unit": "ms",
-                    "acceptance_criteria": "No interruption longer than 20 ms and contact resistance below 20 mΩ.",
-                    "operating_condition": "Startup and normal pumping over the qualified environment",
-                    "source": "Controller electrical interface specification",
-                    "owner": "Electrical lead",
-                    "confidence": "Design verification",
-                    "verification_method": "Continuity monitoring during vibration and thermal testing",
-                    "evidence_ids": [
-                      "TEST-SYS-42"
-                    ],
-                    "special_characteristic": "Electrical continuity"
-                  },
-                  {
-                    "id": "DFREQ-2",
-                    "statement": "The pressure interface shall report discharge pressure within ±2% of full scale.",
-                    "requirement_type": "interface",
-                    "measure": "Pressure measurement error",
-                    "target": "±2",
-                    "unit": "% full scale",
-                    "acceptance_criteria": "Absolute error does not exceed 2% of full scale.",
-                    "operating_condition": "Normal pumping over the qualified temperature range",
-                    "source": "Pressure sensing interface specification",
-                    "owner": "Controls lead",
-                    "confidence": "Calibration and environmental verification",
-                    "verification_method": "Multi-point calibration over temperature",
-                    "evidence_ids": [],
-                    "special_characteristic": "Measurement accuracy"
-                  },
-                  {
-                    "id": "DFREQ-3",
-                    "statement": "The controller shall maintain the commanded pumping function for the 1,000-hour mission.",
-                    "requirement_type": "customer",
-                    "measure": "Mission reliability",
-                    "target": "R(1000 h) ≥ 0.99",
-                    "unit": "",
-                    "acceptance_criteria": "No loss of required flow for more than 2 seconds.",
-                    "operating_condition": "Nominal 1,000-hour ground-benign pumping mission",
-                    "source": "Reliability Program requirement REQ-1",
-                    "owner": "Reliability lead",
-                    "confidence": "90%",
-                    "verification_method": "Reliability demonstration and linked analyses",
-                    "evidence_ids": [
-                      "TEST-SYS-42",
-                      "LDA-CONTROLLER-1"
-                    ],
-                    "special_characteristic": "Required pumping function"
-                  }
-                ],
+                "functional_requirements": [],
                 "function_requirement_links": [
                   {
                     "id": "DFRC-1",
@@ -22881,7 +23239,7 @@
                       "source_name": "Aircraft",
                       "entity_type": "system",
                       "imported_at": "live",
-                      "source_checksum": "6c692c4391682301a28b8e249b024f4cc5220c8990c75a83496467f75af43ae0",
+                      "source_checksum": "28025f8cfae7c70b1a7feeeaa50f6ab99fef80149209948d5285fb59074e2766",
                       "reference_designators": [],
                       "quantity": 1,
                       "category": "Illustrative aircraft equipment"
@@ -22909,7 +23267,7 @@
                       "parent_entity_id": "aircraft",
                       "entity_type": "block",
                       "imported_at": "live",
-                      "source_checksum": "6c692c4391682301a28b8e249b024f4cc5220c8990c75a83496467f75af43ae0",
+                      "source_checksum": "28025f8cfae7c70b1a7feeeaa50f6ab99fef80149209948d5285fb59074e2766",
                       "reference_designators": [],
                       "quantity": 1,
                       "category": "Illustrative aircraft equipment"
@@ -22937,7 +23295,7 @@
                       "parent_entity_id": "aircraft",
                       "entity_type": "block",
                       "imported_at": "live",
-                      "source_checksum": "6c692c4391682301a28b8e249b024f4cc5220c8990c75a83496467f75af43ae0",
+                      "source_checksum": "28025f8cfae7c70b1a7feeeaa50f6ab99fef80149209948d5285fb59074e2766",
                       "reference_designators": [],
                       "quantity": 1,
                       "category": "Illustrative aircraft equipment"
@@ -22963,7 +23321,7 @@
                       "source_name": "Hydraulic Power System",
                       "entity_type": "block",
                       "imported_at": "live",
-                      "source_checksum": "6c692c4391682301a28b8e249b024f4cc5220c8990c75a83496467f75af43ae0",
+                      "source_checksum": "28025f8cfae7c70b1a7feeeaa50f6ab99fef80149209948d5285fb59074e2766",
                       "reference_designators": [],
                       "quantity": 1,
                       "category": "Illustrative aircraft equipment",
@@ -22993,7 +23351,7 @@
                       "parent_entity_id": "avionics",
                       "entity_type": "block",
                       "imported_at": "live",
-                      "source_checksum": "6c692c4391682301a28b8e249b024f4cc5220c8990c75a83496467f75af43ae0",
+                      "source_checksum": "28025f8cfae7c70b1a7feeeaa50f6ab99fef80149209948d5285fb59074e2766",
                       "reference_designators": [],
                       "quantity": 1,
                       "category": "Illustrative aircraft equipment"
@@ -23021,7 +23379,7 @@
                       "parent_entity_id": "crew-interface",
                       "entity_type": "block",
                       "imported_at": "live",
-                      "source_checksum": "6c692c4391682301a28b8e249b024f4cc5220c8990c75a83496467f75af43ae0",
+                      "source_checksum": "28025f8cfae7c70b1a7feeeaa50f6ab99fef80149209948d5285fb59074e2766",
                       "reference_designators": [],
                       "quantity": 1,
                       "category": "Illustrative aircraft equipment"
@@ -23049,7 +23407,7 @@
                       "parent_entity_id": "crew-interface",
                       "entity_type": "block",
                       "imported_at": "live",
-                      "source_checksum": "6c692c4391682301a28b8e249b024f4cc5220c8990c75a83496467f75af43ae0",
+                      "source_checksum": "28025f8cfae7c70b1a7feeeaa50f6ab99fef80149209948d5285fb59074e2766",
                       "reference_designators": [],
                       "quantity": 1,
                       "category": "Illustrative aircraft equipment"
@@ -23077,7 +23435,7 @@
                       "parent_entity_id": "pump-system",
                       "entity_type": "block",
                       "imported_at": "live",
-                      "source_checksum": "6c692c4391682301a28b8e249b024f4cc5220c8990c75a83496467f75af43ae0",
+                      "source_checksum": "28025f8cfae7c70b1a7feeeaa50f6ab99fef80149209948d5285fb59074e2766",
                       "reference_designators": [],
                       "quantity": 1,
                       "category": "Illustrative aircraft equipment"
@@ -23105,7 +23463,7 @@
                       "parent_entity_id": "hydraulic-supply",
                       "entity_type": "block",
                       "imported_at": "live",
-                      "source_checksum": "6c692c4391682301a28b8e249b024f4cc5220c8990c75a83496467f75af43ae0",
+                      "source_checksum": "28025f8cfae7c70b1a7feeeaa50f6ab99fef80149209948d5285fb59074e2766",
                       "reference_designators": [
                         "P-A"
                       ],
@@ -23135,7 +23493,7 @@
                       "parent_entity_id": "hydraulic-supply",
                       "entity_type": "block",
                       "imported_at": "live",
-                      "source_checksum": "6c692c4391682301a28b8e249b024f4cc5220c8990c75a83496467f75af43ae0",
+                      "source_checksum": "28025f8cfae7c70b1a7feeeaa50f6ab99fef80149209948d5285fb59074e2766",
                       "reference_designators": [
                         "P-B"
                       ],
@@ -23165,7 +23523,7 @@
                       "parent_entity_id": "pump-system",
                       "entity_type": "block",
                       "imported_at": "live",
-                      "source_checksum": "6c692c4391682301a28b8e249b024f4cc5220c8990c75a83496467f75af43ae0",
+                      "source_checksum": "28025f8cfae7c70b1a7feeeaa50f6ab99fef80149209948d5285fb59074e2766",
                       "reference_designators": [],
                       "quantity": 1,
                       "category": "Illustrative aircraft equipment"
@@ -23193,7 +23551,7 @@
                       "parent_entity_id": "hydraulic-distribution",
                       "entity_type": "block",
                       "imported_at": "live",
-                      "source_checksum": "6c692c4391682301a28b8e249b024f4cc5220c8990c75a83496467f75af43ae0",
+                      "source_checksum": "28025f8cfae7c70b1a7feeeaa50f6ab99fef80149209948d5285fb59074e2766",
                       "reference_designators": [],
                       "quantity": 1,
                       "category": "Illustrative aircraft equipment"
@@ -23226,7 +23584,7 @@
                       "parent_entity_id": "pump-system",
                       "entity_type": "block",
                       "imported_at": "live",
-                      "source_checksum": "6c692c4391682301a28b8e249b024f4cc5220c8990c75a83496467f75af43ae0",
+                      "source_checksum": "28025f8cfae7c70b1a7feeeaa50f6ab99fef80149209948d5285fb59074e2766",
                       "reference_designators": [],
                       "quantity": 1,
                       "category": "Illustrative aircraft equipment"
@@ -23249,7 +23607,7 @@
                       "parent_entity_id": "b1",
                       "entity_type": "block",
                       "imported_at": "live",
-                      "source_checksum": "6c692c4391682301a28b8e249b024f4cc5220c8990c75a83496467f75af43ae0",
+                      "source_checksum": "28025f8cfae7c70b1a7feeeaa50f6ab99fef80149209948d5285fb59074e2766",
                       "reference_designators": [],
                       "quantity": 1,
                       "category": "Illustrative aircraft equipment"
@@ -23277,7 +23635,7 @@
                       "parent_entity_id": "b1",
                       "entity_type": "block",
                       "imported_at": "live",
-                      "source_checksum": "6c692c4391682301a28b8e249b024f4cc5220c8990c75a83496467f75af43ae0",
+                      "source_checksum": "28025f8cfae7c70b1a7feeeaa50f6ab99fef80149209948d5285fb59074e2766",
                       "reference_designators": [],
                       "quantity": 1,
                       "category": "Illustrative aircraft equipment"
@@ -23305,7 +23663,7 @@
                       "parent_entity_id": "b1",
                       "entity_type": "block",
                       "imported_at": "live",
-                      "source_checksum": "6c692c4391682301a28b8e249b024f4cc5220c8990c75a83496467f75af43ae0",
+                      "source_checksum": "28025f8cfae7c70b1a7feeeaa50f6ab99fef80149209948d5285fb59074e2766",
                       "reference_designators": [],
                       "quantity": 1,
                       "category": "Illustrative aircraft equipment"
@@ -24844,26 +25202,7 @@
                     "mode_ids": []
                   }
                 ],
-                "functional_requirements": [
-                  {
-                    "id": "MFREQ-1",
-                    "statement": "The monitoring and response functions shall reach the controlled safe state within 100 ms of a detectable power-path fault.",
-                    "requirement_type": "safety",
-                    "measure": "Detection and response time",
-                    "target": "≤ 100",
-                    "unit": "ms",
-                    "acceptance_criteria": "Safe-state command and maintenance indication occur before the 100 ms fault-tolerant interval.",
-                    "operating_condition": "Normal pumping with the health monitor active",
-                    "source": "Controller diagnostic safety requirement",
-                    "owner": "Systems lead",
-                    "confidence": "Fault-injection verification",
-                    "verification_method": "Boundary fault injection with timestamped response capture",
-                    "evidence_ids": [
-                      "SYSTEM-SAFETY-REVIEW-A"
-                    ],
-                    "special_characteristic": "Diagnostic response time"
-                  }
-                ],
+                "functional_requirements": [],
                 "function_requirement_links": [
                   {
                     "id": "MFRC-1",
@@ -25721,25 +26060,7 @@
                 "revisions": [],
                 "releases": [],
                 "processSteps": [],
-                "verificationPlan": [
-                  {
-                    "id": "DVP-DEMO-1",
-                    "objective": "Verify power continuity through the qualified environment.",
-                    "requirement_ids": [
-                      "DFREQ-1"
-                    ],
-                    "failure_chain_ids": [
-                      "DFC-1"
-                    ],
-                    "method": "Instrumented vibration and thermal test",
-                    "level": "controller",
-                    "sample_size": "3 controllers",
-                    "acceptance_criteria": "No interruption longer than 20 ms.",
-                    "owner": "Test lead",
-                    "status": "planned",
-                    "evidence_link_ids": []
-                  }
-                ],
+                "verificationPlan": [],
                 "specialCharacteristics": [],
                 "reviewFindings": [],
                 "assignments": [],
@@ -26277,9 +26598,9 @@
       }
     }
   },
-  "schemaVersion": 11,
+  "schemaVersion": 12,
   "createdWith": {
-    "version": "0.8.3",
+    "version": "0.8.4",
     "commit": "bundled",
     "builtAt": "2026-10-15T00:00:00.000Z"
   },

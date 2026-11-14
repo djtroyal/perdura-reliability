@@ -23,6 +23,7 @@ from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator, model_validator
 
 from api_catalog import MODULES, build_catalog, public_routes, route_module, route_project_runnable
+from reliability._build import PROJECT_SCHEMA_VERSION
 
 
 router = APIRouter()
@@ -42,21 +43,6 @@ def _canonical(value: Any) -> bytes:
 
 def _sha(value: Any) -> str:
     return hashlib.sha256(_canonical(value)).hexdigest()
-
-
-def _legacy_fta_catalog(modules: dict[str, Any]) -> dict[str, Any]:
-    """Add deterministic project-local codes without changing graphs or IDs."""
-    raw = modules.get("faultTree")
-    if not isinstance(raw, dict) or "faultTreeCatalog" in modules:
-        return modules
-    folios = raw.get("folios") if raw.get("_folioWrap") is True else [{"id": "f0", "state": raw}]
-    if not isinstance(folios, list):
-        return modules
-    catalog = {}
-    for index, folio in enumerate(folios, 1):
-        if isinstance(folio, dict) and isinstance(folio.get("id"), str):
-            catalog[folio["id"]] = {"code": f"FTA-{index:03d}", "description": "", "tags": []}
-    return {**modules, "faultTreeCatalog": {"schemaVersion": 1, "byTreeId": catalog}}
 
 
 class ProjectDocument(BaseModel):
@@ -87,14 +73,12 @@ class ProjectDocument(BaseModel):
     @field_validator("schema_version")
     @classmethod
     def supported_schema(cls, value: int) -> int:
-        if value not in {6, 7, 8, 9}:
-            raise ValueError("This API accepts Perdura project schema 6, 7, 8, or 9.")
+        if value != PROJECT_SCHEMA_VERSION:
+            raise ValueError(f"This alpha API requires Perdura project schema {PROJECT_SCHEMA_VERSION}; older formats are not migrated.")
         return value
 
     @model_validator(mode="after")
     def required_identity_metadata(self):
-        if self.schema_version in {6, 7}:
-            self.modules = _legacy_fta_catalog(self.modules)
         if self.subtitle != "Reliability Engineering and Statistics Suite":
             raise ValueError("Project subtitle does not identify Perdura.")
         if self.website != "https://perdurareliability.com":

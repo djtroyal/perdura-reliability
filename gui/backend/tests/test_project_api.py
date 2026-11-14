@@ -8,6 +8,7 @@ import json
 import sys
 import threading
 import zipfile
+from copy import deepcopy
 
 import pytest
 from pydantic import ValidationError
@@ -38,7 +39,7 @@ def project_request(*, invalid_dependency: bool = False) -> ProjectRunRequest:
             "app": "Perdura",
             "subtitle": "Reliability Engineering and Statistics Suite",
             "website": "https://perdurareliability.com",
-            "schemaVersion": 6,
+            "schemaVersion": main.PROJECT_SCHEMA_VERSION,
             "createdWith": {"version": main.APP_VERSION, "commit": main.APP_COMMIT, "builtAt": "dev"},
             "engineRevisions": {"life-data": 1},
             "project": "API contract",
@@ -204,25 +205,24 @@ def test_tabular_result_discovery_supports_nested_vectors_and_row_tables():
     ]
 
 
-@pytest.mark.parametrize("schema", [6, 7, 8, 9])
-def test_project_document_supports_explicit_migration_schemas(schema):
+@pytest.mark.parametrize("schema", [6, 7, 8, 9, 10, 11, 13])
+def test_project_document_rejects_incompatible_alpha_schemas(schema):
     payload = project_request().project.model_dump(by_alias=True)
     payload["schemaVersion"] = schema
     payload["modules"]["faultTreeCatalog"] = {"schemaVersion": 1, "byTreeId": {}}
-    restored = ProjectDocument.model_validate(payload)
-    assert restored.schema_version == schema
-    assert restored.model_dump(by_alias=True)["modules"] == payload["modules"]
+    with pytest.raises(ValueError, match="requires Perdura project schema"):
+        ProjectDocument.model_validate(payload)
 
 
 @pytest.mark.parametrize("schema", [5, 10, 999])
 def test_project_document_rejects_unsupported_schema_without_guessing(schema):
     payload = project_request().project.model_dump(by_alias=True)
     payload["schemaVersion"] = schema
-    with pytest.raises(ValidationError, match="schema 6, 7, 8, or 9"):
+    with pytest.raises(ValidationError, match="requires Perdura project schema"):
         ProjectDocument.model_validate(payload)
 
 
-def test_legacy_fta_catalog_migration_is_stable_and_preserves_graphs():
+def test_legacy_fta_catalog_is_not_migrated_or_mutated():
     payload = project_request().project.model_dump(by_alias=True)
     payload["schemaVersion"] = 7
     graph = {"nodes": [{"id": "event", "type": "basic", "data": {"probability": 0.2}}], "edges": []}
@@ -230,18 +230,16 @@ def test_legacy_fta_catalog_migration_is_stable_and_preserves_graphs():
         {"id": "tree-a", "name": "Same name", "state": graph},
         {"id": "tree-b", "name": "Same name", "state": graph},
     ]}}
-    model = ProjectDocument.model_validate(payload)
-    catalog = model.modules["faultTreeCatalog"]
-    assert catalog["byTreeId"]["tree-a"]["code"] == "FTA-001"
-    assert catalog["byTreeId"]["tree-b"]["code"] == "FTA-002"
-    assert model.modules["faultTree"] == payload["modules"]["faultTree"]
+    original = deepcopy(payload)
+    with pytest.raises(ValidationError, match="requires Perdura project schema"):
+        ProjectDocument.model_validate(payload)
+    assert payload == original
     assert "faultTreeCatalog" not in payload["modules"]
-    assert ProjectDocument.model_validate(model.model_dump(by_alias=True)).modules == model.modules
 
 
 def test_project_validation_reports_fta_catalog_and_transfer_issues_without_mutation():
     req = project_request()
-    req.project.schema_version = 8
+    req.project.schema_version = main.PROJECT_SCHEMA_VERSION
     req.project.modules = {
         "faultTree": {"_folioWrap": True, "activeId": "a", "folios": [
             {"id": "a", "state": {"nodes": [{"id": "to-b", "type": "transfer", "data": {"transferTo": "b"}}], "edges": []}},
@@ -267,12 +265,12 @@ def test_project_validation_reports_fta_catalog_and_transfer_issues_without_muta
 def shared_project_request():
     req = project_request()
     payload = json.loads((ROOT / "gui/frontend/src/data/demoProject.json").read_text())
-    req.project.schema_version = 9
+    req.project.schema_version = main.PROJECT_SCHEMA_VERSION
     req.project.modules = {key: payload["modules"][key] for key in ("systemDefinition", "prediction")}
     return req
 
 
-def test_schema9_validates_shared_system_and_scenarios_without_mutation():
+def test_current_schema_validates_shared_system_and_scenarios_without_mutation():
     req = shared_project_request()
     original = json.dumps(req.project.modules, sort_keys=True)
     assert validate_project(req, api_request()).valid

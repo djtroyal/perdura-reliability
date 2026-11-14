@@ -461,6 +461,14 @@ jobs:
         run: >-
           npm run assurance:fmea-readiness --prefix gui/frontend --
           --output-dir ../../evidence/dynamic/fmea-readiness
+      - name: Verify canonical requirements and explicit evidence review
+        run: >-
+          npm run assurance:system-requirements --prefix gui/frontend --
+          --output-dir ../../evidence/dynamic/system-requirements
+      - name: Verify shared requirement editors and persistence
+        run: >-
+          npm run assurance:shared-requirements --prefix gui/frontend --
+          --output-dir ../../evidence/dynamic/shared-requirements
       - name: Run Lighthouse laboratory profile
         shell: bash
         run: |

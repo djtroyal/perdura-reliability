@@ -1,9 +1,10 @@
 import StructureTable from './StructureTable'
 import SystemFunctionsEditor from './SystemFunctionsEditor'
+import RequirementsVerification from './RequirementsVerification'
 import { appendCompositionInstance, moveSystemSibling, reparentSystemInstance, systemHierarchyInstances, systemStructureRows } from './structureEditing'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Box, Check, ChevronDown, ChevronRight, CircleAlert, GitBranch, Layers3, Link2,
+  Box, Check, ChevronDown, ChevronRight, CircleAlert, ClipboardCheck, GitBranch, Layers3, Link2,
   Eye, EyeOff, Minus, Network, PanelRightClose, PanelRightOpen, Plus, RefreshCw, Send, ShieldAlert, TableProperties, Trash2, X,
 } from 'lucide-react'
 
@@ -27,6 +28,7 @@ import {
 } from '../../api/systemDefinition'
 import { useModuleState } from '../../store/project'
 import { useUiPreference } from '../../store/uiPreferences'
+import { useBookmarkNavigationTarget } from '../../store/bookmarks'
 import { captureSharedSystemContext, useSharedSystemDefinition } from '../../store/sharedSystem'
 import { createProjectSystem, systemInputFingerprint } from '../../store/sharedSystemModel'
 import { createFmeaAnalysis } from '../ReliabilityProgram/fmeaModel'
@@ -333,6 +335,14 @@ export default function SystemDefinition({ functionNavigation, interfaceNavigati
   interfaceNavigation?: { interfaceId: string; nonce: number }
 } = {}) {
   const [state, setState] = useSharedSystemDefinition()
+  const bookmarkTarget = useBookmarkNavigationTarget()
+  const appliedBookmark = useRef(0)
+  useEffect(() => {
+    if (!bookmarkTarget || bookmarkTarget.nonce === appliedBookmark.current
+      || bookmarkTarget.source.module !== 'systemDefinition' || bookmarkTarget.source.view !== 'requirements') return
+    appliedBookmark.current = bookmarkTarget.nonce
+    setState(current => ({ ...current, view: 'requirements' }))
+  }, [bookmarkTarget, setState])
   const [showPieceParts, setShowPieceParts] = useUiPreference<boolean>('systemDefinition.showPieceParts', false)
   const [editStructure, setEditStructure] = useUiPreference<boolean>('systemDefinition.editStructure', false)
   const [modelToolsOpen, setModelToolsOpen] = useState(false)
@@ -1064,11 +1074,12 @@ export default function SystemDefinition({ functionNavigation, interfaceNavigati
 
   return <div className="flex h-full min-h-0 flex-col bg-white">
     <div className="border-b px-4 py-3 text-sm font-semibold">{model.name} · Shared project system</div>
-    <div className="flex items-center gap-1 border-b bg-slate-50 px-3 py-1.5">
+    <div className="flex flex-wrap items-center gap-1 border-b bg-slate-50 px-3 py-1.5">
       {([
         ['structure', 'Structure', TableProperties],
         ['architecture', 'Interfaces', Layers3],
         ['functions', 'Functions & Failures', Box],
+        ['requirements', 'Requirements & Verification', ClipboardCheck],
         ['fault-map', 'Fault Propagation', GitBranch],
         ['integrations', 'Analyses & Impact', Send],
       ] as const).map(([id, label, Icon]) => <button key={id} type="button"
@@ -1467,6 +1478,12 @@ export default function SystemDefinition({ functionNavigation, interfaceNavigati
         </section>
       </div>}
     </div>}
+
+    {state.view === 'requirements' && <RequirementsVerification model={model} selectedInstanceId={selected?.id ?? ''}
+      onChange={next => setState(current => ({ ...current, model: next }))}
+      onSelectBlock={selectedInstanceId => setState(current => ({ ...current, selectedInstanceId }))}
+      onNavigateBlock={selectedInstanceId => setState(current => ({ ...current, selectedInstanceId, view: 'structure' }))}
+      onNavigateFunction={navigateFunction} onNavigateInterface={navigateInterface} />}
 
     {state.view === 'functions' && <div className="grid min-h-0 flex-1 grid-cols-[260px_1fr]">
       <aside className="overflow-auto border-r p-2"><HierarchyTree model={model}

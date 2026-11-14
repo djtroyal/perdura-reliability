@@ -2,7 +2,7 @@
   "app": "Perdura",
   "subtitle": "Reliability Engineering and Statistics Suite",
   "website": "https://perdurareliability.com",
-  "schemaVersion": 11,
+  "schemaVersion": 12,
   "createdWith": {
     "version": "0.8.3",
     "commit": "dev",
@@ -7785,7 +7785,7 @@
                 "values": {
                   "failure_rate": {
                     "kind": "number",
-                    "value": 0.00002,
+                    "value": 2e-05,
                     "unit": "failures/hour"
                   }
                 }
@@ -20524,6 +20524,431 @@
               }
             ],
             "hidden_instance_ids": []
+          }
+        ],
+        "verification_cases": [
+          {
+            "id": "VER-AIRCRAFT-CONTROL",
+            "objective": "Review REQ-AIRCRAFT-CONTROL",
+            "requirement_ids": [
+              "REQ-AIRCRAFT-CONTROL"
+            ],
+            "failure_chain_ids": [],
+            "method": "analysis",
+            "level": "System",
+            "sample_size": "",
+            "acceptance_criteria": "Demonstrate traceability from crew commands through propulsion and control-surface functions to aircraft motion.",
+            "owner": "",
+            "status": "planned",
+            "evidence_link_ids": [],
+            "mode_ids": [
+              "run",
+              "takeoff",
+              "landing"
+            ],
+            "outcome": "not_assessed",
+            "assessment": "",
+            "reviewed_by": "",
+            "reviewed_at": "",
+            "reviewed_fingerprint": "",
+            "reviewed_revision": ""
+          },
+          {
+            "id": "VER-PROPULSION-COMMAND",
+            "objective": "Review REQ-PROPULSION-COMMAND",
+            "requirement_ids": [
+              "REQ-PROPULSION-COMMAND"
+            ],
+            "failure_chain_ids": [],
+            "method": "analysis",
+            "level": "Allocated item",
+            "sample_size": "",
+            "acceptance_criteria": "Show a complete command, electrical-power, and thrust path for each propulsion channel.",
+            "owner": "",
+            "status": "planned",
+            "evidence_link_ids": [],
+            "mode_ids": [
+              "run",
+              "takeoff",
+              "landing"
+            ],
+            "outcome": "not_assessed",
+            "assessment": "",
+            "reviewed_by": "",
+            "reviewed_at": "",
+            "reviewed_fingerprint": "",
+            "reviewed_revision": ""
+          },
+          {
+            "id": "VER-ESSENTIAL-POWER",
+            "objective": "Review REQ-ESSENTIAL-POWER",
+            "requirement_ids": [
+              "REQ-ESSENTIAL-POWER"
+            ],
+            "failure_chain_ids": [],
+            "method": "analysis",
+            "level": "Allocated item",
+            "sample_size": "",
+            "acceptance_criteria": "Review every essential load against its allocated supply, interfaces, and failure response.",
+            "owner": "",
+            "status": "planned",
+            "evidence_link_ids": [],
+            "mode_ids": [
+              "run",
+              "takeoff",
+              "landing"
+            ],
+            "outcome": "not_assessed",
+            "assessment": "",
+            "reviewed_by": "",
+            "reviewed_at": "",
+            "reviewed_fingerprint": "",
+            "reviewed_revision": ""
+          },
+          {
+            "id": "VER-LEFT-MOTOR-CONVERSION",
+            "objective": "Review REQ-LEFT-MOTOR-CONVERSION",
+            "requirement_ids": [
+              "REQ-LEFT-MOTOR-CONVERSION"
+            ],
+            "failure_chain_ids": [],
+            "method": "analysis",
+            "level": "Allocated item",
+            "sample_size": "",
+            "acceptance_criteria": "Demonstrate the phase-power input, torque output, and associated failure-mode coverage for the installed left motor.",
+            "owner": "",
+            "status": "planned",
+            "evidence_link_ids": [],
+            "mode_ids": [
+              "run",
+              "takeoff",
+              "landing"
+            ],
+            "outcome": "not_assessed",
+            "assessment": "",
+            "reviewed_by": "",
+            "reviewed_at": "",
+            "reviewed_fingerprint": "",
+            "reviewed_revision": ""
+          },
+          {
+            "id": "DVP-DEMO-1",
+            "objective": "Verify hydraulic controller power continuity through its qualification exposure.",
+            "requirement_ids": [
+              "DFREQ-1"
+            ],
+            "failure_chain_ids": [
+              "DFC-1"
+            ],
+            "method": "Instrumented vibration and thermal test",
+            "level": "Controller",
+            "sample_size": "3 controllers",
+            "acceptance_criteria": "No interruption longer than 20 ms and contact resistance below 20 mΩ during the defined qualification exposure.",
+            "owner": "Test lead",
+            "status": "planned",
+            "evidence_link_ids": [],
+            "mode_ids": [],
+            "outcome": "not_assessed",
+            "assessment": "",
+            "reviewed_by": "",
+            "reviewed_at": "",
+            "reviewed_fingerprint": "",
+            "reviewed_revision": ""
+          }
+        ],
+        "verification_evidence": [],
+        "requirements": [
+          {
+            "id": "REQ-AIRCRAFT-CONTROL",
+            "statement": "The aircraft shall translate crew intent into controlled aircraft motion.",
+            "requirement_type": "functional",
+            "measure": "",
+            "target": "",
+            "unit": "",
+            "acceptance_criteria": "Demonstrate traceability from crew commands through propulsion and control-surface functions to aircraft motion.",
+            "operating_condition": "",
+            "source": "Illustrative aircraft design intent",
+            "owner": "",
+            "confidence": "",
+            "verification_method": "analysis",
+            "evidence_ids": [],
+            "special_characteristic": "",
+            "lifecycle": "draft",
+            "derived_from_ids": [],
+            "allocations": [
+              {
+                "system_model_id": "system-demo-aircraft",
+                "instance_id": "aircraft",
+                "function_id": "fly-aircraft"
+              }
+            ],
+            "mode_ids": [
+              "run",
+              "takeoff",
+              "landing"
+            ],
+            "mission_profile": "",
+            "failure_definition": "",
+            "supporting_analyses": []
+          },
+          {
+            "id": "REQ-PROPULSION-COMMAND",
+            "statement": "The propulsion system shall provide thrust in response to aircraft control demands.",
+            "requirement_type": "functional",
+            "measure": "",
+            "target": "",
+            "unit": "",
+            "acceptance_criteria": "Show a complete command, electrical-power, and thrust path for each propulsion channel.",
+            "operating_condition": "",
+            "source": "Illustrative aircraft design intent",
+            "owner": "",
+            "confidence": "",
+            "verification_method": "analysis",
+            "evidence_ids": [],
+            "special_characteristic": "",
+            "lifecycle": "draft",
+            "derived_from_ids": [
+              "REQ-AIRCRAFT-CONTROL"
+            ],
+            "allocations": [
+              {
+                "system_model_id": "system-demo-aircraft",
+                "instance_id": "propulsion",
+                "function_id": "perform"
+              }
+            ],
+            "mode_ids": [
+              "run",
+              "takeoff",
+              "landing"
+            ],
+            "mission_profile": "",
+            "failure_definition": "",
+            "supporting_analyses": []
+          },
+          {
+            "id": "REQ-ESSENTIAL-POWER",
+            "statement": "The electrical power system shall supply the essential DC loads required for controlled flight.",
+            "requirement_type": "functional",
+            "measure": "",
+            "target": "",
+            "unit": "",
+            "acceptance_criteria": "Review every essential load against its allocated supply, interfaces, and failure response.",
+            "operating_condition": "",
+            "source": "Illustrative aircraft design intent",
+            "owner": "",
+            "confidence": "",
+            "verification_method": "analysis",
+            "evidence_ids": [],
+            "special_characteristic": "",
+            "lifecycle": "draft",
+            "derived_from_ids": [
+              "REQ-AIRCRAFT-CONTROL"
+            ],
+            "allocations": [
+              {
+                "system_model_id": "system-demo-aircraft",
+                "instance_id": "electrical-power",
+                "function_id": "supply-essential-power"
+              }
+            ],
+            "mode_ids": [
+              "run",
+              "takeoff",
+              "landing"
+            ],
+            "mission_profile": "",
+            "failure_definition": "",
+            "supporting_analyses": []
+          },
+          {
+            "id": "REQ-LEFT-MOTOR-CONVERSION",
+            "statement": "The left motor shall convert supplied phase power into commanded shaft torque.",
+            "requirement_type": "functional",
+            "measure": "",
+            "target": "",
+            "unit": "",
+            "acceptance_criteria": "Demonstrate the phase-power input, torque output, and associated failure-mode coverage for the installed left motor.",
+            "operating_condition": "",
+            "source": "Illustrative aircraft design intent",
+            "owner": "",
+            "confidence": "",
+            "verification_method": "analysis",
+            "evidence_ids": [],
+            "special_characteristic": "",
+            "lifecycle": "draft",
+            "derived_from_ids": [
+              "REQ-PROPULSION-COMMAND"
+            ],
+            "allocations": [
+              {
+                "system_model_id": "system-demo-aircraft",
+                "instance_id": "motor-left",
+                "function_id": "perform"
+              }
+            ],
+            "mode_ids": [
+              "run",
+              "takeoff",
+              "landing"
+            ],
+            "mission_profile": "",
+            "failure_definition": "",
+            "supporting_analyses": []
+          },
+          {
+            "id": "DFREQ-1",
+            "statement": "The hydraulic controller power connector shall deliver protected 28 V DC power without an interruption longer than 20 ms.",
+            "requirement_type": "performance",
+            "measure": "Maximum power interruption",
+            "target": "20",
+            "unit": "ms",
+            "acceptance_criteria": "No interruption longer than 20 ms and contact resistance below 20 mΩ during the defined qualification exposure.",
+            "operating_condition": "Defined controller qualification environment",
+            "source": "Illustrative aircraft hydraulic controller design target",
+            "owner": "Electrical lead",
+            "confidence": "",
+            "verification_method": "Continuity monitoring during vibration and thermal testing",
+            "evidence_ids": [],
+            "special_characteristic": "",
+            "lifecycle": "draft",
+            "derived_from_ids": [
+              "DFREQ-3"
+            ],
+            "allocations": [
+              {
+                "system_model_id": "system-demo-aircraft",
+                "instance_id": "power-connector",
+                "definition_id": "definition-power-connector",
+                "function_id": "DFN-1"
+              }
+            ],
+            "mode_ids": [],
+            "mission_profile": "Controller ground qualification exposure",
+            "failure_definition": "",
+            "supporting_analyses": [
+              {
+                "module_key": "fmea",
+                "analysis_id": "DFMEA-DEMO"
+              }
+            ]
+          },
+          {
+            "id": "DFREQ-2",
+            "statement": "The hydraulic pressure sensor shall report delivery manifold pressure within ±2% of full scale.",
+            "requirement_type": "interface",
+            "measure": "Pressure measurement error",
+            "target": "±2",
+            "unit": "% full scale",
+            "acceptance_criteria": "Absolute error does not exceed 2% of full scale over the defined calibration and temperature points.",
+            "operating_condition": "Defined controller qualification environment",
+            "source": "Illustrative aircraft hydraulic controller design target",
+            "owner": "Controls lead",
+            "confidence": "",
+            "verification_method": "Multi-point calibration over temperature",
+            "evidence_ids": [],
+            "special_characteristic": "",
+            "lifecycle": "draft",
+            "derived_from_ids": [
+              "DFREQ-3"
+            ],
+            "allocations": [
+              {
+                "system_model_id": "system-demo-aircraft",
+                "instance_id": "pressure-sensor",
+                "definition_id": "definition-pressure-sensor",
+                "function_id": "DFN-2"
+              }
+            ],
+            "mode_ids": [],
+            "mission_profile": "Controller ground qualification exposure",
+            "failure_definition": "",
+            "supporting_analyses": [
+              {
+                "module_key": "fmea",
+                "analysis_id": "DFMEA-DEMO"
+              }
+            ]
+          },
+          {
+            "id": "DFREQ-3",
+            "statement": "The hydraulic controller shall maintain commanded hydraulic pressure during its 1,000-hour ground qualification exposure.",
+            "requirement_type": "performance",
+            "measure": "Controller mission reliability",
+            "target": "R(1000 h) ≥ 0.99",
+            "unit": "",
+            "acceptance_criteria": "No loss of commanded hydraulic pressure for more than 2 seconds; demonstrate R(1000 h) ≥ 0.99 at 90% confidence.",
+            "operating_condition": "Defined controller qualification environment",
+            "source": "Illustrative aircraft hydraulic controller design target",
+            "owner": "Reliability lead",
+            "confidence": "",
+            "verification_method": "Reliability demonstration with an agreed exposure and failure definition",
+            "evidence_ids": [],
+            "special_characteristic": "",
+            "lifecycle": "draft",
+            "derived_from_ids": [
+              "REQ-AIRCRAFT-CONTROL"
+            ],
+            "allocations": [
+              {
+                "system_model_id": "system-demo-aircraft",
+                "instance_id": "b1",
+                "definition_id": "definition-b1",
+                "function_id": "DFN-3"
+              }
+            ],
+            "mode_ids": [],
+            "mission_profile": "Controller ground qualification exposure",
+            "failure_definition": "",
+            "supporting_analyses": [
+              {
+                "module_key": "fmea",
+                "analysis_id": "DFMEA-DEMO"
+              }
+            ]
+          },
+          {
+            "id": "MFREQ-1",
+            "statement": "The hydraulic controller shall issue a safe-state command and maintenance indication within 100 ms of a detectable power-path fault.",
+            "requirement_type": "safety",
+            "measure": "Detection and response time",
+            "target": "≤ 100",
+            "unit": "ms",
+            "acceptance_criteria": "The safe-state command and maintenance indication occur within the illustrative 100 ms fault-tolerant interval.",
+            "operating_condition": "Defined controller qualification environment",
+            "source": "Illustrative aircraft hydraulic controller design target",
+            "owner": "Systems lead",
+            "confidence": "",
+            "verification_method": "Boundary fault injection with timestamped response capture",
+            "evidence_ids": [],
+            "special_characteristic": "",
+            "lifecycle": "draft",
+            "derived_from_ids": [
+              "DFREQ-3"
+            ],
+            "allocations": [
+              {
+                "system_model_id": "system-demo-aircraft",
+                "instance_id": "b1",
+                "definition_id": "definition-b1",
+                "function_id": "MFN-1"
+              },
+              {
+                "system_model_id": "system-demo-aircraft",
+                "instance_id": "b1",
+                "definition_id": "definition-b1",
+                "function_id": "MFN-2"
+              }
+            ],
+            "mode_ids": [],
+            "mission_profile": "Controller ground qualification exposure",
+            "failure_definition": "",
+            "supporting_analyses": [
+              {
+                "module_key": "fmea",
+                "analysis_id": "FMEA-MSR-DEMO"
+              }
+            ]
           }
         ]
       },

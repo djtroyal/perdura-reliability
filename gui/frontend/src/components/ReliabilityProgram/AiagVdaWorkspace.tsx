@@ -1927,7 +1927,8 @@ function FunctionStep({
     const source = programRequirements.find(
       item => item.id === sourceRequirementId)
     if (!source) return
-    const requirementId = uid('FREQ')
+    const requirementId = analysis.kind === 'pfmea' ? uid('FREQ') : source.id
+    if (analysis.functional_requirements.some(item => item.id === requirementId)) return
     const created = await synchronizeProgramRequirement({
       id: requirementId, statement: '', requirement_type: 'functional',
       measure: '', target: '', unit: '', acceptance_criteria: '',
@@ -1935,7 +1936,9 @@ function FunctionStep({
       verification_method: '', evidence_ids: [], special_characteristic: '',
     }, source)
     update({ functional_requirements: [
-      ...analysis.functional_requirements, created,
+      ...analysis.functional_requirements, analysis.kind === 'pfmea' ? created : {
+        ...created, linked_program_requirement_id: undefined, source_checksum: undefined,
+      },
     ] })
     setSourceRequirementId('')
   }
@@ -2487,13 +2490,16 @@ function RequirementRecordsEditor({
     update({ functional_requirements: analysis.functional_requirements.map(
       item => item.id === id ? { ...item, ...patch } : item) })
   const remove = (id: string) => {
+    if (analysis.kind !== 'pfmea' && !window.confirm(
+      'Delete this shared system requirement? Referencing analyses and verification cases will need review.',
+    )) return
     const correlationCount = analysis.function_requirement_links.filter(
       item => item.requirement_id === id).length
     const interfaceCount = analysis.interfaces.filter(
       item => item.requirement_ids.includes(id)).length
     const factorCount = analysis.p_diagrams.flatMap(item => item.items).filter(
       item => item.requirement_ids.includes(id)).length
-    if ((correlationCount || interfaceCount || factorCount) && !window.confirm(
+    if (analysis.kind === 'pfmea' && (correlationCount || interfaceCount || factorCount) && !window.confirm(
       `Delete this functional requirement?\n\nIt is used by `
       + `${correlationCount} correlation(s), ${interfaceCount} interface(s), `
       + `and ${factorCount} P-diagram item(s). Those links will be removed.`,
@@ -2540,15 +2546,16 @@ function RequirementRecordsEditor({
         onChange={event => setSourceRequirementId(event.target.value)}
         className="min-w-56 flex-1 rounded border border-blue-200 bg-white px-2 py-1.5 text-xs">
         <option value="" disabled>
-          Link a Reliability Program requirement…
+          {analysis.kind === 'pfmea' ? 'Link a Reliability Program requirement…' : 'Link a system requirement…'}
         </option>
-        {programRequirements.map(item =>
+        {programRequirements.filter(item => analysis.kind === 'pfmea'
+          || !analysis.functional_requirements.some(value => value.id === item.id)).map(item =>
           <option key={item.id} value={item.id}>{item.id} · {item.statement}</option>)}
       </select>
       <button disabled={!sourceRequirementId}
         onClick={() => void addProgramRequirement()}
         className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
-        Add linked snapshot
+        {analysis.kind === 'pfmea' ? 'Add linked snapshot' : 'Link requirement'}
       </button>
     </div>
     {shown.map(item => {
@@ -2584,7 +2591,7 @@ function RequirementRecordsEditor({
             <OrdinalBadge value={`REQ${ordinal}`}
               title={`Functional requirement ${ordinal}`} />
             <span className="font-mono text-[10px] text-slate-400">{item.id}</span>
-            {sync && <span title={sync.differences.map(diff => diff.field).join(', ')}
+            {sync && analysis.kind === 'pfmea' && <span title={sync.differences.map(diff => diff.field).join(', ')}
               className={`rounded px-1.5 py-0.5 text-[9px] ${
                 sync.status === 'in_sync' ? 'bg-emerald-50 text-emerald-700' :
                 sync.status === 'local' ? 'bg-slate-100 text-slate-500' :
@@ -2604,7 +2611,7 @@ function RequirementRecordsEditor({
                 }} className="rounded p-1 text-blue-600 hover:bg-blue-50">
                 <RefreshCw size={12} />
               </button>}
-            <button onClick={() => remove(item.id)}
+            <button onClick={() => remove(item.id)} title="Delete requirement"
               className="text-slate-300 hover:text-red-500">
               <Trash2 size={13} />
             </button>

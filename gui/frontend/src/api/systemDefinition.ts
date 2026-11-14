@@ -1,4 +1,35 @@
 import { api, type PredictionResponse } from './client'
+import type { FMEAFunctionalRequirement } from './reliabilityProgram'
+import type { FMEAEvidenceLink, FMEAVerificationPlanRow } from './fmea'
+
+/** One authored requirement, shared by every physical-system analysis. */
+export interface SystemRequirement extends FMEAFunctionalRequirement {
+  lifecycle: 'draft'|'active'|'retired'
+  derived_from_ids: string[]
+  allocations: CanonicalSystemRef[]
+  mode_ids: string[]
+  mission_profile: string
+  failure_definition: string
+  supporting_analyses: { module_key: string; analysis_id: string }[]
+}
+
+export interface SystemVerificationEvidence extends FMEAEvidenceLink {
+  requirement_ids: string[]
+  mode_ids: string[]
+  /** Required for internally computed evidence; external records use revision/checksum. */
+  run_id?: string
+  module_key?: string
+}
+
+export interface SystemVerificationCase extends FMEAVerificationPlanRow {
+  mode_ids: string[]
+  outcome: 'not_assessed'|'pass'|'fail'|'inconclusive'
+  assessment: string
+  reviewed_by: string
+  reviewed_at: string
+  reviewed_fingerprint: string
+  reviewed_revision: string
+}
 
 export type SystemInterfaceType =
   'physical'|'energy'|'information'|'material'|'human_machine'|'clearance'
@@ -159,6 +190,9 @@ export interface SystemDefinitionModel {
   root_instance_id?: string
   version: 4; id: string; name: string; revision: string
   resources: SystemResource[]
+  requirements?: SystemRequirement[]
+  verification_cases?: SystemVerificationCase[]
+  verification_evidence?: SystemVerificationEvidence[]
   modes: SystemMode[]; definitions: SystemBlockDefinition[]
   instances: SystemBlockInstance[]
   externals: { id: string; name: string; kind: 'adjacent_system'|'person'|'environment'|'other'; description: string; ports?: SystemPort[] }[]

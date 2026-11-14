@@ -2,6 +2,9 @@ import { distributionLabel } from '../components/shared/distributionLabels'
 import { materializePrediction, systemInputFingerprint, type PredictionScenario } from './sharedSystemModel'
 import { canonicalFmeaBinding, collectFmeaProtectedEntityIds, fmeaSemanticFingerprint, inspectFmeaBinding, materializeFmeaAnalysis } from './sharedFmeaModel'
 import type { SystemDefinitionState } from '../components/SystemDefinition/model'
+import { evaluateSystemRequirements } from './systemRequirements'
+import { verificationSourcesForProject } from './systemVerificationState'
+import { effectiveSystemFunctions } from './systemArchitecture'
 import { CURRENT_ENGINE_REVISIONS } from '../version'
 import { buildFtaReferenceIndex, createFtaResultProvenance, ftaResultFreshness, normalizeFtaLibrary, sha256FtaText, semanticFtaFingerprint, type FtaFolio } from '../components/FaultTree/libraryModel'
 import {
@@ -5355,11 +5358,44 @@ function extractStatisticalModeling(modules: Record<string, unknown>, out: Asset
 // Main entry point
 // ---------------------------------------------------------------------------
 
+function extractSystemRequirements(modules: Record<string, unknown>, out: AssetDescriptor[]) {
+  const model = (modules.systemDefinition as SystemDefinitionState | undefined)?.model
+  if (!model?.requirements?.length) return
+  const assessment = evaluateSystemRequirements(model, verificationSourcesForProject(getProjectState()))
+  const requirementById = new Map(model.requirements.map(item => [item.id, item]))
+  const caseById = new Map((model.verification_cases ?? []).map(item => [item.id, item]))
+  const allocationLabel = (ref: NonNullable<typeof model.requirements>[number]['allocations'][number]) => {
+    if (ref.interface_id) return model.interfaces.find(item => item.id === ref.interface_id)?.name ?? `Missing interface ${ref.interface_id}`
+    const block = model.instances.find(item => item.id === ref.instance_id)
+    const fn = ref.instance_id && ref.function_id ? effectiveSystemFunctions(model, ref.instance_id).find(item => item.id === ref.function_id) : undefined
+    return `${block?.name ?? ref.instance_id ?? ref.definition_id ?? model.name}${ref.function_id ? ` / ${fn?.description ?? ref.function_id}` : ''}`
+  }
+  out.push({ id: mkId('sysreq'), module: 'systemDefinition', moduleLabel: 'System Modeling', group: model.name,
+    analysisId: model.id, targetView: 'requirements', label: 'Requirements Traceability', type: 'table',
+    getData: () => ({ tableHeaders: ['Requirement', 'Statement', 'Owner', 'Allocated to', 'Derived from', 'Acceptance criteria', 'Verification'],
+      tableRows: assessment.requirements.map(result => {
+        const item = requirementById.get(result.id)!
+        return [item.id, item.statement, item.owner, item.allocations.map(allocationLabel).join('; '), item.derived_from_ids.join('; '), item.acceptance_criteria, result.status]
+      }) }) })
+  if (caseById.size) out.push({ id: mkId('sysver'), module: 'systemDefinition', moduleLabel: 'System Modeling', group: model.name,
+    analysisId: model.id, targetView: 'requirements', label: 'Verification Evidence Review', type: 'table',
+    getData: () => ({ tableHeaders: ['Case', 'Requirements', 'Objective', 'Method', 'Acceptance criteria', 'Status', 'Assessment', 'Evidence', 'Reviewer', 'Reviewed at', 'Model revision'],
+      tableRows: assessment.cases.map(result => {
+        const item = caseById.get(result.id)!
+        return [item.id, item.requirement_ids.join('; '), item.objective, item.method, item.acceptance_criteria, result.status, item.assessment,
+          item.evidence_link_ids.map(id => {
+            const evidence = model.verification_evidence?.find(value => value.id === id)
+            return evidence ? `${evidence.claim} (${evidence.locator}; rev ${evidence.source_revision || '—'})` : `Missing evidence ${id}`
+          }).join('; '), item.reviewed_by, item.reviewed_at, item.reviewed_revision]
+      }) }) })
+}
+
 export function enumerateAssets(): AssetDescriptor[] {
   idSeq = 0
   const state = getProjectState()
   const m = state.modules
   const out: AssetDescriptor[] = []
+  extractSystemRequirements(m, out)
   extractLifeData(m, out)
   extractALT(m, out)
   extractGrowth(m, out)

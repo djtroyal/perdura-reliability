@@ -1064,12 +1064,71 @@ def analyze_fmeda(
     }
 
 
+def _canonical_verification_projection(study, canonical_system, assessment):
+    """Resolve physical requirement verification without trusting copied statuses.
+
+    Process verification remains analysis-owned. The calculation is still
+    available when physical-system verification needs more work; findings and
+    the returned plan identify the unresolved review instead of asserting pass.
+    """
+    if canonical_system is None or study.get("model", {}).get("kind") == "pfmea":
+        return study, []
+    cases = {item["id"]: item for item in canonical_system.get("verification_cases", ())}
+    evaluated = {item["id"]: item for item in assessment["cases"]}
+    fields = ("id", "objective", "requirement_ids", "failure_chain_ids", "method", "level",
+              "sample_size", "acceptance_criteria", "owner", "planned_date", "evidence_link_ids")
+    chain_ids = {item["id"] for item in study.get("model", {}).get("failure_chains", ())}
+    rows, findings, required_evidence_ids = [], [], set()
+    for row in study.get("verification_plan", ()):
+        key = row["id"]
+        case = cases.get(key)
+        if not row.get("requirement_ids") and case is None:
+            rows.append(deepcopy(row))
+            continue
+        if case is None:
+            rows.append({**deepcopy(row), "status": "blocked"})
+            findings.append({"code": "missing_canonical_verification", "severity": "error", "record_id": key,
+                "message": "Requirement verification must reference a case in the canonical System Model."})
+            continue
+        result = evaluated[key]
+        projected = {field: deepcopy(case[field]) for field in fields if field in case}
+        projected["failure_chain_ids"] = [item for item in case.get("failure_chain_ids", ()) if item in chain_ids]
+        required_evidence_ids.update(case.get("evidence_link_ids", ()))
+        if any(row.get(field) != case.get(field) for field in ("objective", "method", "acceptance_criteria", "requirement_ids", "evidence_link_ids")):
+            findings.append({"code": "canonical_verification_snapshot_mismatch", "severity": "error", "record_id": key,
+                "message": "The copied verification plan differs from the canonical case; refresh it before release."})
+        status = result["status"]
+        projected["status"] = status if status in {"passed", "failed"} else "blocked" if status in {"blocked", "stale"} else "planned" if case.get("status") == "planned" else "in_progress"
+        rows.append(projected)
+        if status not in {"passed", "failed"}:
+            findings.append({"code": "canonical_verification_" + status,
+                "severity": "error" if status in {"blocked", "stale"} or row.get("status") in {"passed", "failed"} else "warning", "record_id": key,
+                "message": "Canonical verification " + status + ". " + (result["issues"][0]["message"] if result["issues"] else "An engineer review with applicable current evidence is required.")})
+    evidence_fields = ("id", "target_id", "source_module", "source_analysis_id", "source_record_id", "source_revision", "source_checksum", "evidence_kind", "claim", "locator", "units", "mission_context", "captured_at", "stale", "stale_reason", "rating_dimension", "rating_value")
+    canonical_evidence = {item["id"]: {field: deepcopy(item[field]) for field in evidence_fields if field in item}
+        for item in canonical_system.get("verification_evidence", ()) if item["id"] in required_evidence_ids}
+    evidence_rows = []
+    for entry in study.get("evidence_links", ()):
+        shared = canonical_evidence.pop(entry["id"], None)
+        if shared is not None:
+            if any(entry.get(field) != shared.get(field) for field in ("claim", "locator", "source_checksum", "source_revision")):
+                findings.append({"code": "canonical_verification_evidence_mismatch", "severity": "error", "record_id": entry["id"],
+                    "message": "The copied verification evidence differs from its canonical record; refresh it before release."})
+            evidence_rows.append(shared)
+        else:
+            evidence_rows.append(deepcopy(entry))
+    evidence_rows.extend(canonical_evidence.values())
+    return {**study, "verification_plan": rows, "evidence_links": evidence_rows}, findings
+
+
 def analyze_studies(
     studies: Iterable[Mapping[str, Any]],
     *,
     rating_profiles: Iterable[Mapping[str, Any]] = (),
     program_requirements: Iterable[Mapping[str, Any]] = (),
     canonical_system: Mapping[str, Any] | None = None,
+    verification_sources: Iterable[Mapping[str, Any]] = (),
+    verification_model: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     rating_profiles, program_requirements = list(rating_profiles), list(program_requirements)
     submitted = list(studies)
@@ -1082,14 +1141,18 @@ def analyze_studies(
         rating_profiles=rating_profiles,
         program_requirements=program_requirements,
     )
+    from reliability.SystemRequirements import evaluate_system_requirements
+    review_model = verification_model if verification_model is not None else canonical_system
+    assessment = evaluate_system_requirements(review_model, list(verification_sources)) if review_model is not None else None
     by_id = {str(item["id"]): item for item in records}
     profiles = {item["id"]: item for item in method_profiles()}
     study_results = []
     for analysis in core["analyses"]:
-        study = by_id[str(analysis["id"])]
+        study, verification_findings = _canonical_verification_projection(
+            by_id[str(analysis["id"])], review_model, assessment)
         evidence_findings = validate_evidence(study)
         flowdown_findings = validate_flowdown(study)
-        governance_findings = validate_governance(study)
+        governance_findings = [*validate_governance(study), *verification_findings]
         failure_flow = validate_failure_flow(study)
         failure_flow_findings = failure_flow["findings"]
         fmeda = analyze_fmeda(
@@ -1280,6 +1343,8 @@ def create_release(
     software_commit: str,
     attestations: list[Mapping[str, Any]],
     canonical_system: Mapping[str, Any] | None = None,
+    verification_sources: Iterable[Mapping[str, Any]] = (),
+    verification_model: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     rating_profiles = list(rating_profiles)
     program_requirements = list(program_requirements)
@@ -1300,6 +1365,7 @@ def create_release(
     result = analyze_studies(
         [study], rating_profiles=rating_profiles,
         program_requirements=program_requirements, canonical_system=canonical_system,
+        verification_sources=verification_sources, verification_model=verification_model,
     )["studies"][0]
     if not result["release_ready"]:
         raise ValueError(

@@ -1,5 +1,6 @@
 /** Build-time authoring helper; no runtime migration of old alpha projects. */
-export function adaptAircraftDemo(payload, { materializeFmeaAnalysis, systemInputFingerprint, layoutProfiles }) {
+export function adaptAircraftDemo(payload, { materializeFmeaAnalysis, systemInputFingerprint, layoutProfiles,
+  createSystemRequirement, createVerificationCase, stripSharedRequirementProjections }) {
   const project = structuredClone(payload)
   const model = project.modules.systemDefinition.model
   const oldModelId = 'system-demo-pumps'
@@ -102,6 +103,42 @@ export function adaptAircraftDemo(payload, { materializeFmeaAnalysis, systemInpu
     'PFMEA-DEMO': 'Aircraft Hydraulic Controller Assembly PFMEA',
     'FMEA-MSR-DEMO': 'Aircraft Hydraulic Controller Monitoring Supplement',
   }
+  // Authored aircraft design targets preserve the example's correlation identities.
+  // Their values are teaching assumptions, with no fabricated verification evidence.
+  const hydraulicRequirements = [
+    { id: 'DFREQ-1', statement: 'The hydraulic controller power connector shall deliver protected 28 V DC power without an interruption longer than 20 ms.',
+      requirement_type: 'performance', measure: 'Maximum power interruption', target: '20', unit: 'ms',
+      acceptance_criteria: 'No interruption longer than 20 ms and contact resistance below 20 mΩ during the defined qualification exposure.',
+      verification_method: 'Continuity monitoring during vibration and thermal testing', instance_id: 'power-connector', function_ids: ['DFN-1'],
+      parent: 'DFREQ-3', study: 'DFMEA-DEMO', owner: 'Electrical lead' },
+    { id: 'DFREQ-2', statement: 'The hydraulic pressure sensor shall report delivery manifold pressure within ±2% of full scale.',
+      requirement_type: 'interface', measure: 'Pressure measurement error', target: '±2', unit: '% full scale',
+      acceptance_criteria: 'Absolute error does not exceed 2% of full scale over the defined calibration and temperature points.',
+      verification_method: 'Multi-point calibration over temperature', instance_id: 'pressure-sensor', function_ids: ['DFN-2'],
+      parent: 'DFREQ-3', study: 'DFMEA-DEMO', owner: 'Controls lead' },
+    { id: 'DFREQ-3', statement: 'The hydraulic controller shall maintain commanded hydraulic pressure during its 1,000-hour ground qualification exposure.',
+      requirement_type: 'performance', measure: 'Controller mission reliability', target: 'R(1000 h) ≥ 0.99', unit: '',
+      acceptance_criteria: 'No loss of commanded hydraulic pressure for more than 2 seconds; demonstrate R(1000 h) ≥ 0.99 at 90% confidence.',
+      verification_method: 'Reliability demonstration with an agreed exposure and failure definition', instance_id: 'b1', function_ids: ['DFN-3'],
+      parent: 'REQ-AIRCRAFT-CONTROL', study: 'DFMEA-DEMO', owner: 'Reliability lead' },
+    { id: 'MFREQ-1', statement: 'The hydraulic controller shall issue a safe-state command and maintenance indication within 100 ms of a detectable power-path fault.',
+      requirement_type: 'safety', measure: 'Detection and response time', target: '≤ 100', unit: 'ms',
+      acceptance_criteria: 'The safe-state command and maintenance indication occur within the illustrative 100 ms fault-tolerant interval.',
+      verification_method: 'Boundary fault injection with timestamped response capture', instance_id: 'b1', function_ids: ['MFN-1', 'MFN-2'],
+      parent: 'DFREQ-3', study: 'FMEA-MSR-DEMO', owner: 'Systems lead' },
+  ].map(({ instance_id, function_ids, parent, study, ...fields }) => ({ ...createSystemRequirement(fields.id), ...fields,
+    source: 'Illustrative aircraft hydraulic controller design target', lifecycle: 'draft',
+    mission_profile: 'Controller ground qualification exposure', operating_condition: 'Defined controller qualification environment',
+    derived_from_ids: [parent], allocations: function_ids.map(function_id => ({ ...systemRef(instance_id), function_id })),
+    supporting_analyses: [{ module_key: 'fmea', analysis_id: study }],
+  }))
+  const hydraulicIds = new Set(hydraulicRequirements.map(item => item.id))
+  model.requirements = [...(model.requirements ?? []).filter(item => !hydraulicIds.has(item.id)), ...hydraulicRequirements]
+  model.verification_cases = [...(model.verification_cases ?? []).filter(item => item.id !== 'DVP-DEMO-1'), {
+    ...createVerificationCase('DVP-DEMO-1', 'DFREQ-1'), objective: 'Verify hydraulic controller power continuity through its qualification exposure.',
+    failure_chain_ids: ['DFC-1'], method: 'Instrumented vibration and thermal test', level: 'Controller', sample_size: '3 controllers',
+    acceptance_criteria: hydraulicRequirements[0].acceptance_criteria, owner: 'Test lead',
+  }]
   const folio = project.modules.fmea.folios[0]
   folio.name = 'Aircraft Hydraulic Controller FMEA Portfolio'
   folio.state.analyses = folio.state.analyses.map(source => {
@@ -180,9 +217,10 @@ export function adaptAircraftDemo(payload, { materializeFmeaAnalysis, systemInpu
 
   const program = project.modules.reliabilityProgram.folios[0]
   program.name = 'Aircraft Hydraulics Assurance — Training Example'
-  program.state.rows.requirements.forEach(row => {
-    row.missionProfile = 'Illustrative controller ground qualification mission; not an aircraft mission or certification target'
-  })
+  for (const item of project.modules.fmea.folios)
+    item.state = stripSharedRequirementProjections(item.state, model, 'analyses', 'fmea')
+  for (const item of project.modules.reliabilityProgram.folios)
+    item.state = stripSharedRequirementProjections(item.state, model, 'aiagAnalyses', 'reliabilityProgram')
   project.modules.library.items.forEach(item => {
     if (!item.source.startsWith('Illustrative training assumption — ')) item.source = `Illustrative training assumption — ${item.source}`
   })

@@ -1,4 +1,5 @@
 import { api } from './client'
+import type { ArtifactSourceRecord } from '../store/provenance'
 import type { SystemDefinitionModel } from './systemDefinition'
 import type {
   AIAGVDAFMEAAnalysis,
@@ -506,11 +507,13 @@ export const analyzeFmeaStudies = (
   ratingProfiles: FMEARatingProfile[],
   programRequirements: RequirementInput[],
   canonicalSystem?: SystemDefinitionModel,
+  verificationSources: ArtifactSourceRecord[] = [],
 ) => api.post<FMEAAnalysisResponse>('/fmea/analyze', {
   studies,
   rating_profiles: ratingProfiles,
   program_requirements: programRequirements,
   canonical_system: canonicalSystem,
+  verification_sources: verificationSources,
 }).then(response => response.data)
 
 export const createFmeaRevision = (
@@ -539,6 +542,7 @@ export const createFmeaRelease = (
   softwareCommit: string,
   attestations: FMEAAttestation[],
   canonicalSystem?: SystemDefinitionModel,
+  verificationSources: ArtifactSourceRecord[] = [],
 ) => api.post<FMEAReleaseRecord>('/fmea/releases', {
   study,
   rating_profiles: ratingProfiles,
@@ -547,6 +551,7 @@ export const createFmeaRelease = (
   software_commit: softwareCommit,
   attestations,
   canonical_system: canonicalSystem,
+  verification_sources: verificationSources,
 }).then(response => response.data)
 
 export const verifyFmeaRelease = (

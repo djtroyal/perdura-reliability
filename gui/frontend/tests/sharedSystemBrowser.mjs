@@ -99,7 +99,7 @@ try {
  assert.ok(artifactPath, 'broker package contains the intended portable scenario artifact')
  assert.ok(bundle[artifactPath + '.perdura.json'], 'broker package retains its verification manifest')
  const downloaded = JSON.parse(strFromU8(bundle[artifactPath]))
- assert.equal(downloaded.schemaVersion, 11)
+ assert.equal(downloaded.schemaVersion, 12)
  assert.ok(downloaded.modules.systemDefinition.model.root_instance_id)
  assert.equal(downloaded.modules.prediction.folios.length, 2)
  assert.ok(downloaded.modules.prediction.folios.every(f => f.state.scenarioVersion === 1 && !('parts' in f.state)))
