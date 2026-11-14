@@ -123,10 +123,10 @@
     "jspdf": "^4.2.1",
     "katex": "0.19.1",
     "lucide-animated": "^1.0.5",
-    "lucide-react": "^1.70.0",
+    "lucide-react": "^1.71.0",
     "papaparse": "^5.7.0",
-    "plotly.js": "^4.1.2",
-    "re2js": "^2.8.7",
+    "plotly.js": "^4.3.0",
+    "re2js": "^2.10.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "react-markdown": "^10.1.0",
@@ -157,7 +157,7 @@
     "pngjs": "^7.0.0",
     "tailwindcss": "4.3.5",
     "typescript": "^7.0.2",
-    "vite": "^8.3.7"
+    "vite": "^8.3.8"
   },
   "overrides": {
     "rehype-katex@7.0.1": {
