@@ -16,7 +16,7 @@ from reliability.SystemRequirements import validate_requirement_graph
 from reliability.SystemDefinition import propagate_system_definition, validate_system_definition
 from system_definition_schemas import SystemDefinitionModel
 from requirement_schemas import SystemRequirement, SystemVerificationCase, SystemVerificationEvidence
-from gui.backend.tests.test_system_definition import model as architecture
+from .test_system_definition import model as architecture
 
 
 def requirement(key="req-1", instance="sensor-1"):
@@ -270,7 +270,7 @@ def test_no_mode_definition_does_not_bypass_joint_unit_and_mission_coverage():
 
 
 def test_physical_fmea_calculates_with_incomplete_canonical_verification_drafts():
-    from gui.backend.tests.test_fmea_api import linked_analysis, canonical_model
+    from .test_fmea_api import linked_analysis, canonical_model
     from routers.fmea import analyze
     from schemas import FMEAAnalyzeRequest
     from requirement_schemas import FMEAEvidenceLink
@@ -304,7 +304,7 @@ def test_physical_fmea_calculates_with_incomplete_canonical_verification_drafts(
 
 
 def physical_verification_request(*, reviewed=False, internal=False):
-    from gui.backend.tests.test_fmea_api import linked_analysis, canonical_model
+    from .test_fmea_api import linked_analysis, canonical_model
     from requirement_schemas import FMEAFunctionalRequirement, FMEAVerificationPlanRow, FMEAEvidenceLink
     from reliability.SystemRequirements import review_verification_case
     analysis = linked_analysis()
