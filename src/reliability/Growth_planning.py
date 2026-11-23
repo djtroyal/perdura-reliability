@@ -22,6 +22,9 @@ def plan_reliability_growth(
     planned_additional_test_time: float | None = None,
     unaddressed_failure_rate: float = 0.0,
     corrective_actions: Iterable[dict] | None = None,
+    baseline_basis: str = "instantaneous",
+    phase_durations: Iterable[float] | None = None,
+    provenance: str = "",
 ) -> dict:
     """Build a power-law growth target and optional delayed-fix projection."""
     t0 = float(current_test_time)
@@ -35,6 +38,14 @@ def plan_reliability_growth(
         raise ValueError("current_mtbf and target_mtbf must be positive and finite.")
     if not math.isfinite(alpha) or not 0 < alpha < 1:
         raise ValueError("growth_rate must be strictly between 0 and 1.")
+    if baseline_basis not in {"instantaneous", "initial_phase_average"}:
+        raise ValueError("baseline_basis must be instantaneous or initial_phase_average.")
+    entered_mtbf = m0
+    if baseline_basis == "initial_phase_average":
+        m0 /= 1.0 - alpha
+    phases = [] if phase_durations is None else [float(value) for value in phase_durations]
+    if len(phases) > 100 or any(not math.isfinite(value) or value <= 0 for value in phases):
+        raise ValueError("Supply at most 100 positive finite phase durations.")
     if not math.isfinite(unaddressed) or unaddressed < 0:
         raise ValueError("unaddressed_failure_rate must be non-negative and finite.")
     if planned_additional_test_time is not None:
@@ -46,7 +57,9 @@ def plan_reliability_growth(
 
     already_met = m0 >= target
     target_time = t0 if already_met else t0 * (target / m0) ** (1.0 / alpha)
-    planned_end = t0 + additional if additional is not None else target_time
+    if phases and additional is not None:
+        raise ValueError("Use phase_durations or planned_additional_test_time, not both.")
+    planned_end = t0 + math.fsum(phases) if phases else t0 + additional if additional is not None else target_time
     curve_end = max(t0 * 1.01, planned_end, target_time)
     time = np.linspace(t0, curve_end, 180)
     mtbf = m0 * (time / t0) ** alpha
@@ -78,12 +91,43 @@ def plan_reliability_growth(
         ),
     }
 
+    phase_table = []
+    cumulative_failures = 0.0
+    if baseline_basis == "initial_phase_average":
+        cumulative_failures = t0 / entered_mtbf
+        phase_table.append({"phase": 1, "start_time": 0.0, "end_time": t0,
+                            "duration": t0, "start_mtbf": entered_mtbf,
+                            "end_mtbf": m0, "average_mtbf": entered_mtbf,
+                            "expected_failures": cumulative_failures,
+                            "cumulative_expected_failures": cumulative_failures,
+                            "basis": "initial_constant_average_then_endpoint_conversion"})
+    previous = t0
+    for duration in phases or ([planned_end - t0] if planned_end > t0 else []):
+        end = previous + duration
+        # Direct interval integral avoids cancellation of two cumulative counts.
+        increment = (t0 ** alpha / m0 * previous ** (1.0 - alpha)
+                     * math.expm1((1.0 - alpha) * math.log1p(duration / previous)) / (1.0 - alpha))
+        cumulative_failures += increment
+        phase_table.append({"phase": len(phase_table) + 1,
+                            "start_time": previous, "end_time": end, "duration": duration,
+                            "start_mtbf": m0 * (previous / t0) ** alpha,
+                            "end_mtbf": m0 * (end / t0) ** alpha,
+                            "average_mtbf": duration / increment,
+                            "expected_failures": increment,
+                            "cumulative_expected_failures": cumulative_failures,
+                            "basis": "integrated_failure_intensity"})
+        previous = end
+
     actions = _fix_projection(
         current_time=t0, unaddressed=unaddressed,
         actions=[] if corrective_actions is None else list(corrective_actions),
     )
     return {
         "trajectory": trajectory,
+        "baseline": {"basis": baseline_basis, "entered_mtbf": entered_mtbf,
+                     "instantaneous_mtbf": m0, "provenance": str(provenance),
+                     "conversion": "M_inst=M_average/(1-alpha)" if baseline_basis == "initial_phase_average" else "none"},
+        "phase_table": phase_table,
         "corrective_action_projection": actions,
         "standards_context": {
             "status": "standards_informed_planning_model",

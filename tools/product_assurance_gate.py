@@ -20,6 +20,9 @@ ASSURANCE_JOBS = (
     "container",
     "browser-compatibility",
     "dynamic-and-performance",
+    "browser-journeys",
+    "web-security",
+    "toolkit-workflows",
 )
 DOCUMENTATION_FILES = {
     "README.md", "CHANGELOG.md", "CONTRIBUTING.md", "CODE_OF_CONDUCT.md",
@@ -133,7 +136,7 @@ def main() -> int:
                 # gh --slurp wraps paginated responses; tolerate a single page
                 # too. URLs originate in GitHub's jobs API, never PR input.
                 pages = jobs if isinstance(jobs, list) else [jobs]
-                output.write("\n| Job | Result | Evidence |\n| --- | --- | --- |\n")
+                output.write("\n| Job | Result | Failed step | Evidence |\n| --- | --- | --- | --- |\n")
                 for page in pages:
                     for job in page.get("jobs", []):
                         if job.get("name") == "Product assurance gate":
@@ -141,7 +144,15 @@ def main() -> int:
                         name = str(job["name"]).replace("|", "\\|")
                         result = job.get("conclusion") or job.get("status", "unknown")
                         url = job.get("html_url", "")
-                        output.write(f"| {name} | {result} | [Open job]({url}) |\n")
+                        failed_steps = [step for step in job.get("steps", [])
+                                        if step.get("conclusion") in {"failure", "timed_out", "cancelled"}]
+                        steps = "; ".join(
+                            str(step.get("name", "Unnamed step")).replace("|", "\\|").replace("\n", " ")
+                            for step in failed_steps
+                        ) or ("See suite report/log" if result == "failure" else "—")
+                        if failed_steps and isinstance(failed_steps[0].get("number"), int):
+                            url += f"#step:{failed_steps[0]['number']}:1"
+                        output.write(f"| {name} | {result} | {steps} | [Open job]({url}) |\n")
     return 0 if passed else 1
 
 

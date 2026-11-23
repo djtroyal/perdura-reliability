@@ -17,6 +17,7 @@ from reliability.SystemReliability import (
 )
 from schemas import RBDRequest, RBDComponentData
 from ._probability_models import distribution_cdf
+from api_contract import public_error_message
 
 
 def _compute_reliability(
@@ -549,12 +550,15 @@ def compute_rbd(req: RBDRequest):
     except ExactEvaluationLimitError as e:
         raise HTTPException(
             status_code=422,
-            detail={"code": "RBD_EXACT_LIMIT", "message": str(e)},
+            detail={"code": "RBD_EXACT_LIMIT", "message": public_error_message(
+                e, message='The RBD exceeds the exact-analysis state limit. Reduce model complexity before retrying.')},
         ) from e
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+        raise HTTPException(status_code=400, detail=public_error_message(
+            e, message='The RBD model could not be evaluated. Check component reliability, voting thresholds, and common-cause groups.')) from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail=public_error_message(
+            e, message='RBD analysis could not be completed. Use the request ID when reporting this error.')) from e
 
     # Bounded explanatory success scenarios follow the same branch-outcome
     # threshold semantics. Probability remains the exact ROBDD result above.

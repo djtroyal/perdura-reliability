@@ -7,10 +7,10 @@ with support for censored (suspended) data via rank adjustment.
 
 import numpy as np
 import matplotlib.pyplot as plt
-from reliability.Utils import median_rank_approximation, rank_adjustment, xy_transform
+from reliability.Utils import plotting_positions, xy_transform
 
 
-def _probability_plot(failures, right_censored, dist_name, dist=None, show_plot=True, label=None, **kwargs):
+def _probability_plot(failures, right_censored, dist_name, dist=None, show_plot=True, label=None, rank_method=None, **kwargs):
     """Generic probability plot implementation."""
     failures = np.asarray(failures, dtype=float)
     if right_censored is not None:
@@ -18,11 +18,12 @@ def _probability_plot(failures, right_censored, dist_name, dist=None, show_plot=
 
     x_transform, y_transform, x_label, y_label = xy_transform(dist_name)
 
-    adj_ranks, n = rank_adjustment(failures, right_censored)
-    median_ranks = median_rank_approximation(adj_ranks, n)
+    rank_method = rank_method or getattr(dist, 'rank_method', 'benard')
+    median_ranks = plotting_positions(failures, right_censored, rank_method)
 
     sorted_failures = np.sort(failures)
-    median_ranks = np.clip(median_ranks, 1e-10, 1 - 1e-10)
+    interior = (median_ranks > 0) & (median_ranks < 1)
+    sorted_failures, median_ranks = sorted_failures[interior], median_ranks[interior]
 
     # A location-shifted (3P) fit is linear on the paper of t - gamma, not t.
     g = float(getattr(dist, 'gamma', 0) or 0) if dist is not None else 0.0

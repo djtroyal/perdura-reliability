@@ -70,6 +70,7 @@ ENV MPLBACKEND=Agg \
     PERDURA_VERIFICATION_REPORT_SHA256=$APP_VERIFICATION_REPORT_SHA256 \
     PERDURA_VERIFICATION_RUN_URL=$APP_VERIFICATION_RUN_URL \
     PERDURA_DISTRIBUTION_CHANNEL=container \
+    PERDURA_REFERENCE_DIRECTORY=/references \
     PATH="/app/.venv/bin:$PATH"
 
 WORKDIR /app
@@ -78,6 +79,8 @@ WORKDIR /app
 # universal lock. --no-build + --no-cache verifies that every third-party
 # dependency is available as a wheel for the declared container target.
 COPY pyproject.toml uv.lock README.md LICENSE ./
+# src/perdura_app/data contains citation metadata, never reference PDFs.
+# Optionally bind-mount user-supplied PDFs read-only at /references.
 COPY src/ src/
 COPY gui/backend/ gui/backend/
 # pip/setuptools/wheel are inherited build tools, not runtime dependencies.

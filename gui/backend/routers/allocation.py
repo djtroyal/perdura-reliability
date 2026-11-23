@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException
+from api_contract import public_error_message
 from pydantic import BaseModel, Field
 
 # Bootstrap the reliability src package path
@@ -55,8 +56,8 @@ def allocate_endpoint(req: AllocationRequest):
             mission_time=req.mission_time,
         )
     except AllocationError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=public_error_message(exc, message='Check the system target, mission time, and subsystem weights required by the selected allocation method.')) from exc
     except Exception as exc:  # numerical / unexpected
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail=public_error_message(exc, message='Reliability allocation could not be completed.')) from exc
 
     return _safe(result)

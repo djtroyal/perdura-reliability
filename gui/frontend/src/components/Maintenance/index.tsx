@@ -10,6 +10,10 @@ import PMInterval from './PMInterval'
 import CostForecast from './CostForecast'
 import AvailabilitySensitivity from './AvailabilitySensitivity'
 import VirtualAge from './VirtualAge'
+import FleetForecast from './FleetForecast'
+import LifetimeTools from './LifetimeTools'
+import InventoryPlanning from './InventoryPlanning'
+import { ReportAssetScopeProvider } from '../shared/ReportAssetScope'
 
 /**
  * Maintenance module — task definition and resource-constrained portfolio
@@ -37,9 +41,12 @@ export default function Maintenance({
       ),
     },
     { id: 'spares', label: 'Spares', render: () => <Spares /> },
+    { id: 'inventory', label: 'Inventory Planning', render: () => <ReportAssetScopeProvider value={{ module: 'maintInventory', moduleLabel: 'Maintenance' }}><InventoryPlanning /></ReportAssetScopeProvider> },
     { id: 'replacement', label: 'Replacement Policy', render: () => <ReplacementPolicy /> },
     { id: 'pm-interval', label: 'PM Interval (MFOP)', render: () => <PMInterval /> },
     { id: 'cost-forecast', label: 'Cost Forecast', render: () => <CostForecast /> },
+    { id: 'fleet-forecast', label: 'Fleet Forecast', render: () => <FleetForecast /> },
+    { id: 'lifetime-tools', label: 'Lifetime Tools', render: () => <ReportAssetScopeProvider value={{ module: 'lifeTools', moduleLabel: 'Maintenance' }}><LifetimeTools /></ReportAssetScopeProvider> },
     { id: 'virtual-age', label: 'Virtual Age', render: () => <VirtualAge /> },
     { id: 'availability-sensitivity', label: 'Availability Sensitivity', render: () => <AvailabilitySensitivity /> },
   ]

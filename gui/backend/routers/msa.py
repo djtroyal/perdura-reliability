@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import List, Optional, Literal
 
 from fastapi import APIRouter, HTTPException
+from api_contract import public_error_message
 from pydantic import BaseModel
 
 # Bootstrap the reliability src package path
@@ -63,7 +64,7 @@ def gage_rr(req: GageRRRequest):
     try:
         if req.method == "anova":
             if req.topology != "crossed":
-                raise ValueError("Classical ANOVA requires topology='crossed'; use REML for nested data.")
+                raise HTTPException(400, "Classical ANOVA requires topology='crossed'; use REML for nested data.")
             result = gage_rr_anova(
                 parts=req.parts,
                 operators=req.operators,
@@ -74,7 +75,7 @@ def gage_rr(req: GageRRRequest):
             )
         elif req.method == "xbar_r":
             if req.topology != "crossed":
-                raise ValueError("Xbar-R requires topology='crossed'; use REML for nested data.")
+                raise HTTPException(400, "Xbar-R requires topology='crossed'; use REML for nested data.")
             result = gage_rr_xbar_r(
                 parts=req.parts,
                 operators=req.operators,
@@ -93,5 +94,5 @@ def gage_rr(req: GageRRRequest):
                 confidence=req.confidence,
             )
     except (ValueError, FloatingPointError, RuntimeError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=public_error_message(exc, message='Gage R&R could not be calculated. Check part/operator assignments, repeated measurements, tolerance, and the selected study topology.')) from exc
     return _safe(result)

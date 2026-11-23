@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "source_catalog": "docs/standards/mil-hdbk-217f-evidence.json",
+  "scope": "Selected citation metadata only. PDFs are user-supplied and are not bundled.",
+  "documents": [
+    {
+      "id": "mil-hdbk-217f-notice-2",
+      "document_number": "MIL-HDBK-217F Notice 2",
+      "accession": null,
+      "title": "Reliability Prediction of Electronic Equipment",
+      "date": "1995-02-28",
+      "authority": "United States Department of Defense",
+      "authority_role": "governing_standard",
+      "relationship": "Controlled governing edition for Perdura's MIL-HDBK-217F calculations.",
+      "supports": [
+        "Sections 5-23",
+        "Appendix A",
+        "Appendix B",
+        "Appendix C bibliography"
+      ],
+      "acquisition_status": "controlled_tracked",
+      "identity_status": "verified",
+      "review_status": "fully_reviewed",
+      "local_files": [
+        {
+          "filename": "MIL-HDBK-217F-Notice2.pdf",
+          "sha256": "e0df9c9ed1123a790a5b11e4b8dbbc27ff7edc338b417b0b3d6bff8295217f9b",
+          "redistribution_status": "tracked_controlled"
+        }
+      ],
+      "findings": [
+        "Appendix C contains 38 numbered references.",
+        "The scan contains several document-number and accession transcription defects recorded on the affected Appendix C entries."
+      ],
+      "limitations": [
+        "Handbook transcription parity is not empirical validation for a specific design."
+      ]
+    },
+    {
+      "id": "ansi-vita-51-1-2013-r2018",
+      "document_number": "ANSI/VITA 51.1-2013 (R2018)",
+      "accession": null,
+      "title": "Reliability Prediction MIL-HDBK-217 Subsidiary Specification",
+      "date": "2018",
+      "authority": "VITA Standards Organization",
+      "authority_role": "subsidiary_standard",
+      "relationship": "Optional calculation-affecting subsidiary rules activated by the A/V51.1 selection.",
+      "supports": [
+        "A/V51.1 rules",
+        "Appendix F equations"
+      ],
+      "acquisition_status": "controlled_tracked",
+      "identity_status": "verified",
+      "review_status": "fully_reviewed",
+      "local_files": [
+        {
+          "filename": "AV51DOT1-2013-R2018.pdf",
+          "sha256": "444654fd15215fde6e7700a70ecbf1a82001cf368c93b6a1de28dafde072f214",
+          "redistribution_status": "tracked_controlled"
+        }
+      ],
+      "findings": [],
+      "limitations": [
+        "Referenced VITA 51.0, VITA 51.2, and RAC methods remain separate sources."
+      ]
+    },
+    {
+      "id": "mil-hdbk-338b",
+      "document_number": "MIL-HDBK-338B",
+      "accession": null,
+      "title": "Electronic Reliability Design Handbook",
+      "date": "1998-10-01",
+      "authority": "United States Department of Defense",
+      "authority_role": "secondary_context",
+      "relationship": "Guidance-only cross-check for reliability modeling and service-life interpretation.",
+      "supports": [
+        "service-life weighting context",
+        "general reliability guidance"
+      ],
+      "acquisition_status": "local_untracked",
+      "identity_status": "verified",
+      "review_status": "context_only",
+      "local_files": [
+        {
+          "filename": "MILHDBK338B.pdf",
+          "sha256": "a88ac9678bf2a432859425edd2602fc935cdbc12db4a849e64a0b7d640c196d9",
+          "redistribution_status": "public_domain_source_scan"
+        }
+      ],
+      "findings": [
+        "The handbook explicitly identifies itself as guidance and not a requirement."
+      ],
+      "limitations": [
+        "Not an Appendix C derivation source."
+      ]
+    }
+  ]
+}

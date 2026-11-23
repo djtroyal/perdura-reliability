@@ -1,7 +1,7 @@
 import { escapeHtmlText, jsonForInlineScript } from './htmlSafety'
 import { INTERACTIVE_PLOT_EXPORT_CONFIG, PLOTLY_CDN_URL } from './plotRuntime'
 
-export const PLOTLY_SCRIPT_TAG = `<script src="${PLOTLY_CDN_URL}" charset="utf-8"></script>`
+export const PLOTLY_SCRIPT_TAG = `<script src="${PLOTLY_CDN_URL}" integrity="${__PLOTLY_CDN_INTEGRITY__}" crossorigin="anonymous" charset="utf-8"></script>`
 
 // Keep aligned with the custom runtime registrations in plotly.ts. The full
 // CDN runtime used by exported documents must not enable extra trace families.

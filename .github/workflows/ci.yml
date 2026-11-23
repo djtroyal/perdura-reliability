@@ -50,11 +50,79 @@ jobs:
           path: evidence/dependency-lock
           retention-days: 90
 
+  repository-preflight:
+    name: Repository preflight
+    needs: dependency-lock
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: '3.13.14'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: gui/frontend/package-lock.json
+      - name: Check runtime policy and version declarations
+        id: policy
+        run: |
+          python tools/check_version_consistency.py
+          python tools/check_product_assurance.py --output evidence/preflight/local-controls.json
+          python tools/run_browser_assurance.py --validate-only
+      - name: Reject exception details in API responses
+        id: api-errors
+        run: python tools/check_api_error_disclosure.py --output evidence/preflight/api-error-disclosure.json
+      - name: Install the candidate authoring dependencies
+        id: install
+        run: npm ci --prefix gui/frontend
+      - name: Reproduce the committed demo under candidate dependencies
+        id: demo
+        run: >-
+          python tools/refresh_demo_project.py --check-generated
+          --evidence evidence/preflight/demo-generation.json
+      - name: Check website fixture provenance
+        id: fixtures
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run test:website-resources --prefix gui/frontend
+      - name: Record preflight evidence component
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p evidence/preflight
+          FILE_ARGS=()
+          for spec in controls=local-controls.json demo-generation=demo-generation.json api-error-disclosure=api-error-disclosure.json; do
+            name="${spec%%=*}"
+            path="evidence/preflight/${spec#*=}"
+            if [ -f "$path" ]; then FILE_ARGS+=(--file "$name=$path"); fi
+          done
+          python tools/build_verification_evidence.py component \
+            --output evidence/preflight/component-repository-preflight.json \
+            --id repository-preflight --kind generated-artifact-qualification \
+            --job-name 'Repository preflight' \
+            --result policy=${{ steps.policy.outcome }} \
+            --result api-errors=${{ steps.api-errors.outcome }} \
+            --result install=${{ steps.install.outcome }} \
+            --result demo=${{ steps.demo.outcome }} \
+            --result fixtures=${{ steps.fixtures.outcome }} \
+            "${FILE_ARGS[@]}"
+      - name: Upload preflight evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: Perdura-CI-raw-preflight-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence/preflight
+          retention-days: 90
+
   python:
     runs-on: ubuntu-24.04
-    needs: dependency-lock
-    # Preserve checks after failures, but let superseded runs release the runner.
-    if: ${{ !cancelled() }}
+    needs: [dependency-lock, repository-preflight]
+    # One actionable preflight failure should not become four identical matrix
+    # failures. Test steps still collect independent results once setup passes.
+    if: ${{ !cancelled() && needs.repository-preflight.result == 'success' }}
     strategy:
       fail-fast: false
       matrix:
@@ -640,7 +708,7 @@ jobs:
   verification-report:
     name: Publish verification evidence
     if: always()
-    needs: [dependency-lock, python, reference-evidence, release-environment, frontend, application-wheel, website-resources]
+    needs: [dependency-lock, repository-preflight, python, reference-evidence, release-environment, frontend, application-wheel, website-resources]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -700,6 +768,7 @@ jobs:
             --input evidence-source --output evidence-report \
             --select-latest-attempts \
             --expected dependency-lock \
+            --expected repository-preflight \
             --expected python-3.11 --expected python-3.12 \
             --expected python-3.13 --expected python-3.14 \
             --expected reference-evidence --expected frontend --expected website-resources \
@@ -710,6 +779,7 @@ jobs:
             --expected release-environment-macos-x64 \
             --expected release-environment-linux-arm64 \
             --job-result dependency-lock=${{ needs.dependency-lock.result }} \
+            --job-result repository-preflight=${{ needs.repository-preflight.result }} \
             --job-result python=${{ needs.python.result }} \
             --job-result reference-evidence=${{ needs.reference-evidence.result }} \
             --job-result release-environment=${{ needs.release-environment.result }} \

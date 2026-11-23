@@ -21,9 +21,10 @@ import RDTTools from './RDTTools'
 import { StepStress, MultiStress, HALT, MarginTest } from './ALTTestTypes'
 import { ExpectedFailureTimes, DifferenceDetection, Simulation } from './TestDesignTools'
 import {
-  Planner, Duration, NoFailures, OneProportion, TwoProportion,
-  Sequential, GoF, Degradation, ESS, HASS, BurnIn,
+  Planner, Duration, NoFailures, TwoProportion,
+  GoF, Degradation, ESS, HASS, BurnIn,
 } from './ReliabilityTestingTools'
+import { AggregateMTBF, ProportionInterval, NormalSummary, DiscreteProbability, ExecutedSequential } from './InferenceTools'
 import { useTestingToolState } from './reliabilityTestingState'
 import { useHelpTopic } from '../help/context'
 import { handleTabKey } from '../shared/tabKeyboard'
@@ -727,8 +728,11 @@ function ALTContent({ navSub }: { navSub?: SubNav | null }) {
           { id: 'exp-planner', label: 'Exponential Test Planner', render: () => <Planner /> },
           { id: 'duration', label: 'Test Duration', render: () => <Duration /> },
           { id: 'no-failures', label: 'Zero-Failure Sample Size', render: () => <NoFailures /> },
-          { id: 'sequential', label: 'Sequential Sampling', render: () => <Sequential /> },
-          { id: 'one-proportion', label: 'One-Sample Proportion', render: () => <OneProportion /> },
+          { id: 'sequential', label: 'Sequential Testing', render: () => <ExecutedSequential /> },
+          { id: 'one-proportion', label: 'One-Sample Proportion', render: () => <ProportionInterval /> },
+          { id: 'field-mtbf', label: 'Field MTBF / Intervals', render: () => <AggregateMTBF /> },
+          { id: 'normal-summary', label: 'Normal Mean Interval', render: () => <NormalSummary /> },
+          { id: 'discrete-probability', label: 'Count Probability / Acceptance', render: () => <DiscreteProbability /> },
           { id: 'two-proportion', label: 'Two-Proportion Test', render: () => <TwoProportion /> },
           { id: 'gof', label: 'Goodness of Fit', render: () => <GoF /> },
         ]} />

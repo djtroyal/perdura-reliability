@@ -23,6 +23,7 @@ try {
   const operations = await vite.ssrLoadModule('/src/components/help/content/operations.ts')
   const reliability = await vite.ssrLoadModule('/src/components/help/content/reliability.ts')
   const statistics = await vite.ssrLoadModule('/src/components/help/content/statistics.ts')
+  const toolkit = await vite.ssrLoadModule('/src/components/help/content/toolkitExtensions.ts')
 
   const {
     HELP_BIBLIOGRAPHY: bibliography,
@@ -48,6 +49,7 @@ try {
     ...operations.OPERATIONS_HELP_TOPICS,
     ...reliability.RELIABILITY_HELP_TOPICS,
     ...statistics.STATISTICS_HELP_TOPICS,
+    ...toolkit.TOOLKIT_EXTENSION_TOPICS,
   ]
   const duplicateAuthoredIds = rawTopics.map(topic => topic.id)
     .filter((id, index, all) => all.indexOf(id) !== index)
@@ -126,6 +128,8 @@ try {
   // This is intentionally coupled to the user-visible catalogs. Adding a new
   // analysis without Help causes a loud contract failure instead of silent drift.
   const requiredTopics = [
+    'maintenance.lifetime-tools', 'maintenance.inventory', 'systemModeling.lifecycle',
+    'alt.field-mtbf', 'alt.normal-summary', 'alt.discrete-probability', 'alt.sequential',
     ...modules.map(module => module.overviewTopicId),
     ...qualify('dashboard', [
       'project-files', 'recent-projects', 'analysis-status', 'unsaved-changes',

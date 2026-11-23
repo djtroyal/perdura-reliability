@@ -25,6 +25,7 @@ app = [
     "fastapi>=0.110",
     "uvicorn[standard]>=0.23",
     "pydantic>=2.5",
+    "pypdf>=7.1.1",
     "scikit-learn>=1.5",
     # Safe, portable fitted-model export and bounded local inference. Perdura
     # does not load pickle/joblib artifacts.
@@ -81,7 +82,7 @@ perdura_app = "src/perdura_app"
 "perdura_app.backend.routers" = "gui/backend/routers"
 
 [tool.setuptools.package-data]
-perdura_app = ["static/*", "static/assets/*", "static/website-showcase/*"]
+perdura_app = ["static/*", "static/assets/*", "static/website-showcase/*", "data/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

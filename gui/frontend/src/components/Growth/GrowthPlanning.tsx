@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { AlertTriangle, Play, Plus, Trash2 } from 'lucide-react'
 
-import { planReliabilityGrowth, type GrowthPlanResponse } from '../../api/client'
+import { type GrowthPlanResponse } from '../../api/client'
+import { calculatePhaseGrowth, type PhaseGrowthResponse } from '../../api/inferenceTools'
+import { numericList } from '../ALT/inferenceToolContracts'
 import Plot from '../shared/ExportablePlot'
 import InfoLabel from '../shared/InfoLabel'
 import { Card } from '../shared/ui'
@@ -25,12 +27,16 @@ export interface GrowthPlanningState {
   plannedAdditionalTime: string
   unaddressedRate: string
   actions: FixRow[]
+  baselineBasis?: 'instantaneous' | 'initial_phase_average'
+  phaseDurations?: string
+  provenance?: string
   result?: GrowthPlanResponse | null
 }
 
 export const INITIAL_GROWTH_PLANNING_STATE: GrowthPlanningState = {
   currentTime: '', currentMtbf: '', targetMtbf: '', growthRate: '0.3',
   plannedAdditionalTime: '', unaddressedRate: '', actions: [], result: null,
+  baselineBasis: 'instantaneous', phaseDurations: '', provenance: '',
 }
 
 const fmt = (value: number | null | undefined) => {
@@ -66,11 +72,16 @@ export default function GrowthPlanning({ state, setState, units }: {
       return
     }
     setLoading(true); setError(null)
+    const requestSnapshot = JSON.stringify({ ...state, result: null })
     try {
-      const result = await planReliabilityGrowth({
+      const phases = numericList(state.phaseDurations ?? '', 'Phase duration')
+      const result = await calculatePhaseGrowth({
         current_test_time: required[0], current_mtbf: required[1],
         target_mtbf: required[2], growth_rate: required[3],
-        planned_additional_test_time: Number(state.plannedAdditionalTime) || undefined,
+        planned_additional_test_time: phases.length ? undefined : Number(state.plannedAdditionalTime) || undefined,
+        baseline_basis: state.baselineBasis ?? 'instantaneous',
+        phase_durations: phases,
+        provenance: state.provenance ?? '',
         unaddressed_failure_rate: Number(state.unaddressedRate) || 0,
         corrective_actions: actions.map(row => ({
           name: row.name.trim(), baseline_failure_rate: Number(row.rate),
@@ -79,18 +90,22 @@ export default function GrowthPlanning({ state, setState, units }: {
           effectiveness_upper: row.upper.trim() ? Number(row.upper) : Number(row.effectiveness),
         })),
       })
-      setState(previous => ({ ...previous, result }))
+      setState(previous => JSON.stringify({ ...previous, result: null }) === requestSnapshot ? { ...previous, result } : previous)
     } catch (caught: unknown) {
       setError((caught as { response?: { data?: { detail?: string } } })?.response?.data?.detail
         || (caught instanceof Error ? caught.message : 'Growth planning failed.'))
     } finally { setLoading(false) }
   }
-  const result = state.result
+  const result = state.result as PhaseGrowthResponse | null | undefined
   const fixes = result?.corrective_action_projection
   return (
     <div className="flex flex-1 overflow-hidden">
       <aside className="w-80 shrink-0 overflow-y-auto border-r border-gray-200 bg-white p-4 space-y-4">
         <p className="text-xs text-gray-500">Project the target trajectory using the supplied growth rate.</p>
+        <label className={labelCls}>Baseline MTBF definition<select aria-label="Baseline MTBF definition" value={state.baselineBasis ?? 'instantaneous'} onChange={event => patch({ baselineBasis: event.target.value as GrowthPlanningState['baselineBasis'] })} className={inputCls}>
+          <option value="instantaneous">Instantaneous MTBF at current exposure</option><option value="initial_phase_average">Average MTBF during the initial phase</option>
+        </select></label>
+        {state.baselineBasis === 'initial_phase_average' && <p className="text-xs text-gray-500">Current test time is the initial-phase duration. Its average MTBF converts to instantaneous MTBF using M/(1−α) at the phase boundary.</p>}
         <div className="grid grid-cols-2 gap-2">
           <div><InfoLabel tip="Accumulated test exposure at the planning baseline.">Current test time</InfoLabel><input type="number" min="0" value={state.currentTime} onChange={event => patch({ currentTime: event.target.value })} className={inputCls} /></div>
           <div><InfoLabel tip="Instantaneous MTBF supported or adopted at the planning baseline.">Current MTBF</InfoLabel><input type="number" min="0" value={state.currentMtbf} onChange={event => patch({ currentMtbf: event.target.value })} className={inputCls} /></div>
@@ -99,6 +114,9 @@ export default function GrowthPlanning({ state, setState, units }: {
           <div><InfoLabel tip="Optional exposure already budgeted beyond the current test point. Blank solves the exposure needed to reach the target.">Planned additional test</InfoLabel><input type="number" min="0" value={state.plannedAdditionalTime} onChange={event => patch({ plannedAdditionalTime: event.target.value })} className={inputCls} /></div>
           <div><InfoLabel tip="Failure-rate contribution not assigned to a listed corrective action. It remains in the projected growth-potential rate.">Unaddressed rate</InfoLabel><input type="number" min="0" value={state.unaddressedRate} onChange={event => patch({ unaddressedRate: event.target.value })} className={inputCls} /></div>
         </div>
+        <label className={labelCls}>Subsequent phase durations ({units})<textarea aria-label="Subsequent phase durations" value={state.phaseDurations ?? ''} onChange={event => patch({ phaseDurations: event.target.value })} rows={2} className={inputCls} placeholder="For example: 1500, 2500, 2000, 3000" /></label>
+        <p className="text-[10px] text-gray-500">If supplied, phases determine the planned horizon. Phase-average MTBF uses integrated failures, not endpoint averaging.</p>
+        <label className={labelCls}>Growth-rate and baseline source<textarea aria-label="Growth planning source" value={state.provenance ?? ''} onChange={event => patch({ provenance: event.target.value })} rows={2} className={inputCls} placeholder="Program plan, prior test, assumption owner…" /></label>
         <details className="rounded border border-gray-200" open={state.actions.length > 0}>
           <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-gray-700">Delayed corrective actions</summary>
           <div className="border-t border-gray-200 p-2 space-y-2">
@@ -140,6 +158,11 @@ export default function GrowthPlanning({ state, setState, units }: {
                   xaxis: { title: { text: `Accumulated test time (${units})` }, gridcolor: '#e5e7eb' }, yaxis: { title: { text: `Instantaneous MTBF (${units})` }, gridcolor: '#e5e7eb', rangemode: 'tozero' } }}
                 useResizeHandler style={{ width: '100%', height: 400 }} />
             </section>
+            {result.phase_table && <section className="overflow-x-auto rounded-lg border border-gray-200 bg-white p-3">
+              <h3 className="text-sm font-medium">Planned test phases</h3>
+              {result.baseline && <p className="mt-1 text-xs text-gray-500">Baseline: {result.baseline.basis.replace(/_/g, ' ')} · instantaneous MTBF {fmt(result.baseline.instantaneous_mtbf)} {units}{result.baseline.provenance && ` · Source: ${result.baseline.provenance}`}</p>}
+              <table className="mt-3 w-full whitespace-nowrap text-right text-xs"><thead><tr>{['Phase', `Start (${units})`, `End (${units})`, 'Start MTBF', 'End MTBF', 'Average MTBF', 'Expected failures', 'Cumulative failures'].map(title => <th key={title} className="px-2 py-2">{title}</th>)}</tr></thead><tbody>{result.phase_table.map(row => <tr key={row.phase} className="border-t border-gray-100">{[row.phase, row.start_time, row.end_time, row.start_mtbf, row.end_mtbf, row.average_mtbf, row.expected_failures, row.cumulative_expected_failures].map((value, index) => <td key={index} className="px-2 py-2">{fmt(value)}</td>)}</tr>)}</tbody></table>
+            </section>}
             {fixes && <>
               <div className="flex gap-2 rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800"><AlertTriangle size={14} className="mt-0.5 shrink-0" />{fixes.warning}</div>
               <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">

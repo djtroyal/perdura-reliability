@@ -117,3 +117,21 @@ export async function analyzeCapability(req: CapabilityRequest): Promise<Capabil
   const res = await api.post<CapabilityResponse>('/capability/analyze', req)
   return res.data
 }
+
+export interface SpecificationTailResult extends DefectRates {
+  distribution: string
+  params: Record<string, number>
+  lsl: number | null
+  usl: number | null
+  probability_below_lsl: number
+  probability_above_usl: number
+  probability_total: number
+  method: 'specified_distribution_direct_tails'
+  parameter_uncertainty_included: false
+}
+
+export async function calculateSpecificationTails(req: {
+  distribution: string; params: Record<string, number>; lsl: number | null; usl: number | null
+}): Promise<SpecificationTailResult> {
+  return (await api.post<SpecificationTailResult>('/capability/spec-tail', req)).data
+}

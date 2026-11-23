@@ -181,7 +181,7 @@ def binomial_oc_curve(n, failures=0, R_values=None, num_points=200):
 
 # ── Proportion tests ─────────────────────────────────────────────────────────
 
-def one_sample_proportion(trials, successes, CI=0.95):
+def one_sample_proportion(trials, successes, CI=0.95, sides="two-sided"):
     """Exact (Clopper-Pearson) confidence interval for a proportion.
 
     Given a reliability demonstration where ``successes`` of ``trials`` units
@@ -203,14 +203,21 @@ def one_sample_proportion(trials, successes, CI=0.95):
         ``proportion`` (point estimate), ``lower``, ``upper``, ``trials``,
         ``successes``.
     """
+    if not np.isfinite(CI) or not 0 < CI < 1:
+        raise ValueError("CI must be between 0 and 1.")
+    if sides not in ("two-sided", "lower", "upper"):
+        raise ValueError("sides must be two-sided, lower, or upper.")
+    if not float(trials).is_integer() or not float(successes).is_integer():
+        raise ValueError("trials and successes must be integers.")
     n, x = int(trials), int(successes)
     if n <= 0:
         raise ValueError("trials must be > 0")
     if not 0 <= x <= n:
         raise ValueError("successes must be between 0 and trials")
     alpha = 1 - CI
-    lower = 0.0 if x == 0 else float(ss.beta.ppf(alpha / 2, x, n - x + 1))
-    upper = 1.0 if x == n else float(ss.beta.ppf(1 - alpha / 2, x + 1, n - x))
+    tail = alpha / 2 if sides == "two-sided" else alpha
+    lower = 0.0 if x == 0 or sides == "upper" else float(ss.beta.ppf(tail, x, n - x + 1))
+    upper = 1.0 if x == n or sides == "lower" else float(ss.beta.ppf(1 - tail, x + 1, n - x))
     return {
         "proportion": x / n,
         "lower": lower,
@@ -218,6 +225,8 @@ def one_sample_proportion(trials, successes, CI=0.95):
         "trials": n,
         "successes": x,
         "CI": CI,
+        "sides": sides,
+        "method": "clopper_pearson_exact",
     }
 
 
@@ -316,6 +325,10 @@ def sequential_sampling_chart(p1, p2, alpha, beta, max_samples=100):
         raise ValueError("Require 0 < p1 < p2 < 1.")
     if not (0 < alpha < 1 and 0 < beta < 1):
         raise ValueError("alpha and beta must be between 0 and 1.")
+    if alpha + beta >= 1:
+        raise ValueError("alpha + beta must be below 1 for ordered SPRT boundaries.")
+    if not float(max_samples).is_integer() or max_samples < 1:
+        raise ValueError("max_samples must be a positive integer.")
     g1 = np.log(p2 / p1)
     g2 = np.log((1 - p1) / (1 - p2))
     s = g2 / (g1 + g2)

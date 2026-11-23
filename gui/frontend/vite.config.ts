@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { createRequire } from 'node:module'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
@@ -11,6 +12,13 @@ import { re2PrefilterPlugin } from './tools/re2Prefilter.mjs'
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8'))
 const require = createRequire(import.meta.url)
 const PLOTLY_VERSION = JSON.parse(readFileSync(require.resolve('plotly.js/package.json'), 'utf-8')).version
+// The official CDN full bundle matches the npm distribution. Derive both its
+// version and integrity from the lockfile-installed package so upgrades keep
+// exported documents paired with the exact reviewed runtime bytes.
+const PLOTLY_CDN_INTEGRITY = `sha384-${createHash('sha384')
+  .update(readFileSync(require.resolve('plotly.js/dist/plotly.min.js'))).digest('base64')}`
+const KATEX_CDN_INTEGRITY = `sha384-${createHash('sha384')
+  .update(readFileSync(require.resolve('katex/dist/katex.min.css'))).digest('base64')}`
 const APP_VERSION = process.env.VITE_APP_VERSION || pkg.version || 'dev'
 const APP_COMMIT = process.env.VITE_APP_COMMIT || process.env.GITHUB_SHA || 'dev'
 const BUILD_TIMESTAMP = process.env.VITE_BUILD_TIMESTAMP || new Date().toISOString()
@@ -63,6 +71,8 @@ export default defineConfig({
   }],
   define: {
     __PLOTLY_VERSION__: JSON.stringify(PLOTLY_VERSION),
+    __PLOTLY_CDN_INTEGRITY__: JSON.stringify(PLOTLY_CDN_INTEGRITY),
+    __KATEX_CDN_INTEGRITY__: JSON.stringify(KATEX_CDN_INTEGRITY),
     __APP_VERSION__: JSON.stringify(APP_VERSION),
     __APP_COMMIT__: JSON.stringify(APP_COMMIT),
     __BUILD_TIMESTAMP__: JSON.stringify(BUILD_TIMESTAMP),

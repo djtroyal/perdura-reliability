@@ -156,6 +156,18 @@
   ],
   "special_and_nonparametric": [
     {
+      "model": "Weibull_Partial_CR",
+      "status": "withheld",
+      "gate": "normalized_multistart_fit_with_identifiability_diagnostics",
+      "withheld_when": "composite_model_uncertainty_not_calibrated"
+    },
+    {
+      "model": "Weibull_Bathtub",
+      "status": "withheld",
+      "gate": "normalized_multistart_fit_with_identifiability_diagnostics",
+      "withheld_when": "composite_model_uncertainty_not_calibrated"
+    },
+    {
       "model": "Weibull_Mixture",
       "status": "refit_primary",
       "gate": "identifiable_multistart_fit",

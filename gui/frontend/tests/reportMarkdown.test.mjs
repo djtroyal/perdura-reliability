@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { createServer as createHttpServer } from 'node:http'
 import { renderToStaticMarkup } from 'react-dom/server'
@@ -41,6 +42,13 @@ $$\\lambda = 2.5\\times10^{-6}$$
   assert.match(html, /class="katex-display"/)
   assert.match(html, /<math[^>]+xmlns="http:\/\/www\.w3\.org\/1998\/Math\/MathML"/)
   assert.match(html, /encoding="application\/x-tex"/)
+
+  const stylesheet = domino.createWindow(markdown.KATEX_STYLESHEET_TAG).document.querySelector('link[rel="stylesheet"]')
+  const katexVersion = JSON.parse(await readFile(new URL('../node_modules/katex/package.json', import.meta.url), 'utf8')).version
+  const katexBytes = await readFile(new URL('../node_modules/katex/dist/katex.min.css', import.meta.url))
+  assert.equal(stylesheet.getAttribute('href'), `https://cdn.jsdelivr.net/npm/katex@${katexVersion}/dist/katex.min.css`)
+  assert.equal(stylesheet.getAttribute('integrity'), `sha384-${createHash('sha384').update(katexBytes).digest('base64')}`)
+  assert.equal(stylesheet.getAttribute('crossorigin'), 'anonymous')
 
   const preview = renderToStaticMarkup(markdown.ReportMarkdown({ children: source }))
   assert.match(preview, /report-markdown/)

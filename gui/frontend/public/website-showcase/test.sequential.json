@@ -4,36 +4,38 @@
   "website": "https://perdurareliability.com",
   "schemaVersion": 12,
   "createdWith": {
-    "version": "0.8.1",
+    "version": "0.8.4",
     "commit": "dev",
-    "builtAt": "2026-09-14T08:01:21.754Z"
+    "builtAt": "2026-11-22T02:57:53.650Z"
   },
   "engineRevisions": {
-    "lifeData": 2,
+    "lifeData": 3,
     "alt": 1,
     "degradation": 1,
+    "systemDefinition": 4,
     "system": 1,
     "faultTree": 1,
     "markov": 2,
+    "prediction": 2,
     "pof": 1,
-    "growth": 1,
+    "growth": 2,
     "softwareReliability": 1,
-    "reliabilityProgram": 1,
+    "reliabilityProgram": 3,
     "warranty": 3,
     "hypothesis": 1,
     "dataAnalysisData": 1,
     "descriptive": 1,
     "dataModeling": 1,
     "dataAnalysisFolios": 1,
-    "sixSigma.capability": 1,
+    "sixSigma.capability": 2,
     "sixSigma.spc": 1,
     "msa": 1,
     "doe": 1,
     "reliabilityAllocation": 1,
-    "ram": 1,
-    "maintReplacement": 1,
+    "ram": 2,
+    "maintReplacement": 3,
     "maintPMInterval": 1,
-    "maintCostForecast": 1,
+    "maintCostForecast": 3,
     "maintAvailability": 1,
     "hraTherp": 1,
     "hraHeart": 1,
@@ -52,14 +54,16 @@
     "hraCreamExt": 1,
     "library": 1,
     "reportBuilder": 1,
-    "fmea": 2,
+    "fmea": 4,
     "fmeaFailureFlow": 1,
     "maintTaskAnalysis": 1,
-    "reliabilityTestingTools": 2
+    "faultTreeCatalog": 1,
+    "maintFleet": 1,
+    "reliabilityTestingTools": 3
   },
   "project": "Perdura Demo Project",
   "units": "hours",
-  "exported": "2026-09-14T08:05:05.386Z",
+  "exported": "2026-11-22T03:04:32.254Z",
   "identity": {
     "projectId": "prj-demo-project"
   },
@@ -69,347 +73,1577 @@
       "projectId": "prj-demo-project",
       "moduleKey": "reliabilityTestingTools",
       "analysisId": "f0",
-      "engineRevision": 2,
-      "completedAt": "2026-09-14T08:05:04.922Z",
-      "inputSha256": "52e1af1d08968c89499702ec44fffefcd2c71fdc4e29ae1a51b8fecbf1f8b9ef",
-      "resultSha256": "856ee7ade6ea039cb1fa042cc21b4097c560722ed8319326e1e365f642e10e8e",
+      "engineRevision": 3,
+      "completedAt": "2026-11-22T03:04:30.862Z",
+      "inputSha256": "bcd808d88598281e088af513d601ac3f84618785f7dc8f4531a9185f8a493b23",
+      "resultSha256": "b0e1b57cd1e91ef6fd280488b00fb120f0887ad7c6e0360f587c60d83f5181f5",
       "software": {
         "product": "Perdura",
-        "version": "0.8.1",
+        "version": "0.8.4",
         "commit": "dev",
-        "builtAt": "2026-09-14T08:01:21.754Z",
+        "builtAt": "2026-11-22T02:57:53.650Z",
         "repository": "djtroyal/perdura-reliability",
         "commitUrl": null,
-        "releaseUrl": "https://github.com/djtroyal/perdura-reliability/releases/tag/v0.8.1",
+        "releaseUrl": "https://github.com/djtroyal/perdura-reliability/releases/tag/v0.8.4",
         "verificationReportSha256": null,
         "verificationRunUrl": null,
         "runtimeExecutableSha256": null,
         "buildStatus": "development"
       },
-      "runId": "run-d9723332-032d-4fe5-86a2-a18054bbd75d",
-      "moduleLabel": "Reliability Testing \u2014 Planning & Screening Tools",
+      "runId": "run-4e69c180-01fa-4e20-9f49-a428885f7c37",
+      "moduleLabel": "Reliability Testing — Planning & Screening Tools",
       "analysisName": "Temperature ALT",
-      "fingerprintSha256": "5c037a6b78f148513b1996a572d5641b3fd8b438e1e8da490869028002e7c7a7"
+      "fingerprintSha256": "568b4b3c705447559165793dd15cd12994d3929213e708e6944063719f98a90c"
     }
   ],
   "exportLedger": [],
   "modules": {
+    "faultTree": {
+      "_folioWrap": true,
+      "activeId": "f0",
+      "folios": [
+        {
+          "id": "f0",
+          "name": "Aircraft Hydraulics — Loss of Pressure",
+          "state": {
+            "schemaVersion": 2,
+            "exposureTime": "1000",
+            "engine": "auto",
+            "confidenceLevel": "95",
+            "nSimulations": "20000",
+            "simSeed": "42",
+            "density": "comfortable",
+            "connectorStyle": "smoothstep",
+            "snapToGrid": false,
+            "annotations": [],
+            "showNodeIds": true,
+            "nodes": [
+              {
+                "id": "g1",
+                "type": "or",
+                "position": {
+                  "x": 320,
+                  "y": 40
+                },
+                "data": {
+                  "label": "Loss of Hydraulic Pressure",
+                  "description": "Illustrative loss of required hydraulic supply through both pump paths, controller failure, or electrical power loss. Basic-event probabilities are separate teaching inputs, not calibrated aircraft failure probabilities.",
+                  "gateId": "OR-1"
+                }
+              },
+              {
+                "id": "g2",
+                "type": "and",
+                "position": {
+                  "x": 150,
+                  "y": 210
+                },
+                "data": {
+                  "label": "Both Pumps Fail",
+                  "gateId": "AND-1"
+                }
+              },
+              {
+                "id": "b1",
+                "type": "basic",
+                "position": {
+                  "x": 30,
+                  "y": 400
+                },
+                "data": {
+                  "label": "Pump A Fails",
+                  "eventKey": "b1",
+                  "probability": 0.05,
+                  "description": ""
+                }
+              },
+              {
+                "id": "b2",
+                "type": "basic",
+                "position": {
+                  "x": 250,
+                  "y": 400
+                },
+                "data": {
+                  "label": "Pump B Fails",
+                  "eventKey": "b2",
+                  "probability": 0.05,
+                  "description": ""
+                }
+              },
+              {
+                "id": "b3",
+                "type": "basic",
+                "position": {
+                  "x": 430,
+                  "y": 210
+                },
+                "data": {
+                  "label": "Controller Fails",
+                  "eventKey": "b3",
+                  "probability": 0.02,
+                  "description": ""
+                }
+              },
+              {
+                "id": "b4",
+                "type": "basic",
+                "position": {
+                  "x": 640,
+                  "y": 210
+                },
+                "data": {
+                  "label": "Power Loss",
+                  "eventKey": "b4",
+                  "probability": 0.01,
+                  "description": ""
+                }
+              }
+            ],
+            "edges": [
+              {
+                "id": "e-g1-g2",
+                "source": "g1",
+                "target": "g2",
+                "data": {
+                  "role": "input",
+                  "order": 0
+                }
+              },
+              {
+                "id": "e-g1-b3",
+                "source": "g1",
+                "target": "b3",
+                "data": {
+                  "role": "input",
+                  "order": 1
+                }
+              },
+              {
+                "id": "e-g1-b4",
+                "source": "g1",
+                "target": "b4",
+                "data": {
+                  "role": "input",
+                  "order": 2
+                }
+              },
+              {
+                "id": "e-g2-b1",
+                "source": "g2",
+                "target": "b1",
+                "data": {
+                  "role": "input",
+                  "order": 0
+                }
+              },
+              {
+                "id": "e-g2-b2",
+                "source": "g2",
+                "target": "b2",
+                "data": {
+                  "role": "input",
+                  "order": 1
+                }
+              }
+            ],
+            "result": null
+          },
+          "dirty": false
+        },
+        {
+          "id": "fta-simple-or",
+          "name": "Example — Simple OR",
+          "state": {
+            "schemaVersion": 2,
+            "exposureTime": "1000",
+            "engine": "auto",
+            "confidenceLevel": "95",
+            "nSimulations": "20000",
+            "simSeed": "42",
+            "density": "comfortable",
+            "connectorStyle": "smoothstep",
+            "snapToGrid": false,
+            "annotations": [],
+            "showNodeIds": true,
+            "nodes": [
+              {
+                "id": "TOP",
+                "type": "or",
+                "position": {
+                  "x": 360,
+                  "y": 50
+                },
+                "data": {
+                  "label": "Loss of Function",
+                  "description": "Either failure mode causes the top event",
+                  "gateId": "OR-1"
+                }
+              },
+              {
+                "id": "A",
+                "type": "basic",
+                "position": {
+                  "x": 210,
+                  "y": 250
+                },
+                "data": {
+                  "label": "Failure Mode A",
+                  "eventKey": "A",
+                  "probability": 0.01,
+                  "description": ""
+                }
+              },
+              {
+                "id": "B",
+                "type": "basic",
+                "position": {
+                  "x": 510,
+                  "y": 250
+                },
+                "data": {
+                  "label": "Failure Mode B",
+                  "eventKey": "B",
+                  "probability": 0.02,
+                  "description": ""
+                }
+              }
+            ],
+            "edges": [
+              {
+                "id": "e-TOP-A",
+                "source": "TOP",
+                "target": "A",
+                "data": {
+                  "role": "input",
+                  "order": 0
+                }
+              },
+              {
+                "id": "e-TOP-B",
+                "source": "TOP",
+                "target": "B",
+                "data": {
+                  "role": "input",
+                  "order": 1
+                }
+              }
+            ],
+            "result": null
+          },
+          "dirty": false
+        },
+        {
+          "id": "fta-vote",
+          "name": "Example — 2-of-3 Voting",
+          "state": {
+            "schemaVersion": 2,
+            "exposureTime": "1000",
+            "engine": "auto",
+            "confidenceLevel": "95",
+            "nSimulations": "20000",
+            "simSeed": "42",
+            "density": "comfortable",
+            "connectorStyle": "smoothstep",
+            "snapToGrid": false,
+            "annotations": [],
+            "showNodeIds": true,
+            "nodes": [
+              {
+                "id": "TOP",
+                "type": "vote",
+                "position": {
+                  "x": 360,
+                  "y": 40
+                },
+                "data": {
+                  "label": "Two Channels Unavailable",
+                  "k": 2,
+                  "gateId": "VOTE-1"
+                }
+              },
+              {
+                "id": "A",
+                "type": "basic",
+                "position": {
+                  "x": 80,
+                  "y": 250
+                },
+                "data": {
+                  "label": "Channel A Fails",
+                  "eventKey": "A",
+                  "probability": 0.01,
+                  "description": ""
+                }
+              },
+              {
+                "id": "B",
+                "type": "basic",
+                "position": {
+                  "x": 360,
+                  "y": 250
+                },
+                "data": {
+                  "label": "Channel B Fails",
+                  "eventKey": "B",
+                  "probability": 0.01,
+                  "description": ""
+                }
+              },
+              {
+                "id": "C",
+                "type": "basic",
+                "position": {
+                  "x": 640,
+                  "y": 250
+                },
+                "data": {
+                  "label": "Channel C Fails",
+                  "eventKey": "C",
+                  "probability": 0.01,
+                  "description": ""
+                }
+              }
+            ],
+            "edges": [
+              {
+                "id": "e-TOP-A",
+                "source": "TOP",
+                "target": "A",
+                "data": {
+                  "role": "input",
+                  "order": 0
+                }
+              },
+              {
+                "id": "e-TOP-B",
+                "source": "TOP",
+                "target": "B",
+                "data": {
+                  "role": "input",
+                  "order": 1
+                }
+              },
+              {
+                "id": "e-TOP-C",
+                "source": "TOP",
+                "target": "C",
+                "data": {
+                  "role": "input",
+                  "order": 2
+                }
+              }
+            ],
+            "result": null
+          },
+          "dirty": false
+        },
+        {
+          "id": "fta-pand",
+          "name": "Example — PAND Sequence",
+          "state": {
+            "schemaVersion": 2,
+            "exposureTime": "1000",
+            "engine": "auto",
+            "confidenceLevel": "95",
+            "nSimulations": "20000",
+            "simSeed": "42",
+            "density": "comfortable",
+            "connectorStyle": "smoothstep",
+            "snapToGrid": false,
+            "annotations": [],
+            "showNodeIds": true,
+            "nodes": [
+              {
+                "id": "TOP",
+                "type": "pand",
+                "position": {
+                  "x": 360,
+                  "y": 40
+                },
+                "data": {
+                  "label": "Unsafe Ordered Failure",
+                  "tie_policy": "inclusive",
+                  "description": "Protection must fail before the demand occurs",
+                  "gateId": "PAND-1"
+                }
+              },
+              {
+                "id": "A",
+                "type": "basic",
+                "position": {
+                  "x": 210,
+                  "y": 260
+                },
+                "data": {
+                  "label": "Protection Fails First",
+                  "eventKey": "A",
+                  "probability": 0.6321205588285577,
+                  "description": "",
+                  "distribution": "exponential",
+                  "dist_params": {
+                    "lambda": 0.001,
+                    "gamma": 0
+                  }
+                }
+              },
+              {
+                "id": "B",
+                "type": "basic",
+                "position": {
+                  "x": 510,
+                  "y": 260
+                },
+                "data": {
+                  "label": "Demand Occurs Second",
+                  "eventKey": "B",
+                  "probability": 0.6321205588285577,
+                  "description": "",
+                  "distribution": "exponential",
+                  "dist_params": {
+                    "lambda": 0.001,
+                    "gamma": 0
+                  }
+                }
+              }
+            ],
+            "edges": [
+              {
+                "id": "e-TOP-A",
+                "source": "TOP",
+                "target": "A",
+                "data": {
+                  "role": "input",
+                  "order": 0
+                }
+              },
+              {
+                "id": "e-TOP-B",
+                "source": "TOP",
+                "target": "B",
+                "data": {
+                  "role": "input",
+                  "order": 1
+                }
+              }
+            ],
+            "result": null
+          },
+          "dirty": false
+        },
+        {
+          "id": "fta-spare",
+          "name": "Example — Cold Standby",
+          "state": {
+            "schemaVersion": 2,
+            "exposureTime": "1000",
+            "engine": "auto",
+            "confidenceLevel": "95",
+            "nSimulations": "20000",
+            "simSeed": "42",
+            "density": "comfortable",
+            "connectorStyle": "smoothstep",
+            "snapToGrid": false,
+            "annotations": [],
+            "showNodeIds": true,
+            "nodes": [
+              {
+                "id": "TOP",
+                "type": "spare",
+                "position": {
+                  "x": 360,
+                  "y": 40
+                },
+                "data": {
+                  "label": "Primary and Standby Unavailable",
+                  "spare_mode": "cold",
+                  "dormancy_factor": 0,
+                  "coverage": 1,
+                  "gateId": "SPR-1"
+                }
+              },
+              {
+                "id": "A",
+                "type": "basic",
+                "position": {
+                  "x": 210,
+                  "y": 260
+                },
+                "data": {
+                  "label": "Primary Unit",
+                  "eventKey": "A",
+                  "probability": 0.6321205588285577,
+                  "description": "",
+                  "distribution": "exponential",
+                  "dist_params": {
+                    "lambda": 0.001,
+                    "gamma": 0
+                  }
+                }
+              },
+              {
+                "id": "B",
+                "type": "basic",
+                "position": {
+                  "x": 510,
+                  "y": 260
+                },
+                "data": {
+                  "label": "Standby Unit",
+                  "eventKey": "B",
+                  "probability": 0.6321205588285577,
+                  "description": "",
+                  "distribution": "exponential",
+                  "dist_params": {
+                    "lambda": 0.001,
+                    "gamma": 0
+                  }
+                }
+              }
+            ],
+            "edges": [
+              {
+                "id": "e-TOP-A",
+                "source": "TOP",
+                "target": "A",
+                "data": {
+                  "role": "primary",
+                  "order": 0
+                }
+              },
+              {
+                "id": "e-TOP-B",
+                "source": "TOP",
+                "target": "B",
+                "data": {
+                  "role": "spare",
+                  "order": 1
+                }
+              }
+            ],
+            "result": null
+          },
+          "dirty": false
+        },
+        {
+          "id": "fta-fdep",
+          "name": "Example — Functional Dependency",
+          "state": {
+            "schemaVersion": 2,
+            "exposureTime": "1000",
+            "engine": "auto",
+            "confidenceLevel": "95",
+            "nSimulations": "20000",
+            "simSeed": "42",
+            "density": "comfortable",
+            "connectorStyle": "smoothstep",
+            "snapToGrid": false,
+            "annotations": [],
+            "showNodeIds": true,
+            "nodes": [
+              {
+                "id": "TOP",
+                "type": "or",
+                "position": {
+                  "x": 250,
+                  "y": 40
+                },
+                "data": {
+                  "label": "Dependent Function Unavailable",
+                  "gateId": "OR-1"
+                }
+              },
+              {
+                "id": "DEP",
+                "type": "fdep",
+                "position": {
+                  "x": 570,
+                  "y": 190
+                },
+                "data": {
+                  "label": "Shared Support Dependency",
+                  "gateId": "FDEP-1"
+                }
+              },
+              {
+                "id": "A",
+                "type": "basic",
+                "position": {
+                  "x": 570,
+                  "y": 390
+                },
+                "data": {
+                  "label": "Support Failure Trigger",
+                  "eventKey": "A",
+                  "probability": 0.6321205588285577,
+                  "description": "",
+                  "distribution": "exponential",
+                  "dist_params": {
+                    "lambda": 0.001,
+                    "gamma": 0
+                  }
+                }
+              },
+              {
+                "id": "B",
+                "type": "basic",
+                "position": {
+                  "x": 250,
+                  "y": 250
+                },
+                "data": {
+                  "label": "Dependent Function",
+                  "eventKey": "B",
+                  "probability": 0.6321205588285577,
+                  "description": "",
+                  "distribution": "exponential",
+                  "dist_params": {
+                    "lambda": 0.001,
+                    "gamma": 0
+                  }
+                }
+              }
+            ],
+            "edges": [
+              {
+                "id": "e-TOP-B",
+                "source": "TOP",
+                "target": "B",
+                "data": {
+                  "role": "input",
+                  "order": 0
+                }
+              },
+              {
+                "id": "e-DEP-A",
+                "source": "DEP",
+                "target": "A",
+                "data": {
+                  "role": "trigger",
+                  "order": 0
+                }
+              },
+              {
+                "id": "e-DEP-B",
+                "source": "DEP",
+                "target": "B",
+                "data": {
+                  "role": "dependent",
+                  "order": 1
+                }
+              }
+            ],
+            "result": null
+          },
+          "dirty": false
+        }
+      ]
+    },
     "reliabilityTestingTools": {
       "sequentialSampling": {
-        "p1": "0.01",
-        "p2": "0.10",
-        "alpha": "0.05",
-        "beta": "0.10",
+        "model": "bernoulli",
+        "p1": ".01",
+        "p2": ".1",
+        "alpha": ".05",
+        "beta": ".1",
+        "goodMtbf": "1000",
+        "badMtbf": "500",
+        "horizon": "100",
+        "exposureHorizon": "3000",
+        "observedExposure": "0",
+        "outcomes": "",
+        "failureTimes": "",
+        "terminalRule": "inconclusive",
+        "simulations": "2000",
+        "seed": "42",
         "result": {
-          "n": [
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            9,
-            10,
-            11,
-            12,
-            13,
-            14,
-            15,
-            16,
-            17,
-            18,
-            19,
-            20,
-            21,
-            22,
-            23,
-            24,
-            25,
-            26,
-            27,
-            28,
-            29,
-            30,
-            31,
-            32,
-            33,
-            34,
-            35,
-            36,
-            37,
-            38,
-            39,
-            40,
-            41,
-            42,
-            43,
-            44,
-            45,
-            46,
-            47,
-            48,
-            49,
-            50,
-            51,
-            52,
-            53,
-            54,
-            55,
-            56,
-            57,
-            58,
-            59,
-            60,
-            61,
-            62,
-            63,
-            64,
-            65,
-            66,
-            67,
-            68,
-            69,
-            70,
-            71,
-            72,
-            73,
-            74,
-            75,
-            76,
-            77,
-            78,
-            79,
-            80,
-            81,
-            82,
-            83,
-            84,
-            85,
-            86,
-            87,
-            88,
-            89,
-            90,
-            91,
-            92,
-            93,
-            94,
-            95,
-            96,
-            97,
-            98,
-            99,
-            100
+          "model": "bernoulli",
+          "good_value": 0.01,
+          "bad_value": 0.1,
+          "alpha": 0.05,
+          "beta": 0.1,
+          "horizon": 100,
+          "terminal_rule": "inconclusive",
+          "boundaries": [
+            {
+              "samples": 1,
+              "accept_at_most": null,
+              "reject_at_least": null,
+              "accept_boundary": null,
+              "reject_boundary": 1.2451260785114127
+            },
+            {
+              "samples": 2,
+              "accept_at_most": null,
+              "reject_at_least": 2,
+              "accept_boundary": null,
+              "reject_boundary": 1.284873510722285
+            },
+            {
+              "samples": 3,
+              "accept_at_most": null,
+              "reject_at_least": 2,
+              "accept_boundary": null,
+              "reject_boundary": 1.3246209429331577
+            },
+            {
+              "samples": 4,
+              "accept_at_most": null,
+              "reject_at_least": 2,
+              "accept_boundary": null,
+              "reject_boundary": 1.36436837514403
+            },
+            {
+              "samples": 5,
+              "accept_at_most": null,
+              "reject_at_least": 2,
+              "accept_boundary": null,
+              "reject_boundary": 1.4041158073549025
+            },
+            {
+              "samples": 6,
+              "accept_at_most": null,
+              "reject_at_least": 2,
+              "accept_boundary": null,
+              "reject_boundary": 1.443863239565775
+            },
+            {
+              "samples": 7,
+              "accept_at_most": null,
+              "reject_at_least": 2,
+              "accept_boundary": null,
+              "reject_boundary": 1.4836106717766473
+            },
+            {
+              "samples": 8,
+              "accept_at_most": null,
+              "reject_at_least": 2,
+              "accept_boundary": null,
+              "reject_boundary": 1.52335810398752
+            },
+            {
+              "samples": 9,
+              "accept_at_most": null,
+              "reject_at_least": 2,
+              "accept_boundary": null,
+              "reject_boundary": 1.5631055361983923
+            },
+            {
+              "samples": 10,
+              "accept_at_most": null,
+              "reject_at_least": 2,
+              "accept_boundary": null,
+              "reject_boundary": 1.6028529684092647
+            },
+            {
+              "samples": 11,
+              "accept_at_most": null,
+              "reject_at_least": 2,
+              "accept_boundary": null,
+              "reject_boundary": 1.6426004006201373
+            },
+            {
+              "samples": 12,
+              "accept_at_most": null,
+              "reject_at_least": 2,
+              "accept_boundary": null,
+              "reject_boundary": 1.6823478328310095
+            },
+            {
+              "samples": 13,
+              "accept_at_most": null,
+              "reject_at_least": 2,
+              "accept_boundary": null,
+              "reject_boundary": 1.7220952650418822
+            },
+            {
+              "samples": 14,
+              "accept_at_most": null,
+              "reject_at_least": 2,
+              "accept_boundary": null,
+              "reject_boundary": 1.7618426972527546
+            },
+            {
+              "samples": 15,
+              "accept_at_most": null,
+              "reject_at_least": 2,
+              "accept_boundary": null,
+              "reject_boundary": 1.801590129463627
+            },
+            {
+              "samples": 16,
+              "accept_at_most": null,
+              "reject_at_least": 2,
+              "accept_boundary": null,
+              "reject_boundary": 1.8413375616744996
+            },
+            {
+              "samples": 17,
+              "accept_at_most": null,
+              "reject_at_least": 2,
+              "accept_boundary": null,
+              "reject_boundary": 1.8810849938853718
+            },
+            {
+              "samples": 18,
+              "accept_at_most": null,
+              "reject_at_least": 2,
+              "accept_boundary": null,
+              "reject_boundary": 1.9208324260962444
+            },
+            {
+              "samples": 19,
+              "accept_at_most": null,
+              "reject_at_least": 2,
+              "accept_boundary": null,
+              "reject_boundary": 1.9605798583071168
+            },
+            {
+              "samples": 20,
+              "accept_at_most": null,
+              "reject_at_least": 3,
+              "accept_boundary": null,
+              "reject_boundary": 2.000327290517989
+            },
+            {
+              "samples": 21,
+              "accept_at_most": null,
+              "reject_at_least": 3,
+              "accept_boundary": null,
+              "reject_boundary": 2.040074722728862
+            },
+            {
+              "samples": 22,
+              "accept_at_most": null,
+              "reject_at_least": 3,
+              "accept_boundary": null,
+              "reject_boundary": 2.079822154939734
+            },
+            {
+              "samples": 23,
+              "accept_at_most": null,
+              "reject_at_least": 3,
+              "accept_boundary": null,
+              "reject_boundary": 2.1195695871506066
+            },
+            {
+              "samples": 24,
+              "accept_at_most": 0,
+              "reject_at_least": 3,
+              "accept_boundary": 0.015076770494279468,
+              "reject_boundary": 2.1593170193614792
+            },
+            {
+              "samples": 25,
+              "accept_at_most": 0,
+              "reject_at_least": 3,
+              "accept_boundary": 0.05482420270515198,
+              "reject_boundary": 2.1990644515723514
+            },
+            {
+              "samples": 26,
+              "accept_at_most": 0,
+              "reject_at_least": 3,
+              "accept_boundary": 0.0945716349160245,
+              "reject_boundary": 2.238811883783224
+            },
+            {
+              "samples": 27,
+              "accept_at_most": 0,
+              "reject_at_least": 3,
+              "accept_boundary": 0.1343190671268969,
+              "reject_boundary": 2.2785593159940962
+            },
+            {
+              "samples": 28,
+              "accept_at_most": 0,
+              "reject_at_least": 3,
+              "accept_boundary": 0.1740664993377693,
+              "reject_boundary": 2.318306748204969
+            },
+            {
+              "samples": 29,
+              "accept_at_most": 0,
+              "reject_at_least": 3,
+              "accept_boundary": 0.2138139315486417,
+              "reject_boundary": 2.3580541804158415
+            },
+            {
+              "samples": 30,
+              "accept_at_most": 0,
+              "reject_at_least": 3,
+              "accept_boundary": 0.2535613637595143,
+              "reject_boundary": 2.397801612626714
+            },
+            {
+              "samples": 31,
+              "accept_at_most": 0,
+              "reject_at_least": 3,
+              "accept_boundary": 0.2933087959703867,
+              "reject_boundary": 2.4375490448375863
+            },
+            {
+              "samples": 32,
+              "accept_at_most": 0,
+              "reject_at_least": 3,
+              "accept_boundary": 0.33305622818125913,
+              "reject_boundary": 2.4772964770484585
+            },
+            {
+              "samples": 33,
+              "accept_at_most": 0,
+              "reject_at_least": 3,
+              "accept_boundary": 0.37280366039213153,
+              "reject_boundary": 2.517043909259331
+            },
+            {
+              "samples": 34,
+              "accept_at_most": 0,
+              "reject_at_least": 3,
+              "accept_boundary": 0.41255109260300393,
+              "reject_boundary": 2.5567913414702037
+            },
+            {
+              "samples": 35,
+              "accept_at_most": 0,
+              "reject_at_least": 3,
+              "accept_boundary": 0.45229852481387656,
+              "reject_boundary": 2.5965387736810763
+            },
+            {
+              "samples": 36,
+              "accept_at_most": 0,
+              "reject_at_least": 3,
+              "accept_boundary": 0.49204595702474896,
+              "reject_boundary": 2.6362862058919485
+            },
+            {
+              "samples": 37,
+              "accept_at_most": 0,
+              "reject_at_least": 3,
+              "accept_boundary": 0.5317933892356214,
+              "reject_boundary": 2.6760336381028207
+            },
+            {
+              "samples": 38,
+              "accept_at_most": 0,
+              "reject_at_least": 3,
+              "accept_boundary": 0.5715408214464938,
+              "reject_boundary": 2.7157810703136933
+            },
+            {
+              "samples": 39,
+              "accept_at_most": 0,
+              "reject_at_least": 3,
+              "accept_boundary": 0.6112882536573664,
+              "reject_boundary": 2.755528502524566
+            },
+            {
+              "samples": 40,
+              "accept_at_most": 0,
+              "reject_at_least": 3,
+              "accept_boundary": 0.6510356858682388,
+              "reject_boundary": 2.7952759347354386
+            },
+            {
+              "samples": 41,
+              "accept_at_most": 0,
+              "reject_at_least": 3,
+              "accept_boundary": 0.6907831180791112,
+              "reject_boundary": 2.8350233669463107
+            },
+            {
+              "samples": 42,
+              "accept_at_most": 0,
+              "reject_at_least": 3,
+              "accept_boundary": 0.7305305502899836,
+              "reject_boundary": 2.874770799157183
+            },
+            {
+              "samples": 43,
+              "accept_at_most": 0,
+              "reject_at_least": 3,
+              "accept_boundary": 0.770277982500856,
+              "reject_boundary": 2.9145182313680555
+            },
+            {
+              "samples": 44,
+              "accept_at_most": 0,
+              "reject_at_least": 3,
+              "accept_boundary": 0.8100254147117286,
+              "reject_boundary": 2.954265663578928
+            },
+            {
+              "samples": 45,
+              "accept_at_most": 0,
+              "reject_at_least": 3,
+              "accept_boundary": 0.849772846922601,
+              "reject_boundary": 2.994013095789801
+            },
+            {
+              "samples": 46,
+              "accept_at_most": 0,
+              "reject_at_least": 4,
+              "accept_boundary": 0.8895202791334734,
+              "reject_boundary": 3.033760528000673
+            },
+            {
+              "samples": 47,
+              "accept_at_most": 0,
+              "reject_at_least": 4,
+              "accept_boundary": 0.9292677113443458,
+              "reject_boundary": 3.073507960211545
+            },
+            {
+              "samples": 48,
+              "accept_at_most": 0,
+              "reject_at_least": 4,
+              "accept_boundary": 0.9690151435552182,
+              "reject_boundary": 3.1132553924224178
+            },
+            {
+              "samples": 49,
+              "accept_at_most": 1,
+              "reject_at_least": 4,
+              "accept_boundary": 1.0087625757660907,
+              "reject_boundary": 3.1530028246332904
+            },
+            {
+              "samples": 50,
+              "accept_at_most": 1,
+              "reject_at_least": 4,
+              "accept_boundary": 1.0485100079769634,
+              "reject_boundary": 3.192750256844163
+            },
+            {
+              "samples": 51,
+              "accept_at_most": 1,
+              "reject_at_least": 4,
+              "accept_boundary": 1.0882574401878355,
+              "reject_boundary": 3.232497689055035
+            },
+            {
+              "samples": 52,
+              "accept_at_most": 1,
+              "reject_at_least": 4,
+              "accept_boundary": 1.1280048723987082,
+              "reject_boundary": 3.272245121265908
+            },
+            {
+              "samples": 53,
+              "accept_at_most": 1,
+              "reject_at_least": 4,
+              "accept_boundary": 1.1677523046095803,
+              "reject_boundary": 3.31199255347678
+            },
+            {
+              "samples": 54,
+              "accept_at_most": 1,
+              "reject_at_least": 4,
+              "accept_boundary": 1.207499736820453,
+              "reject_boundary": 3.3517399856876526
+            },
+            {
+              "samples": 55,
+              "accept_at_most": 1,
+              "reject_at_least": 4,
+              "accept_boundary": 1.2472471690313256,
+              "reject_boundary": 3.3914874178985253
+            },
+            {
+              "samples": 56,
+              "accept_at_most": 1,
+              "reject_at_least": 4,
+              "accept_boundary": 1.2869946012421978,
+              "reject_boundary": 3.4312348501093974
+            },
+            {
+              "samples": 57,
+              "accept_at_most": 1,
+              "reject_at_least": 4,
+              "accept_boundary": 1.3267420334530704,
+              "reject_boundary": 3.47098228232027
+            },
+            {
+              "samples": 58,
+              "accept_at_most": 1,
+              "reject_at_least": 4,
+              "accept_boundary": 1.3664894656639426,
+              "reject_boundary": 3.5107297145311422
+            },
+            {
+              "samples": 59,
+              "accept_at_most": 1,
+              "reject_at_least": 4,
+              "accept_boundary": 1.4062368978748152,
+              "reject_boundary": 3.550477146742015
+            },
+            {
+              "samples": 60,
+              "accept_at_most": 1,
+              "reject_at_least": 4,
+              "accept_boundary": 1.4459843300856878,
+              "reject_boundary": 3.5902245789528875
+            },
+            {
+              "samples": 61,
+              "accept_at_most": 1,
+              "reject_at_least": 4,
+              "accept_boundary": 1.48573176229656,
+              "reject_boundary": 3.6299720111637597
+            },
+            {
+              "samples": 62,
+              "accept_at_most": 1,
+              "reject_at_least": 4,
+              "accept_boundary": 1.5254791945074326,
+              "reject_boundary": 3.6697194433746323
+            },
+            {
+              "samples": 63,
+              "accept_at_most": 1,
+              "reject_at_least": 4,
+              "accept_boundary": 1.5652266267183048,
+              "reject_boundary": 3.7094668755855045
+            },
+            {
+              "samples": 64,
+              "accept_at_most": 1,
+              "reject_at_least": 4,
+              "accept_boundary": 1.6049740589291774,
+              "reject_boundary": 3.749214307796377
+            },
+            {
+              "samples": 65,
+              "accept_at_most": 1,
+              "reject_at_least": 4,
+              "accept_boundary": 1.64472149114005,
+              "reject_boundary": 3.7889617400072497
+            },
+            {
+              "samples": 66,
+              "accept_at_most": 1,
+              "reject_at_least": 4,
+              "accept_boundary": 1.6844689233509222,
+              "reject_boundary": 3.828709172218122
+            },
+            {
+              "samples": 67,
+              "accept_at_most": 1,
+              "reject_at_least": 4,
+              "accept_boundary": 1.7242163555617949,
+              "reject_boundary": 3.8684566044289945
+            },
+            {
+              "samples": 68,
+              "accept_at_most": 1,
+              "reject_at_least": 4,
+              "accept_boundary": 1.763963787772667,
+              "reject_boundary": 3.9082040366398667
+            },
+            {
+              "samples": 69,
+              "accept_at_most": 1,
+              "reject_at_least": 4,
+              "accept_boundary": 1.8037112199835397,
+              "reject_boundary": 3.9479514688507393
+            },
+            {
+              "samples": 70,
+              "accept_at_most": 1,
+              "reject_at_least": 4,
+              "accept_boundary": 1.8434586521944123,
+              "reject_boundary": 3.987698901061612
+            },
+            {
+              "samples": 71,
+              "accept_at_most": 1,
+              "reject_at_least": 5,
+              "accept_boundary": 1.8832060844052845,
+              "reject_boundary": 4.027446333272485
+            },
+            {
+              "samples": 72,
+              "accept_at_most": 1,
+              "reject_at_least": 5,
+              "accept_boundary": 1.922953516616157,
+              "reject_boundary": 4.067193765483356
+            },
+            {
+              "samples": 73,
+              "accept_at_most": 1,
+              "reject_at_least": 5,
+              "accept_boundary": 1.9627009488270293,
+              "reject_boundary": 4.106941197694229
+            },
+            {
+              "samples": 74,
+              "accept_at_most": 2,
+              "reject_at_least": 5,
+              "accept_boundary": 2.002448381037902,
+              "reject_boundary": 4.146688629905102
+            },
+            {
+              "samples": 75,
+              "accept_at_most": 2,
+              "reject_at_least": 5,
+              "accept_boundary": 2.0421958132487745,
+              "reject_boundary": 4.186436062115974
+            },
+            {
+              "samples": 76,
+              "accept_at_most": 2,
+              "reject_at_least": 5,
+              "accept_boundary": 2.0819432454596467,
+              "reject_boundary": 4.226183494326847
+            },
+            {
+              "samples": 77,
+              "accept_at_most": 2,
+              "reject_at_least": 5,
+              "accept_boundary": 2.1216906776705193,
+              "reject_boundary": 4.2659309265377185
+            },
+            {
+              "samples": 78,
+              "accept_at_most": 2,
+              "reject_at_least": 5,
+              "accept_boundary": 2.161438109881392,
+              "reject_boundary": 4.305678358748592
+            },
+            {
+              "samples": 79,
+              "accept_at_most": 2,
+              "reject_at_least": 5,
+              "accept_boundary": 2.201185542092264,
+              "reject_boundary": 4.345425790959464
+            },
+            {
+              "samples": 80,
+              "accept_at_most": 2,
+              "reject_at_least": 5,
+              "accept_boundary": 2.2409329743031368,
+              "reject_boundary": 4.385173223170336
+            },
+            {
+              "samples": 81,
+              "accept_at_most": 2,
+              "reject_at_least": 5,
+              "accept_boundary": 2.280680406514009,
+              "reject_boundary": 4.424920655381209
+            },
+            {
+              "samples": 82,
+              "accept_at_most": 2,
+              "reject_at_least": 5,
+              "accept_boundary": 2.3204278387248816,
+              "reject_boundary": 4.464668087592081
+            },
+            {
+              "samples": 83,
+              "accept_at_most": 2,
+              "reject_at_least": 5,
+              "accept_boundary": 2.360175270935754,
+              "reject_boundary": 4.504415519802954
+            },
+            {
+              "samples": 84,
+              "accept_at_most": 2,
+              "reject_at_least": 5,
+              "accept_boundary": 2.3999227031466264,
+              "reject_boundary": 4.544162952013826
+            },
+            {
+              "samples": 85,
+              "accept_at_most": 2,
+              "reject_at_least": 5,
+              "accept_boundary": 2.439670135357499,
+              "reject_boundary": 4.583910384224699
+            },
+            {
+              "samples": 86,
+              "accept_at_most": 2,
+              "reject_at_least": 5,
+              "accept_boundary": 2.479417567568371,
+              "reject_boundary": 4.623657816435571
+            },
+            {
+              "samples": 87,
+              "accept_at_most": 2,
+              "reject_at_least": 5,
+              "accept_boundary": 2.519164999779244,
+              "reject_boundary": 4.663405248646443
+            },
+            {
+              "samples": 88,
+              "accept_at_most": 2,
+              "reject_at_least": 5,
+              "accept_boundary": 2.5589124319901164,
+              "reject_boundary": 4.7031526808573165
+            },
+            {
+              "samples": 89,
+              "accept_at_most": 2,
+              "reject_at_least": 5,
+              "accept_boundary": 2.5986598642009886,
+              "reject_boundary": 4.742900113068188
+            },
+            {
+              "samples": 90,
+              "accept_at_most": 2,
+              "reject_at_least": 5,
+              "accept_boundary": 2.6384072964118612,
+              "reject_boundary": 4.782647545279061
+            },
+            {
+              "samples": 91,
+              "accept_at_most": 2,
+              "reject_at_least": 5,
+              "accept_boundary": 2.6781547286227334,
+              "reject_boundary": 4.8223949774899335
+            },
+            {
+              "samples": 92,
+              "accept_at_most": 2,
+              "reject_at_least": 5,
+              "accept_boundary": 2.717902160833606,
+              "reject_boundary": 4.862142409700805
+            },
+            {
+              "samples": 93,
+              "accept_at_most": 2,
+              "reject_at_least": 5,
+              "accept_boundary": 2.7576495930444787,
+              "reject_boundary": 4.901889841911679
+            },
+            {
+              "samples": 94,
+              "accept_at_most": 2,
+              "reject_at_least": 5,
+              "accept_boundary": 2.797397025255351,
+              "reject_boundary": 4.9416372741225505
+            },
+            {
+              "samples": 95,
+              "accept_at_most": 2,
+              "reject_at_least": 5,
+              "accept_boundary": 2.8371444574662235,
+              "reject_boundary": 4.981384706333423
+            },
+            {
+              "samples": 96,
+              "accept_at_most": 2,
+              "reject_at_least": 6,
+              "accept_boundary": 2.8768918896770956,
+              "reject_boundary": 5.021132138544296
+            },
+            {
+              "samples": 97,
+              "accept_at_most": 2,
+              "reject_at_least": 6,
+              "accept_boundary": 2.9166393218879683,
+              "reject_boundary": 5.0608795707551675
+            },
+            {
+              "samples": 98,
+              "accept_at_most": 2,
+              "reject_at_least": 6,
+              "accept_boundary": 2.956386754098841,
+              "reject_boundary": 5.100627002966041
+            },
+            {
+              "samples": 99,
+              "accept_at_most": 2,
+              "reject_at_least": 6,
+              "accept_boundary": 2.996134186309713,
+              "reject_boundary": 5.140374435176913
+            },
+            {
+              "samples": 100,
+              "accept_at_most": 3,
+              "reject_at_least": 6,
+              "accept_boundary": 3.0358816185205857,
+              "reject_boundary": 5.180121867387785
+            }
           ],
-          "acceptance_line": [
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            0.015076770494279468,
-            0.05482420270515198,
-            0.0945716349160245,
-            0.1343190671268969,
-            0.1740664993377693,
-            0.2138139315486417,
-            0.2535613637595143,
-            0.2933087959703867,
-            0.33305622818125913,
-            0.37280366039213153,
-            0.41255109260300393,
-            0.45229852481387656,
-            0.49204595702474896,
-            0.5317933892356214,
-            0.5715408214464938,
-            0.6112882536573664,
-            0.6510356858682388,
-            0.6907831180791112,
-            0.7305305502899836,
-            0.770277982500856,
-            0.8100254147117286,
-            0.849772846922601,
-            0.8895202791334734,
-            0.9292677113443458,
-            0.9690151435552182,
-            1.0087625757660907,
-            1.0485100079769634,
-            1.0882574401878355,
-            1.1280048723987082,
-            1.1677523046095803,
-            1.207499736820453,
-            1.2472471690313256,
-            1.2869946012421978,
-            1.3267420334530704,
-            1.3664894656639426,
-            1.4062368978748152,
-            1.4459843300856878,
-            1.48573176229656,
-            1.5254791945074326,
-            1.5652266267183048,
-            1.6049740589291774,
-            1.64472149114005,
-            1.6844689233509222,
-            1.7242163555617949,
-            1.763963787772667,
-            1.8037112199835397,
-            1.8434586521944123,
-            1.8832060844052845,
-            1.922953516616157,
-            1.9627009488270293,
-            2.002448381037902,
-            2.0421958132487745,
-            2.0819432454596467,
-            2.1216906776705193,
-            2.161438109881392,
-            2.201185542092264,
-            2.2409329743031368,
-            2.280680406514009,
-            2.3204278387248816,
-            2.360175270935754,
-            2.3999227031466264,
-            2.439670135357499,
-            2.479417567568371,
-            2.519164999779244,
-            2.5589124319901164,
-            2.5986598642009886,
-            2.6384072964118612,
-            2.6781547286227334,
-            2.717902160833606,
-            2.7576495930444787,
-            2.797397025255351,
-            2.8371444574662235,
-            2.8768918896770956,
-            2.9166393218879683,
-            2.956386754098841,
-            2.996134186309713,
-            3.0358816185205857
+          "log_accept": -2.251291798606495,
+          "log_reject": 2.8903717578961645,
+          "trace": [],
+          "decision": "continue",
+          "stopping_time": null,
+          "ignored_observations": 0,
+          "oc_curve": [
+            {
+              "true_value": 0,
+              "probability_accept": 1,
+              "probability_reject": 0,
+              "probability_inconclusive": 0,
+              "expected_duration": 24
+            },
+            {
+              "true_value": 0.01,
+              "probability_accept": 0.9756417326887857,
+              "probability_reject": 0.02197178364412811,
+              "probability_inconclusive": 0.002386483667085836,
+              "expected_duration": 30.135998058304576
+            },
+            {
+              "true_value": 0.05,
+              "probability_accept": 0.45561478824711826,
+              "probability_reject": 0.5107301063034622,
+              "probability_inconclusive": 0.03365510544941766,
+              "expected_duration": 35.918361501227544
+            },
+            {
+              "true_value": 0.1,
+              "probability_accept": 0.09935114312053898,
+              "probability_reject": 0.8970123688599886,
+              "probability_inconclusive": 0.003636488019473595,
+              "expected_duration": 22.301031502162722
+            },
+            {
+              "true_value": 0.15000000000000002,
+              "probability_accept": 0.02184751861371432,
+              "probability_reject": 0.9780613473244159,
+              "probability_inconclusive": 0.0000911340618698742,
+              "expected_duration": 14.331575754555292
+            },
+            {
+              "true_value": 0.2,
+              "probability_accept": 0.0048324441763099996,
+              "probability_reject": 0.9951665435073233,
+              "probability_inconclusive": 0.000001012316367409219,
+              "expected_duration": 10.351699794891609
+            },
+            {
+              "true_value": 0.25,
+              "probability_accept": 0.0010094767942006619,
+              "probability_reject": 0.9989905172800972,
+              "probability_inconclusive": 5.9257019883794124e-9,
+              "expected_duration": 8.112643399669658
+            },
+            {
+              "true_value": 0.30000000000000004,
+              "probability_accept": 0.00019184594230604063,
+              "probability_reject": 0.999808154038566,
+              "probability_inconclusive": 1.9128366819795857e-11,
+              "expected_duration": 6.699531336117172
+            },
+            {
+              "true_value": 0.35000000000000003,
+              "probability_accept": 0.00003236224268985783,
+              "probability_reject": 0.9999676377572763,
+              "probability_inconclusive": 3.368745852903507e-14,
+              "expected_duration": 5.722957754617862
+            },
+            {
+              "true_value": 0.4,
+              "probability_accept": 0.00000473859689199649,
+              "probability_reject": 0.9999952614031073,
+              "probability_inconclusive": 3.0895357048698055e-17,
+              "expected_duration": 5.002046514133422
+            },
+            {
+              "true_value": 0.45,
+              "probability_accept": 5.870935397870586e-7,
+              "probability_reject": 0.9999994129064604,
+              "probability_inconclusive": 1.3650083898380765e-20,
+              "expected_duration": 4.444869433682526
+            },
+            {
+              "true_value": 0.5,
+              "probability_accept": 5.960468740799209e-8,
+              "probability_reject": 0.9999999403953124,
+              "probability_inconclusive": 2.596555391057591e-24,
+              "expected_duration": 4.000075936353171
+            },
+            {
+              "true_value": 0.55,
+              "probability_accept": 4.754450802976768e-9,
+              "probability_reject": 0.9999999952455491,
+              "probability_inconclusive": 1.8187960587480905e-28,
+              "expected_duration": 3.636374957639755
+            },
+            {
+              "true_value": 0.6000000000000001,
+              "probability_accept": 2.8147497785154003e-10,
+              "probability_reject": 0.999999999718525,
+              "probability_inconclusive": 3.772856894193441e-33,
+              "expected_duration": 3.333334683409003
+            },
+            {
+              "true_value": 0.65,
+              "probability_accept": 1.141913124410475e-11,
+              "probability_reject": 0.9999999999885808,
+              "probability_inconclusive": 1.6994985799631769e-38,
+              "expected_duration": 3.076923198241437
+            },
+            {
+              "true_value": 0.7000000000000001,
+              "probability_accept": 2.8242953648233866e-13,
+              "probability_reject": 0.9999999999997178,
+              "probability_inconclusive": 1.0512620673090488e-44,
+              "expected_duration": 2.8571428646686723
+            },
+            {
+              "true_value": 0.75,
+              "probability_accept": 3.552713678800728e-15,
+              "probability_reject": 0.9999999999999964,
+              "probability_inconclusive": 4.3734503486976495e-52,
+              "expected_duration": 2.666666666947989
+            },
+            {
+              "true_value": 0.8,
+              "probability_accept": 1.6777215999999916e-17,
+              "probability_reject": 1,
+              "probability_inconclusive": 3.6893865328318444e-61,
+              "expected_duration": 2.5000000000050466
+            },
+            {
+              "true_value": 0.8500000000000001,
+              "probability_accept": 1.6834112196027998e-20,
+              "probability_reject": 1,
+              "probability_inconclusive": 6.647142704596357e-73,
+              "expected_duration": 2.352941176470616
+            },
+            {
+              "true_value": 0.9,
+              "probability_accept": 9.999999999999946e-25,
+              "probability_reject": 0.9999999999999999,
+              "probability_inconclusive": 1.629156989249966e-89,
+              "expected_duration": 2.222222222222222
+            },
+            {
+              "true_value": 0.9500000000000001,
+              "probability_accept": 5.960464477538873e-32,
+              "probability_reject": 0.9999999999999999,
+              "probability_inconclusive": 5.32069811662599e-118,
+              "expected_duration": 2.1052631578947363
+            },
+            {
+              "true_value": 1,
+              "probability_accept": 0,
+              "probability_reject": 1,
+              "probability_inconclusive": 0,
+              "expected_duration": 2
+            }
           ],
-          "rejection_line": [
-            1.2451260785114127,
-            1.284873510722285,
-            1.3246209429331577,
-            1.36436837514403,
-            1.4041158073549025,
-            1.443863239565775,
-            1.4836106717766473,
-            1.52335810398752,
-            1.5631055361983923,
-            1.6028529684092647,
-            1.6426004006201373,
-            1.6823478328310095,
-            1.7220952650418822,
-            1.7618426972527546,
-            1.801590129463627,
-            1.8413375616744996,
-            1.8810849938853718,
-            1.9208324260962444,
-            1.9605798583071168,
-            2.000327290517989,
-            2.040074722728862,
-            2.079822154939734,
-            2.1195695871506066,
-            2.1593170193614792,
-            2.1990644515723514,
-            2.238811883783224,
-            2.2785593159940962,
-            2.318306748204969,
-            2.3580541804158415,
-            2.397801612626714,
-            2.4375490448375863,
-            2.4772964770484585,
-            2.517043909259331,
-            2.5567913414702037,
-            2.5965387736810763,
-            2.6362862058919485,
-            2.6760336381028207,
-            2.7157810703136933,
-            2.755528502524566,
-            2.7952759347354386,
-            2.8350233669463107,
-            2.874770799157183,
-            2.9145182313680555,
-            2.954265663578928,
-            2.994013095789801,
-            3.033760528000673,
-            3.073507960211545,
-            3.1132553924224178,
-            3.1530028246332904,
-            3.192750256844163,
-            3.232497689055035,
-            3.272245121265908,
-            3.31199255347678,
-            3.3517399856876526,
-            3.3914874178985253,
-            3.4312348501093974,
-            3.47098228232027,
-            3.5107297145311422,
-            3.550477146742015,
-            3.5902245789528875,
-            3.6299720111637597,
-            3.6697194433746323,
-            3.7094668755855045,
-            3.749214307796377,
-            3.7889617400072497,
-            3.828709172218122,
-            3.8684566044289945,
-            3.9082040366398667,
-            3.9479514688507393,
-            3.987698901061612,
-            4.027446333272485,
-            4.067193765483356,
-            4.106941197694229,
-            4.146688629905102,
-            4.186436062115974,
-            4.226183494326847,
-            4.2659309265377185,
-            4.305678358748592,
-            4.345425790959464,
-            4.385173223170336,
-            4.424920655381209,
-            4.464668087592081,
-            4.504415519802954,
-            4.544162952013826,
-            4.583910384224699,
-            4.623657816435571,
-            4.663405248646443,
-            4.7031526808573165,
-            4.742900113068188,
-            4.782647545279061,
-            4.8223949774899335,
-            4.862142409700805,
-            4.901889841911679,
-            4.9416372741225505,
-            4.981384706333423,
-            5.021132138544296,
-            5.0608795707551675,
-            5.100627002966041,
-            5.140374435176913,
-            5.180121867387785
+          "operating_characteristics_method": "exact_finite_horizon_probability_recursion",
+          "risk_check": {
+            "nominal_producer_risk": 0.05,
+            "nominal_consumer_risk": 0.1,
+            "achieved_producer_risk": 0.02197178364412811,
+            "achieved_consumer_risk": 0.09935114312053898,
+            "inconclusive_at_good": 0.002386483667085836,
+            "inconclusive_at_bad": 0.003636488019473595
+          },
+          "assumptions": [
+            "Independent Bernoulli inspections; 1 means defective, 0 means good.",
+            "Stop at the first crossing; later supplied observations are ignored and counted.",
+            "OC and average sample number use the declared horizon and terminal rule."
           ],
-          "slope": 0.03974743221087245,
-          "intercept_accept": -0.9388616025666593,
-          "intercept_reject": 1.2053786463005403
+          "_inputSignature": "{\"alpha\":\".05\",\"badMtbf\":\"500\",\"beta\":\".1\",\"exposureHorizon\":\"3000\",\"failureTimes\":\"\",\"goodMtbf\":\"1000\",\"horizon\":\"100\",\"model\":\"bernoulli\",\"observedExposure\":\"0\",\"outcomes\":\"\",\"p1\":\".01\",\"p2\":\".1\",\"seed\":\"42\",\"simulations\":\"2000\",\"terminalRule\":\"inconclusive\"}",
+          "_units": "hours"
         }
       }
     }

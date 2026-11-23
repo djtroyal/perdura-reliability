@@ -1,4 +1,6 @@
 import DropdownDetails from '../shared/DropdownDetails'
+import RedundancyBuilder from './RedundancyBuilder'
+import type { RedundancyResult } from '../../api/systemTools'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ReactFlow, Background, Controls, MiniMap, Handle, Position, MarkerType,
@@ -86,6 +88,8 @@ interface MarkovModuleState {
   tMax: number
   nPoints: number
   initialState: string
+  initialProbabilities?: Record<string, number>
+  redundancyProvenance?: RedundancyResult
   uncertaintySamples: number
   uncertaintyCI: number
   uncertaintySeed: number
@@ -460,6 +464,9 @@ export default function Markov() {
   const [tMax, setTMax] = useState(normalized.tMax)
   const [nPoints, setNPoints] = useState(normalized.nPoints)
   const [initialState, setInitialState] = useState(normalized.initialState)
+  const [initialProbabilities, setInitialProbabilities] = useState(normalized.initialProbabilities)
+  const [redundancyProvenance, setRedundancyProvenance] = useState(normalized.redundancyProvenance)
+  const [builderOpen, setBuilderOpen] = useState(false)
   const [uncertaintySamples, setUncertaintySamples] = useState(normalized.uncertaintySamples)
   const [uncertaintyCI, setUncertaintyCI] = useState(normalized.uncertaintyCI)
   const [uncertaintySeed, setUncertaintySeed] = useState(normalized.uncertaintySeed)
@@ -512,13 +519,13 @@ export default function Markov() {
 
   const snapshot = useMemo<MarkovModuleState>(() => ({
     states, transitions, canvasNodes: modelNodes, canvasEdges: transitionEdges,
-    positions, annotations, stateColors, viewport, tMax, nPoints, initialState,
+    positions, annotations, stateColors, viewport, tMax, nPoints, initialState, initialProbabilities, redundancyProvenance,
     uncertaintySamples, uncertaintyCI, uncertaintySeed, result, nextStateId,
     nextTransitionId, density, layoutOptions, snapToGrid,
     pendingSystemStarter: normalized.pendingSystemStarter,
   }), [states, transitions, modelNodes, transitionEdges, positions, annotations, stateColors, viewport, tMax, nPoints, initialState,
     uncertaintySamples, uncertaintyCI, uncertaintySeed, result, nextStateId,
-    nextTransitionId, density, layoutOptions, snapToGrid, normalized.pendingSystemStarter])
+    nextTransitionId, density, layoutOptions, snapToGrid, normalized.pendingSystemStarter, initialProbabilities, redundancyProvenance])
   const latest = useRef(snapshot)
   latest.current = snapshot
   useEffect(() => {
@@ -556,6 +563,7 @@ export default function Markov() {
     setModelNodes(normalized.canvasNodes); setTransitionEdges(normalized.canvasEdges)
     setAnnotations(normalized.annotations)
     setTMax(normalized.tMax); setNPoints(normalized.nPoints); setInitialState(normalized.initialState)
+    setInitialProbabilities(normalized.initialProbabilities); setRedundancyProvenance(normalized.redundancyProvenance)
     setUncertaintySamples(normalized.uncertaintySamples); setUncertaintyCI(normalized.uncertaintyCI)
     setUncertaintySeed(normalized.uncertaintySeed); setResult(normalized.result)
     setNextStateId(normalized.nextStateId); setNextTransitionId(normalized.nextTransitionId ?? 1)
@@ -609,9 +617,10 @@ export default function Markov() {
       id: transition.id, from_state: transition.from_state, to_state: transition.to_state,
       rate: transition.rate, label: transition.label ?? '', rate_cv: transition.rate_cv ?? 0,
     })),
-    times, initial_state: initialState || undefined, uncertainty_samples: uncertaintySamples,
+    times, initial_state: initialProbabilities ? undefined : initialState || undefined,
+    initial_probabilities: initialProbabilities, uncertainty_samples: uncertaintySamples,
     uncertainty_ci: uncertaintyCI, uncertainty_seed: uncertaintySeed,
-  }), [states, transitions, times, initialState, uncertaintySamples, uncertaintyCI, uncertaintySeed])
+  }), [states, transitions, times, initialState, initialProbabilities, uncertaintySamples, uncertaintyCI, uncertaintySeed])
 
   useEffect(() => {
     let cancelled = false
@@ -631,14 +640,14 @@ export default function Markov() {
     ...node,
     data: {
       ...node.data,
-      initial: (initialState || modelNodes[0]?.id) === node.id,
+      initial: initialProbabilities ? (initialProbabilities[node.id] ?? 0) > 0 : (initialState || modelNodes[0]?.id) === node.id,
       steadyProbability: result?.steady_state?.[node.id],
       missionProbability: endpoint?.state_probs[node.id],
       density,
       highlighted: highlightedStateIds.includes(node.id),
     },
     selected: selectedStateIds.includes(node.id),
-  })), [modelNodes, initialState, result, endpoint, density, highlightedStateIds, selectedStateIds])
+  })), [modelNodes, initialState, initialProbabilities, result, endpoint, density, highlightedStateIds, selectedStateIds])
 
   const renderedTransitionEdges = useMemo<Edge[]>(() => transitionEdges.map(edge => {
     const transition = edgeToTransition(edge)
@@ -1008,6 +1017,7 @@ export default function Markov() {
   const loadExample = async (key: string) => {
     try {
       const example = await getMarkovExample(key)
+      setInitialProbabilities(undefined); setRedundancyProvenance(undefined)
       const nextStates = example.states.map(state => ({
         id: state.id, name: state.name, state_type: state.type as MarkovStateInput['state_type'],
         description: state.description, dwell_model: state.dwell_model as MarkovStateInput['dwell_model'], dwell_shape: state.dwell_shape,
@@ -1028,6 +1038,20 @@ export default function Markov() {
       reservedTransitionIds.current = new Set(nextTransitions.map(item => String(item.id)))
       window.setTimeout(() => fitViewAndRemember({ padding: 0.18, duration: 350 }), 30)
     } catch (cause) { setError(describeError(cause).message) }
+  }
+  const applyRedundancy = (built: RedundancyResult) => {
+    const nextStates = built.states
+    const nextTransitions = ensureTransitionIds(built.transitions)
+    const layout = layoutStates(nextStates, nextTransitions, nextStates[0]?.id)
+    setModelNodes(nextStates.map((state, index) => stateToNode(state, layout[state.id] ?? { x: 100 + index % 4 * 210, y: 100 + Math.floor(index / 4) * 140 })))
+    setTransitionEdges(nextTransitions.map(transitionToEdge)); setInitialState('')
+    setInitialProbabilities(built.initial_probabilities); setRedundancyProvenance(built)
+    setAnnotations([]); setResult(null); setError(''); setSelectedStateIds([]); setSelectedTransitionId(null)
+    setNextStateId(nextStates.length + 1); setNextTransitionId(nextTransitions.length + 1)
+    transitionSequenceRef.current = nextTransitions.length + 1
+    reservedTransitionIds.current = new Set(nextTransitions.map(item => String(item.id)))
+    setBuilderOpen(false)
+    window.setTimeout(() => fitViewAndRemember({ padding: .18, duration: 350 }), 30)
   }
   const analyze = async () => {
     if (validation?.valid === false) { setShowValidation(true); setError(`Resolve ${validation.issues.filter(issue => issue.severity === 'error').length} model issue(s) before analysis.`); return }
@@ -1116,12 +1140,13 @@ export default function Markov() {
       x: 100 + (index % 3) * 230, y: 100 + Math.floor(index / 3) * 150,
     })))
     setTransitionEdges(nextTransitions.map(transitionToEdge))
-    setInitialState(nextStates[0].id); setResult(null)
+    setInitialState(nextStates[0].id); setInitialProbabilities(undefined); setRedundancyProvenance(undefined); setResult(null)
     setPersisted(current => ({ ...current, pendingSystemStarter: undefined, result: null }))
   }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      {builderOpen && <RedundancyBuilder missionTime={tMax} onClose={() => setBuilderOpen(false)} onApply={applyRedundancy} />}
       <FolioBar api={folios} />
       {persisted.sourceStale && <p role="status" className="border-b border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">Historical result — {persisted.sourceStaleReason} Recalculate to refresh.</p>}
       {normalized.pendingSystemStarter && <div className="flex items-center gap-3 border-b border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
@@ -1147,6 +1172,8 @@ export default function Markov() {
             </div>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto p-3">
+            <button onClick={() => setBuilderOpen(true)} className="mb-3 w-full rounded border border-blue-300 bg-blue-50 px-2 py-2 text-xs font-semibold text-blue-900">Build repairable redundancy</button>
+            {redundancyProvenance && <details className="mb-3 rounded border p-2 text-[10px]"><summary className="cursor-pointer">Generated model assumptions</summary><ul className="list-disc pl-3">{redundancyProvenance.assumptions.map(a => <li key={a}>{a}</li>)}</ul></details>}
             <details className="rounded-lg border border-slate-200 bg-slate-50">
               <summary className="cursor-pointer px-2 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-600">Example models</summary>
               <div className="space-y-1 border-t border-slate-200 p-1.5">
@@ -1168,7 +1195,8 @@ export default function Markov() {
               </label>
             </div>
             <label className="block text-[10px] text-slate-600">Initial state
-              <select className="field mt-1 !py-1 !text-[11px]" value={initialState} onChange={event => { setInitialState(event.target.value); invalidate() }}>
+              {initialProbabilities && <p className="mb-1 text-[10px] text-blue-800">Generated initial mixture: {Object.entries(initialProbabilities).map(([id, p]) => `${id} ${(p * 100).toFixed(1)}%`).join(', ')}. Selecting a state replaces the mixture.</p>}
+              <select className="field mt-1 !py-1 !text-[11px]" value={initialState} onChange={event => { setInitialState(event.target.value); setInitialProbabilities(undefined); invalidate() }}>
                 <option value="">First state ({states[0]?.name ?? 'none'})</option>
                 {states.map(state => <option key={state.id} value={state.id}>{state.name}</option>)}
               </select>
@@ -1315,7 +1343,7 @@ export default function Markov() {
                 <select className="field" value={selectedState.dwell_model ?? 'exponential'} onChange={event => changeStates(current => current.map(state => state.id === selectedState.id ? { ...state, dwell_model: event.target.value as MarkovStateInput['dwell_model'], dwell_shape: event.target.value === 'erlang' ? Math.max(2, state.dwell_shape ?? 2) : 1 } : state))}><option value="exponential">Exponential · memoryless CTMC</option><option value="erlang">Erlang phase-type</option></select>
                 {selectedState.dwell_model === 'erlang' && <label className="mt-2 block text-[10px] text-slate-600">Erlang phases k<NumberField value={String(selectedState.dwell_shape ?? 2)} onChange={value => changeStates(current => current.map(state => state.id === selectedState.id ? { ...state, dwell_shape: Math.max(2, Math.min(20, parseInt(value) || 2)) } : state))} min={2} max={20} step={1} className="mt-1" /></label>}
               </div>
-              <label className="flex items-center justify-between rounded border border-slate-200 px-2 py-2 text-xs text-slate-600">Initial state<input type="radio" checked={(initialState || states[0]?.id) === selectedState.id} onChange={() => { setInitialState(selectedState.id); invalidate() }} /></label>
+              <label className="flex items-center justify-between rounded border border-slate-200 px-2 py-2 text-xs text-slate-600">Initial state<input type="radio" checked={!initialProbabilities && (initialState || states[0]?.id) === selectedState.id} onChange={() => { setInitialState(selectedState.id); setInitialProbabilities(undefined); invalidate() }} /></label>
               <div><div className="mb-1 flex items-center justify-between"><p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Diagram color</p>{stateColors[selectedState.id] && <button className="text-[10px] text-blue-600" onClick={() => setStateDiagramColor(selectedState.id)}>Reset to state type</button>}</div><div className="flex flex-nowrap gap-1">{Object.entries(MARKOV_PALETTE).map(([key, palette]) => <button key={key} onClick={() => setStateDiagramColor(selectedState.id, key)} className={`h-5 w-5 rounded-full border-2 ${stateColors[selectedState.id] === key ? 'border-slate-800 ring-2 ring-slate-200' : 'border-white'}`} style={{ backgroundColor: palette.accent }} title={palette.label} />)}</div></div>
             </div>}
             {selectedTransition && <div className="space-y-3">

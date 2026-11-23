@@ -33,6 +33,10 @@ _EPS = 1e-12
 class MaintenanceTaskAnalysisError(ValueError):
     """Raised when an MTA model is internally inconsistent."""
 
+    def __init__(self, message: str, *, code: str = 'invalid_model'):
+        self.code = code
+        super().__init__(message)
+
 
 def _canonical_hash(value: Any) -> str:
     payload = json.dumps(
@@ -94,7 +98,7 @@ def _topological_steps(task: Mapping[str, Any]) -> list[str]:
         cyclic = sorted(step_id for step_id, degree in indegree.items() if degree)
         raise MaintenanceTaskAnalysisError(
             f"Task '{task_id}' contains a dependency cycle involving "
-            f"{', '.join(cyclic)}.")
+            f"{', '.join(cyclic)}.", code='dependency_cycle')
     return ordered
 
 

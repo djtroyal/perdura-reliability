@@ -26,6 +26,8 @@ import math
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from reliability._mil_hdbk_217f_notice2 import PredictionChoiceError
+
 from reliability.RADC_TR_85_91 import (
     NONOPERATING_ENVIRONMENTS,
     REPORT_EDITION as RADC_REPORT_EDITION,
@@ -216,7 +218,10 @@ class MissionCalculationError(ValueError):
         self.part_class = getattr(part_class, "__name__", str(part_class))
         self.phase_name = phase.name
         self.stage = stage
-        self.error_type = type(cause).__name__
+        # Choice failures retain their existing public category even though the
+        # implementation now carries reviewed choice metadata in a subtype.
+        self.error_type = ('ValueError' if isinstance(cause, PredictionChoiceError)
+                           else type(cause).__name__)
         self.original_message = str(cause)
         self.part_index: int | None = None
         self.part_name: str | None = None

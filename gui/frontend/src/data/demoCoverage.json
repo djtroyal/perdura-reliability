@@ -14,6 +14,7 @@
     "markov",
     "library",
     "prediction",
+    "predictionComparison",
     "pof",
     "growth",
     "softwareReliability",
@@ -27,6 +28,9 @@
     "maintReplacement",
     "maintPMInterval",
     "maintCostForecast",
+    "maintFleet",
+    "maintInventory",
+    "lifeTools",
     "maintAvailability",
     "maintVirtualAge",
     "hraTherp",
@@ -53,7 +57,7 @@
   "containers": {
     "Reliability Testing": ["alt", "degradation", "marginTest", "expChiSquared", "rdtBayesian", "differenceDetection"],
     "System Modeling": ["systemDefinition", "system", "faultTree", "faultTreeCatalog", "markov", "library"],
-    "Maintenance": ["ram", "maintTaskAnalysis", "maintReplacement", "maintPMInterval", "maintCostForecast", "maintAvailability", "maintVirtualAge"],
+    "Maintenance": ["ram", "maintTaskAnalysis", "maintReplacement", "maintPMInterval", "maintCostForecast", "maintFleet", "maintInventory", "lifeTools", "maintAvailability", "maintVirtualAge"],
     "Human Reliability": ["hraTherp", "hraHeart", "hraSparH", "hraCream", "hraCreamExt", "hraSlim", "hraJhedi", "hraSherpa", "hraAtheana", "hraMermos"],
     "Statistical Modeling": ["dataAnalysisData", "descriptive", "dataModeling", "dataAnalysisFolios"],
     "Six Sigma": ["sixSigma.capability", "sixSigma.spc", "msa", "doe"]

@@ -12,9 +12,11 @@ if str(_src) not in sys.path:
 from typing import Any, Optional, Union
 
 from fastapi import APIRouter, HTTPException
+from api_contract import public_error_message
 from pydantic import BaseModel, Field
 
 from reliability.DOE import (
+    _TwoLevelFactorError,
     full_factorial_2level,
     fractional_factorial_2level,
     plackett_burman,
@@ -335,9 +337,9 @@ def generate_design(req: GenerateRequest):
         }
 
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=public_error_message(exc, message='The experiment design is invalid. Check the factor count, levels, generators, blocks, and replication for the selected design.'))
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Internal error: {exc}")
+        raise HTTPException(status_code=500, detail=public_error_message(exc, message='The experiment design could not be generated.'))
 
 
 # ---------------------------------------------------------------------------
@@ -386,6 +388,8 @@ def analyze(req: AnalyzeRequest):
             model=("linear" if not req.include_interactions else analysis_model),
             constraints=constraints,
         )
+    except _TwoLevelFactorError as exc:
+        raise HTTPException(400, public_error_message(exc, message='Two-level factorial analysis requires exactly 2 levels for every factor. Use a general categorical or response-surface analysis for multi-level factors.')) from exc
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=public_error_message(e, message='The experiment could not be analyzed. Check response counts, factor levels, blocks, and replicate assignments.'))
     return _safe(res)

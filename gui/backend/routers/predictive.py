@@ -54,6 +54,8 @@ from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor, export_t
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
 
+from api_contract import public_error_message
+
 from reliability.CHAID import CHAIDTree
 
 router = APIRouter()
@@ -605,7 +607,7 @@ def fit(req: FitRequest):
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=public_error_message(exc, message='The predictive model could not be fitted. Review feature values, target data, model parameters, and validation settings.')) from exc
 
 
 @router.post("/compare")
@@ -678,7 +680,7 @@ def compare(req: CompareRequest):
             "preprocessing": _preprocessing_metadata(schema, "model-specific"),
         })
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=public_error_message(exc, message='The predictive models could not be compared. Review the selected models, data, scoring metric, and validation folds.')) from exc
 
 
 @router.post("/predict")
@@ -723,7 +725,7 @@ def predict(req: PredictRequest):
             "fit_diagnostics": diagnostics, "preprocessing": preprocessing,
         })
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=public_error_message(exc, message='A prediction could not be calculated. Review the training data, model parameters, and new feature values.')) from exc
 
 
 @router.post("/predict_batch")
@@ -761,7 +763,7 @@ def predict_batch(req: PredictBatchRequest):
             "fit_diagnostics": diagnostics, "preprocessing": preprocessing,
         })
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=public_error_message(exc, message='Batch predictions could not be calculated. Review the model and ensure each new row supplies the required features.')) from exc
 
 
 def _tree_to_dict(model, features, class_names=None):

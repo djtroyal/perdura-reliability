@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -70,6 +71,10 @@ try {
     const result = await library.assembleFtaLibraryPackage(options, project.buildExport(undefined, true),
       { diagram: renderFtaDiagram, html: reporting.renderReportHtml, pdf: reporting.renderReportPDF })
     const html = new TextDecoder().decode(result.files['report.html'])
+    const documentHtml = new DOMParser().parseFromString(html, 'text/html')
+    const externalDependencies = [...documentHtml.querySelectorAll('script[src], link[rel="stylesheet"][href]')]
+      .map(element => ({ url: element.getAttribute('src') ?? element.getAttribute('href'),
+        integrity: element.getAttribute('integrity'), crossOrigin: element.getAttribute('crossorigin') }))
     const pdf = new TextDecoder('latin1').decode(result.files['report.pdf'])
     const reportId = await library.addFtaLibraryToReport(options)
     const liveAssets = assets.enumerateAssets()
@@ -108,7 +113,7 @@ try {
         if (!changedDuringExport) { changedDuringExport = true; project.setModuleState('during-export-input', { value: 'changed' }) }
       })
     } catch (error) { restartRequired = /project changed.*Restart/s.test(error.message) }
-    return { ...summary, restartRequired }
+    return { ...summary, restartRequired, externalDependencies }
   })
   await writeFile(join(output, 'report.json'), JSON.stringify(result, null, 2))
   await page.screenshot({ path: join(output, 'fta-report-diagram.png'), fullPage: true })
@@ -119,6 +124,22 @@ try {
   assert.match(result.pdfHeader, /^%PDF-/)
   assert.ok(result.pdfLength > 10000)
   assert.ok(result.pdfLength < 2_000_000, 'small diagram package PDF must compress raster figures for large-library scalability')
+  // Inspect the actual assembled report, so a newly introduced external script
+  // or stylesheet cannot bypass integrity checks through a different exporter.
+  const plotlyVersion = JSON.parse(await readFile(join(root, 'node_modules/plotly.js/package.json'), 'utf8')).version
+  const katexVersion = JSON.parse(await readFile(join(root, 'node_modules/katex/package.json'), 'utf8')).version
+  const reviewedDependencies = new Map([
+    [`https://cdn.plot.ly/plotly-${plotlyVersion}.min.js`, 'plotly.js/dist/plotly.min.js'],
+    [`https://cdn.jsdelivr.net/npm/katex@${katexVersion}/dist/katex.min.css`, 'katex/dist/katex.min.css'],
+  ])
+  assert.equal(result.externalDependencies.length, reviewedDependencies.size)
+  for (const dependency of result.externalDependencies) {
+    assert.ok(reviewedDependencies.has(dependency.url), `unreviewed report dependency: ${dependency.url}`)
+    const bytes = await readFile(join(root, 'node_modules', reviewedDependencies.get(dependency.url)))
+    assert.equal(dependency.integrity, `sha384-${createHash('sha384').update(bytes).digest('base64')}`,
+      `${dependency.url}: exported dependency must match the locked package bytes`)
+    assert.equal(dependency.crossOrigin, 'anonymous', `${dependency.url}: missing CORS integrity opt-in`)
+  }
   for (const key of ['restartRequired', 'svgResolvedTarget', 'svgTopEventRole', 'snapshotUnchanged', 'htmlHasIdentity', 'htmlHasContext', 'noFolioSwitch', 'reportAdded', 'refreshSourcePreserved', 'liveStaleExportBlocked', 'changedResultBlocked', 'offscreenRootsCleaned']) assert.equal(result[key], true, key)
   assert.deepEqual(errors, [])
   await page.screenshot({ path: join(output, 'fta-report-diagram.png'), fullPage: true })

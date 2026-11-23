@@ -22,8 +22,12 @@ export const plotBase = {
 }
 
 export function detail(e: unknown, fb: string): string {
-  const apiDetail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-  if (apiDetail) return apiDetail
+  const apiDetail = (e as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail
+  if (typeof apiDetail === 'string' && apiDetail) return apiDetail
+  if (Array.isArray(apiDetail)) return apiDetail.map(row => {
+    const value = row as { loc?: (string | number)[]; msg?: string }
+    return `${value.loc?.filter(v => v !== 'body').join(' › ') || 'Input'}: ${value.msg || 'Invalid value'}`
+  }).join('; ')
   if (e instanceof Error && e.message) return e.message
   return fb
 }

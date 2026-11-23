@@ -159,12 +159,31 @@ try {
         reloaded.on('pageerror', error => exportErrors.push(error.message))
         await reloaded.route('https://cdn.plot.ly/**', async route => route.fulfill({
           contentType: 'text/javascript', body: await readFile(`${frontend}/node_modules/plotly.js/dist/plotly.min.js`),
+          headers: { 'access-control-allow-origin': '*' },
         }))
         await reloaded.setContent(content, { waitUntil: 'load' })
         await reloaded.waitForFunction(trace => document.getElementById('p')?._fullData
           ?.some(item => item.type === trace), scenario.trace, { timeout: 45000 })
         assert.deepEqual(exportErrors, [], 'downloaded HTML must execute without uncaught errors')
         await reloaded.close()
+        if (scenario.id === 'cartesian') {
+          const tampered = await context.newPage()
+          const integrityErrors = []
+          tampered.on('console', message => {
+            if (message.type() === 'error') integrityErrors.push(message.text())
+          })
+          await tampered.route('https://cdn.plot.ly/**', route => route.fulfill({
+            contentType: 'text/javascript', body: 'window.__tamperedPlotlyExecuted = true;',
+            headers: { 'access-control-allow-origin': '*' },
+          }))
+          await tampered.setContent(content, { waitUntil: 'load' })
+          assert.equal(await tampered.evaluate(() => window.__tamperedPlotlyExecuted), undefined,
+            'exported reports must reject changed CDN bytes before execution')
+          assert.ok(integrityErrors.some(message => /integrity/i.test(message)),
+            'the browser must report the integrity mismatch')
+          await tampered.close()
+          interactions.push('export rejects tampered CDN runtime')
+        }
       }
       downloads.push({ format, path, bytes: Buffer.byteLength(content) })
     }

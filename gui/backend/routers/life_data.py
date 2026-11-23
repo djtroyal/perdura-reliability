@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
 
-from api_contract import stream_error_event, stream_result_event
+from api_contract import stream_error_event, stream_result_event, public_error_message
 
 from reliability.Fitters import (
     Fit_Everything, _FITTER_MAP, ALL_FITTER_NAMES,
@@ -32,14 +32,17 @@ from reliability.Distributions import (
     Beta_Distribution, Gumbel_Distribution,
 )
 from scipy import stats as ss
+from reliability.Life_metrics import conditional_survival, remaining_life, mean_remaining_life, interference_probability
 from utils import convergence_series
 from reliability.Special_models import (
     Fit_Weibull_Mixture, Fit_Weibull_CR, Fit_Weibull_DSZI,
     Fit_Weibull_DS, Fit_Weibull_ZI,
+    Fit_Weibull_Partial_CR, Fit_Weibull_Bathtub,
 )
 from reliability.Grouped_life import (
     EXACT_FREQUENCY_DISTRIBUTIONS, INTERVAL_CENSORED_DISTRIBUTIONS,
     FrequencyObservation, IntervalObservation, fit_grouped_life,
+    MixedLifeObservation, validate_mixed_observations,
     turnbull_estimate, validate_frequency_observations,
     validate_interval_observations, weighted_rank_adjustment,
 )
@@ -70,6 +73,18 @@ _GROUPED_FIT_ERROR = (
 )
 _TURNBULL_INPUT_ERROR = (
     'The interval observations do not define a valid Turnbull estimate.'
+)
+_MEAN_REMAINING_LIFE_ERROR = (
+    'Mean remaining life could not be calculated. Check the elapsed age and '
+    'model support; the conditional mean may be numerically unresolved.'
+)
+_CONDITIONAL_SURVIVAL_ERROR = (
+    'Conditional reliability could not be calculated. Require elapsed age <= '
+    'mission end and possible survival to the elapsed age.'
+)
+_REMAINING_LIFE_ERROR = (
+    'Remaining life could not be calculated. Check the elapsed age, reliability '
+    'target, and model support; the requested tail may exceed numerical range.'
 )
 
 # distribution name -> (Distribution class, ordered parameter names)
@@ -109,7 +124,7 @@ def _build_distribution(name: str, params: dict):
     try:
         return cls(**kwargs)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=public_error_message(e, message='The distribution parameters are invalid. Review the required scale, shape, location, and support values.'))
 
 router = APIRouter()
 
@@ -139,7 +154,8 @@ def _validate_equation(equation: str, var_names: set[str]):
     try:
         tree = ast.parse(equation, mode='eval')
     except SyntaxError as exc:
-        raise ValueError(f"Syntax error in equation: {exc}")
+        raise ValueError(public_error_message(
+            exc, message="The equation has invalid syntax. Review its operators and parentheses.")) from exc
 
     for node in ast.walk(tree):
         if not isinstance(node, _ALLOWED_NODE_TYPES):
@@ -177,13 +193,21 @@ def _eval_equation_vectorized(equation: str, var_arrays: dict[str, np.ndarray]) 
 
 
 def _safe(v, ndigits: int = 6):
-    """Round to a JSON-friendly float, mapping non-finite values to None."""
+    """Preserve calculation precision; map non-finite values to JSON null.
+
+    ``ndigits`` is retained for callers; formatting belongs in the view, never
+    in parameters or observations subsequently reused by another calculation.
+    """
     if v is None:
         return None
     v = float(v)
     if not np.isfinite(v):
         return None
-    return round(v, ndigits)
+    return v
+
+
+def _finite_curve(values):
+    return [_safe(value) for value in np.asarray(values, dtype=float)]
 
 
 def _dist_params(fit, name: str) -> dict:
@@ -217,7 +241,7 @@ def _distribution_curves(fit, failures: np.ndarray) -> dict:
     dist = fit.distribution
     lo = failures.min() * 0.5
     hi = failures.max() * 1.5
-    x = np.linspace(max(lo, 1e-6), hi, 150)
+    x = np.linspace(lo, hi, 150)
 
     # Some distributions have support constraints
     if hasattr(dist, 'gamma') and dist.gamma is not None:
@@ -227,10 +251,10 @@ def _distribution_curves(fit, failures: np.ndarray) -> dict:
 
     out = {
         "x": x.tolist(),
-        "pdf": dist._pdf(x).tolist(),
-        "cdf": dist._cdf(x).tolist(),
-        "sf": dist._sf(x).tolist(),
-        "hf": dist._hf(x).tolist(),
+        "pdf": _finite_curve(dist._pdf(x)),
+        "cdf": _finite_curve(dist._cdf(x)),
+        "sf": _finite_curve(dist._sf(x)),
+        "hf": _finite_curve(dist._hf(x)),
     }
 
     # Confidence bands on the survival and cumulative functions
@@ -257,13 +281,13 @@ def _probability_plot_data(fit, name: str, failures: np.ndarray,
     always stays in REAL time so the frontend's suspension-marker
     interpolation (raw t -> transformed axis) keeps working unchanged.
     """
-    from reliability.Utils import rank_adjustment, median_rank_approximation
+    from reliability.Utils import plotting_positions
 
     rc = np.asarray(right_censored, dtype=float) if right_censored else None
-    adj_ranks, n = rank_adjustment(failures, rc)
-    median_ranks = median_rank_approximation(adj_ranks, n)
+    median_ranks = plotting_positions(failures, rc, getattr(fit, 'rank_method', 'benard'))
     sorted_f = np.sort(failures)
-    median_ranks = np.clip(median_ranks, 1e-10, 1 - 1e-10)
+    keep = (median_ranks > 0) & (median_ranks < 1)
+    sorted_f, median_ranks = sorted_f[keep], median_ranks[keep]
 
     x_transform, y_transform, x_label, y_label = xy_transform(name)
 
@@ -295,6 +319,7 @@ def _probability_plot_data(fit, name: str, failures: np.ndarray,
         "line_x_raw": x_line_raw.tolist(),
         "x_label": x_label,
         "y_label": y_label,
+        "rank_method": getattr(fit, 'rank_method', 'benard'),
     }
 
     # Confidence band on the fitted line (mapped onto the linearized axis)
@@ -319,12 +344,13 @@ def _qq_pp_data(fit, failures: np.ndarray, right_censored) -> dict:
     quantiles at those probabilities; P-P compares the median ranks against
     the fitted CDF at the sorted times. Points on the 45-degree line = good fit.
     """
-    from reliability.Utils import rank_adjustment, median_rank_approximation
+    from reliability.Utils import plotting_positions
 
     rc = np.asarray(right_censored, dtype=float) if right_censored else None
-    adj_ranks, n = rank_adjustment(failures, rc)
-    median_ranks = np.clip(median_rank_approximation(adj_ranks, n), 1e-10, 1 - 1e-10)
+    median_ranks = plotting_positions(failures, rc, getattr(fit, 'rank_method', 'benard'))
     sorted_f = np.sort(failures)
+    keep = (median_ranks > 0) & (median_ranks < 1)
+    sorted_f, median_ranks = sorted_f[keep], median_ranks[keep]
 
     theoretical_q = np.asarray(fit.distribution.quantile(median_ranks), dtype=float)
     fitted_cdf = np.clip(np.asarray(fit.distribution._cdf(sorted_f), dtype=float), 0.0, 1.0)
@@ -377,13 +403,14 @@ def _run_fit(req: LifeDataFitRequest, progress_callback=None) -> dict:
                 right_censored=rc,
                 distributions_to_fit=req.distributions_to_fit,
                 method=req.method,
+                rank_method=req.rank_method,
                 CI=req.CI,
                 show_probability_plot=False,
                 show_histogram_plot=False,
                 progress_callback=progress_callback,
             )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=public_error_message(e, message='The selected distributions could not be fitted. Review the observations and fitting settings.'))
 
     # Build results rows
     results = []
@@ -394,11 +421,12 @@ def _run_fit(req: LifeDataFitRequest, progress_callback=None) -> dict:
             "AICc": _safe(row["AICc"], 4),
             "BIC": _safe(row["BIC"], 4),
             # AD is None for censored samples (complete-sample statistic invalid).
-            "AD": None if (row["AD"] is None or not np.isfinite(row["AD"])) else round(float(row["AD"]), 4),
+            "AD": None if (row["AD"] is None or not np.isfinite(row["AD"])) else float(row["AD"]),
             "LogLik": _safe(row["Log-Likelihood"], 4),
             # Fitting method actually used — differs from the requested one for
             # distributions without a linearizing paper (Gamma/Beta stay MLE).
             "method": row.get("Method"),
+            "rank_method": req.rank_method,
             "converged": bool(row.get("Converged", False)),
             "fit_eligible": bool(row.get("Fit Eligible", False)),
             "aicc_eligible": bool(row.get("AICc Eligible", False)),
@@ -534,9 +562,9 @@ def single_distribution_plot(req: SingleDistPlotRequest):
             warnings.simplefilter("ignore")
             fit = _FITTER_MAP[req.distribution](
                 failures=failures, right_censored=rc,
-                method=req.method, CI=req.CI, show_probability_plot=False)
+                method=req.method, rank_method=req.rank_method, CI=req.CI, show_probability_plot=False)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=public_error_message(e, message='The distribution plot could not be generated. Review the observations, selected distribution, and fitting settings.'))
     payload = _dist_plot_payload(fit, req.distribution, failures, req.right_censored)
     if payload is None:
         raise HTTPException(status_code=400,
@@ -546,6 +574,12 @@ def single_distribution_plot(req: SingleDistPlotRequest):
 
 
 def _grouped_observations(req: GroupedLifeFitRequest):
+    if req.observation_model == 'mixed':
+        if req.frequency_observations or req.interval_observations:
+            raise HTTPException(status_code=400, detail='Mixed requests use only mixed_observations.')
+        return [MixedLifeObservation(**row.model_dump()) for row in req.mixed_observations]
+    if req.mixed_observations:
+        raise HTTPException(status_code=400, detail='Choose mixed mode for mixed observations.')
     if req.observation_model == 'frequency_exact':
         if req.interval_observations:
             raise HTTPException(
@@ -566,7 +600,10 @@ def _grouped_observations(req: GroupedLifeFitRequest):
 
 
 def _grouped_counts(observation_model: str, observations) -> tuple[int, int]:
-    if observation_model == 'frequency_exact':
+    if observation_model == 'mixed':
+        failures = sum(row.count for row in observations if row.kind != 'right_censored')
+        censored = sum(row.count for row in observations if row.kind == 'right_censored')
+    elif observation_model == 'frequency_exact':
         failures = sum(row.count for row in observations if row.state == 'F')
         censored = sum(row.count for row in observations if row.state == 'S')
     else:
@@ -684,6 +721,12 @@ def _grouped_qq_pp_data(fit, observations) -> dict:
 
 
 def _grouped_plot_payload(fit, observation_model: str, observations) -> dict:
+    if observation_model == 'mixed':
+        finite = [value for row in observations for value in (row.time, row.lower, row.upper)
+                  if value is not None and value > 0]
+        return {'curves': _distribution_curves(fit, np.asarray(finite or [1.])),
+                'confidence': _confidence_metadata(fit),
+                'observation_model': 'mixed'}
     if observation_model == 'frequency_exact':
         failures = np.asarray([row.time for row in observations if row.state == 'F'], dtype=float)
         payload = {
@@ -721,7 +764,9 @@ def _run_grouped_fit(req: GroupedLifeFitRequest) -> dict:
     # Validate the observation contract once, before fitting candidates.  A
     # malformed dataset is a request error, not thirteen separate failed fits.
     try:
-        if req.observation_model == 'frequency_exact':
+        if req.observation_model == 'mixed':
+            observations = validate_mixed_observations(observations)
+        elif req.observation_model == 'frequency_exact':
             observations = validate_frequency_observations(observations)
         else:
             observations = validate_interval_observations(observations)
@@ -901,6 +946,7 @@ def _run_calibrated_uncertainty(req: UncertaintyRequest, progress_callback=None)
             warnings.simplefilter("ignore")
             fit = _FITTER_MAP[req.distribution](
                 failures=failures, right_censored=rc, method=req.estimator,
+                rank_method=req.rank_method,
                 CI=req.CI, show_probability_plot=False,
             )
         if not getattr(fit, "fit_eligible", False):
@@ -922,9 +968,9 @@ def _run_calibrated_uncertainty(req: UncertaintyRequest, progress_callback=None)
                 ),
             )
     except (ValueError, UncertaintyEstimationError) as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
+        raise HTTPException(status_code=422, detail=public_error_message(exc, message='Calibrated uncertainty is unavailable for this fit. Review fit eligibility, the target, and the censoring design.'))
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=public_error_message(exc, message='The uncertainty calculation failed. Review the fit and uncertainty settings, then retry.'))
 
     return {
         "distribution": req.distribution,
@@ -1031,6 +1077,7 @@ def _run_uncertainty_package(req: UncertaintyPackageRequest, progress_callback=N
                     if req.right_censored else None
                 ),
                 method=req.estimator,
+                rank_method=req.rank_method,
                 CI=req.CI,
                 show_probability_plot=False,
             )
@@ -1047,7 +1094,7 @@ def _run_uncertainty_package(req: UncertaintyPackageRequest, progress_callback=N
             progress_callback=progress_callback,
         )
     except (ValueError, UncertaintyEstimationError) as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from None
+        raise HTTPException(status_code=422, detail=public_error_message(exc, message='The uncertainty package could not be generated. Review fit eligibility, bootstrap settings, and the censoring design.')) from None
     return {"distribution": req.distribution, **package}
 
 
@@ -1160,7 +1207,7 @@ def nonparametric(req: NonparametricRequest):
                 "confidence": est.confidence_metadata,
             }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=public_error_message(e, message='The nonparametric estimate could not be calculated. Review the failure and censoring observations.'))
 
 
 @router.get("/distributions")
@@ -1177,7 +1224,8 @@ def generate_samples(req: GenerateRequest):
     samples = np.asarray(dist.random_samples(req.n, seed=req.seed), dtype=float)
     return {
         "distribution": req.distribution,
-        "samples": [round(float(s), 6) for s in samples],
+        "samples": samples.tolist(),
+        "seed": req.seed,
     }
 
 
@@ -1205,7 +1253,7 @@ def mc_equation(req: MCEquationRequest):
     try:
         _validate_equation(req.equation, var_names)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=public_error_message(exc, message='The equation is invalid. Use supported arithmetic functions and the defined variable names.'))
 
     rng = np.random.default_rng(req.seed)
     var_arrays: dict[str, np.ndarray] = {}
@@ -1218,14 +1266,15 @@ def mc_equation(req: MCEquationRequest):
         var_stats.append({
             "name": v.name,
             "distribution": v.distribution,
-            "stats": {"mean": round(float(np.nanmean(samples)), 6),
-                      "std": round(float(np.nanstd(samples)), 6)},
+            "stats": {"mean": float(np.nanmean(samples)),
+                      "std": float(np.nanstd(samples))},
         })
 
     try:
         result = _eval_equation_vectorized(req.equation, var_arrays)
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Equation evaluation failed: {exc}")
+        raise HTTPException(status_code=400, detail=public_error_message(
+            exc, message="The equation could not be evaluated. Review variable domains, supported functions, and arithmetic operations.")) from exc
 
     finite_mask = np.isfinite(result)
     n_valid = int(finite_mask.sum())
@@ -1240,26 +1289,26 @@ def mc_equation(req: MCEquationRequest):
     percentiles = [1, 5, 10, 25, 50, 75, 90, 95, 99]
     pvals = np.percentile(valid, percentiles)
     stats = {
-        "mean": round(float(np.mean(valid)), 6),
-        "std": round(float(np.std(valid)), 6),
-        "min": round(float(np.min(valid)), 6),
-        "max": round(float(np.max(valid)), 6),
+        "mean": float(np.mean(valid)),
+        "std": float(np.std(valid)),
+        "min": float(np.min(valid)),
+        "max": float(np.max(valid)),
     }
     for p, pv in zip(percentiles, pvals):
-        stats[f"p{p}"] = round(float(pv), 6)
+        stats[f"p{p}"] = float(pv)
 
     n_bins = min(max(int(np.sqrt(n_valid)), 10), 100)
     counts, edges = np.histogram(valid, bins=n_bins)
 
     return {
-        "samples": [round(float(s), 6) for s in valid],
+        "samples": valid.tolist(),
         "n_total": req.n,
         "n_valid": n_valid,
         "n_invalid": n_invalid,
         "stats": stats,
         "histogram": {
             "counts": counts.tolist(),
-            "edges": [round(float(e), 6) for e in edges],
+            "edges": [float(e) for e in edges],
         },
         "variables": var_stats,
         # Running mean + 95% band over the ordered draw sequence — lets the
@@ -1276,15 +1325,17 @@ def evaluate_distribution(req: EvaluateRequest):
     dist = _build_distribution(req.distribution, req.params)
     x = np.asarray([req.t], dtype=float)
     sf = float(np.clip(dist._sf(x)[0], 0.0, 1.0))
-    pdf = float(np.nan_to_num(dist._pdf(x)[0]))
-    hf = float(np.nan_to_num(dist._hf(x)[0], posinf=0))
+    pdf = float(dist._pdf(x)[0])
+    hf = float(dist._hf(x)[0])
     return {
         "distribution": req.distribution,
         "t": req.t,
-        "sf": round(sf, 8),
-        "cdf": round(1.0 - sf, 8),
-        "pdf": round(pdf, 8),
-        "hf": round(hf, 8),
+        "sf": sf,
+        "cdf": float(dist._cdf(x)[0]),
+        "pdf": _safe(pdf),
+        "hf": _safe(hf),
+        "pdf_status": "unbounded" if np.isposinf(pdf) else "finite" if np.isfinite(pdf) else "undefined",
+        "hf_status": "unbounded" if np.isposinf(hf) else "finite" if np.isfinite(hf) else "undefined",
     }
 
 
@@ -1303,6 +1354,18 @@ def calculate_metrics(req: CalculatorRequest):
         return float(np.clip(dist._sf(x)[0], 0.0, 1.0))
 
     out: dict = {"distribution": req.distribution}
+    out['negative_support_probability'] = float(dist._cdf(np.asarray([0.]))[0])
+    if req.elapsed is not None:
+        try:
+            residual = mean_remaining_life(dist, req.elapsed)
+            out['mean_remaining_life'] = residual if np.isfinite(residual) else None
+            out['conditional_mean_age'] = req.elapsed + residual if np.isfinite(residual) else None
+            if not np.isfinite(residual):
+                out['mean_remaining_life_status'] = 'The conditional mean is infinite for this model.'
+        except ValueError:
+            logger.exception('Mean remaining life calculation failed.')
+            out['mean_remaining_life'] = None
+            out['mean_remaining_life_status'] = _MEAN_REMAINING_LIFE_ERROR
 
     # Mean life (always available).
     try:
@@ -1313,21 +1376,23 @@ def calculate_metrics(req: CalculatorRequest):
     if req.mission_end is not None and req.mission_end >= 0:
         x = np.asarray([float(req.mission_end)], dtype=float)
         sf = at(req.mission_end)
-        out["reliability"] = round(sf, 8)
-        out["prob_failure"] = round(1.0 - sf, 8)
-        out["pdf"] = _safe(float(np.nan_to_num(dist._pdf(x)[0])), 8)
-        out["failure_rate"] = _safe(float(np.nan_to_num(dist._hf(x)[0], posinf=0)), 8)
+        out["reliability"] = sf
+        out["prob_failure"] = float(dist._cdf(x)[0])
+        pdf, hazard = float(dist._pdf(x)[0]), float(dist._hf(x)[0])
+        out["pdf"], out["failure_rate"] = _safe(pdf), _safe(hazard)
+        out["pdf_status"] = "unbounded" if np.isposinf(pdf) else "finite" if np.isfinite(pdf) else "undefined"
+        out["failure_rate_status"] = "unbounded" if np.isposinf(hazard) else "finite" if np.isfinite(hazard) else "undefined"
 
         # Conditional reliability given survival to `elapsed`.
         if req.elapsed is not None and req.elapsed >= 0:
-            sf_elapsed = at(req.elapsed)
-            if sf_elapsed > 0 and req.mission_end >= req.elapsed:
-                cr = min(1.0, sf / sf_elapsed)
-                out["conditional_reliability"] = round(cr, 8)
-                out["conditional_prob_failure"] = round(1.0 - cr, 8)
-            else:
+            try:
+                cr, cf = conditional_survival(dist, req.elapsed, req.mission_end)
+                out["conditional_reliability"], out["conditional_prob_failure"] = cr, cf
+            except ValueError:
+                logger.exception('Conditional reliability calculation failed.')
                 out["conditional_reliability"] = None
                 out["conditional_prob_failure"] = None
+                out["conditional_status"] = _CONDITIONAL_SURVIVAL_ERROR
 
     # Reliable life: time at which reliability = target (CDF = 1 - target).
     if req.reliability_target is not None and 0 < req.reliability_target < 1:
@@ -1335,6 +1400,16 @@ def calculate_metrics(req: CalculatorRequest):
             out["reliable_life"] = _safe(float(dist.quantile(1.0 - req.reliability_target)), 6)
         except Exception:
             out["reliable_life"] = None
+        if req.elapsed is not None:
+            try:
+                delta = remaining_life(dist, req.elapsed, req.reliability_target)
+                out["remaining_life"] = delta
+                out["total_life_at_target"] = req.elapsed + delta
+                out["remaining_reliability_target"] = req.reliability_target
+            except ValueError:
+                logger.exception('Remaining life calculation failed.')
+                out["remaining_life"] = None
+                out["remaining_life_status"] = _REMAINING_LIFE_ERROR
 
     # BX% life: time by which X% have failed (CDF = X/100).
     if req.bx_percent is not None and 0 < req.bx_percent < 100:
@@ -1361,10 +1436,10 @@ def spec_curves(req: SpecCurvesRequest):
         "params": req.params,
         "curves": {
             "x": x.tolist(),
-            "pdf": np.nan_to_num(dist._pdf(x)).tolist(),
-            "cdf": np.nan_to_num(dist._cdf(x)).tolist(),
-            "sf": np.nan_to_num(dist._sf(x)).tolist(),
-            "hf": np.nan_to_num(dist._hf(x), posinf=0).tolist(),
+            "pdf": _finite_curve(dist._pdf(x)),
+            "cdf": _finite_curve(dist._cdf(x)),
+            "sf": _finite_curve(dist._sf(x)),
+            "hf": _finite_curve(dist._hf(x)),
         },
         "stats": {
             "mean": _safe(dist.mean),
@@ -1410,9 +1485,30 @@ def _contour_grid(fit, dist_class, param_names, failures, rc, CI, n_grid=40):
     """NLL grid around the MLE for a 2-parameter likelihood contour."""
     p = np.asarray(fit._ci_params, dtype=float)
     cov = fit.covariance_matrix
-    se = (np.sqrt(np.abs(np.diag(cov))) if cov is not None
-          else np.abs(p) * 0.3)
-    se = np.where(np.isfinite(se) & (se > 0), se, np.abs(p) * 0.3 + 1e-6)
+    if cov is None:
+        # Exact pivotal intervals intentionally do not attach a Wald covariance.
+        # A local likelihood curvature is appropriate for sizing this LR grid,
+        # and must not depend on an arbitrary location offset or exposure unit.
+        from reliability.Utils import numerical_hessian
+        units = np.abs(p).copy()
+        for index, name in enumerate(param_names):
+            if name == 'mu':
+                units[index] = abs(p[param_names.index('sigma')])
+        if np.any(units <= 0):
+            return None
+        information = numerical_hessian(
+            lambda delta: negative_log_likelihood(p + units * delta, dist_class, failures, rc),
+            np.zeros(len(p)),
+        )
+        try:
+            if information is None or np.any(~np.isfinite(information)) or np.min(np.linalg.eigvalsh(information)) <= 0:
+                return None
+            cov = np.diag(units) @ np.linalg.inv(information) @ np.diag(units)
+        except np.linalg.LinAlgError:
+            return None
+    if np.any(~np.isfinite(cov)) or np.min(np.linalg.eigvalsh(cov)) <= 0:
+        return None
+    se = np.sqrt(np.diag(cov))
 
     spans = 4.5 * se
     x_lo, x_hi = p[0] - spans[0], p[0] + spans[0]
@@ -1423,8 +1519,9 @@ def _contour_grid(fit, dist_class, param_names, failures, rc, CI, n_grid=40):
     if param_names[1] != 'mu':
         y_lo = max(y_lo, p[1] * 0.05)
 
-    xs = np.linspace(x_lo, x_hi, n_grid)
-    ys = np.linspace(y_lo, y_hi, n_grid)
+    # Include the optimum even if an axis is clipped at a support boundary.
+    xs = np.unique(np.r_[np.linspace(x_lo, x_hi, n_grid), p[0]])
+    ys = np.unique(np.r_[np.linspace(y_lo, y_hi, n_grid), p[1]])
 
     logfuncs = _GRID_LOGFUNCS.get(dist_class.__name__)
     if logfuncs is not None:
@@ -1439,9 +1536,9 @@ def _contour_grid(fit, dist_class, param_names, failures, rc, CI, n_grid=40):
             if rc is not None and len(rc) > 0:
                 t_rc = np.asarray(rc, dtype=float)[:, None]
                 ll += np.sum(logsf(t_rc, p0, p1), axis=0)
-        z = (-ll).reshape(n_grid, n_grid)
+        z = (-ll).reshape(len(ys), len(xs))
     else:
-        z = np.empty((n_grid, n_grid))
+        z = np.empty((len(ys), len(xs)))
         for j, yv in enumerate(ys):
             for i, xv in enumerate(xs):
                 try:
@@ -1457,9 +1554,9 @@ def _contour_grid(fit, dist_class, param_names, failures, rc, CI, n_grid=40):
         "y_name": param_names[1],
         "x": xs.tolist(),
         "y": ys.tolist(),
-        "nll": [[None if np.isnan(v) else round(float(v), 6) for v in row]
+        "nll": [[None if np.isnan(v) else float(v) for v in row]
                 for row in z],
-        "level": round(float(level), 6),
+        "level": float(level),
         "point": [_safe(p[0]), _safe(p[1])],
     }
 
@@ -1669,12 +1766,12 @@ def compare_folios(req: CompareRequest):
             if np.isfinite(stat) and np.isfinite(p_value):
                 alpha = 1 - req.CI
                 lr_test = {
-                    "statistic": round(stat, 4),
+                    "statistic": stat,
                     "df": df,
-                    "p_value": round(p_value, 6),
+                    "p_value": p_value,
                     "pooled_log_likelihood": _safe(pooled_fit.loglik, 4),
-                    "separate_log_likelihood": round(sum_separate_loglik, 4),
-                    "alpha": round(alpha, 4),
+                    "separate_log_likelihood": sum_separate_loglik,
+                    "alpha": alpha,
                     "different": bool(p_value < alpha),
                 }
             else:
@@ -1723,39 +1820,18 @@ def stress_strength(req: StressStrengthRequest):
                     if req.stress_quantity is not None else 1.0)
     strength_scale = (quantity_factor(req.strength_quantity, evaluation_quantity)
                       if req.strength_quantity is not None else 1.0)
-    # Integrate over stress probability mass, retaining the complete tails.
-    # This also avoids changing distribution parameters: scaled Beta support,
-    # shifted families, and lognormal location are all transformed exactly.
-    # Tell adaptive quadrature where the strength CDF changes. Without these
-    # breakpoints a narrow support (e.g. Uniform[0,1] against Uniform[0,1000])
-    # can lie entirely between its initial sample points.
-    breakpoints = set()
-    for q in [0, 1e-12, 1e-9, 1e-6, .001, .01, .1, .5, .9, .99, .999, 1-1e-6, 1-1e-9, 1-1e-12, 1]:
-        strength_value = float(strength_dist.quantile(q)) * strength_scale / stress_scale
-        u = float(stress_dist._cdf(np.array([strength_value]))[0])
-        # Near-endpoint hints can create intervals only a few floating-point
-        # ulps wide, destabilizing QUADPACK's extrapolation. Omit those hints;
-        # the integration still covers the complete [0, 1] probability mass.
-        if np.isfinite(u) and 1e-12 < u < 1-1e-12:
-            breakpoints.add(u)
-    p_failure, integration_error = integrate.quad(
-        lambda u: float(strength_dist._cdf(np.array([
-            float(stress_dist.quantile(u)) * stress_scale / strength_scale,
-        ]))[0]), 0.0, 1.0, points=sorted(breakpoints), epsabs=1e-10, epsrel=1e-9, limit=300,
-    )
-    if not np.isfinite(p_failure) or not np.isfinite(integration_error) or integration_error > 1e-7:
-        raise HTTPException(status_code=400, detail="Interference integration did not converge.")
-    p_failure = float(np.clip(p_failure, 0, 1))
+    try:
+        probability = interference_probability(stress_dist, strength_dist, stress_scale, strength_scale)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=public_error_message(exc, message='Stress-strength interference could not be calculated. Review both distributions, their parameters, and quantity units.')) from None
 
     # Narrower range for display curves (keeps the plot readable)
     plot_lo = min(float(stress_dist.quantile(0.001)) * stress_scale, float(strength_dist.quantile(0.001)) * strength_scale)
     plot_hi = max(float(stress_dist.quantile(0.999)) * stress_scale, float(strength_dist.quantile(0.999)) * strength_scale)
     x = np.linspace(plot_lo, plot_hi, 400)
     return {
-        "probability_of_failure": round(p_failure, 8),
-        "reliability": round(1 - p_failure, 8),
+        **probability,
         "evaluation_quantity": evaluation_quantity.model_dump() if evaluation_quantity else None,
-        "integration_error": integration_error,
         "curves": {
             "x": x.tolist(),
             "stress_pdf": (stress_dist._pdf(x / stress_scale) / stress_scale).tolist(),
@@ -2061,6 +2137,10 @@ def fit_special_model(req: SpecialModelRequest):
                     fit = _fit_weibull_mixture_n(failures, rc, n_sub, req.CI)
             elif model in ("competing_risks", "cr"):
                 fit = Fit_Weibull_CR(failures=failures, right_censored=rc, CI=req.CI)
+            elif model == 'partial_competing_risks':
+                fit = Fit_Weibull_Partial_CR(failures=failures, right_censored=rc, CI=req.CI)
+            elif model == 'bathtub':
+                fit = Fit_Weibull_Bathtub(failures=failures, right_censored=rc, CI=req.CI)
             elif model == "dszi":
                 fit = Fit_Weibull_DSZI(failures=failures, right_censored=rc, CI=req.CI)
             elif model == "ds":
@@ -2072,9 +2152,9 @@ def fit_special_model(req: SpecialModelRequest):
     except HTTPException:
         raise
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=public_error_message(e, message='The special Weibull model could not use these observations. Review the model, failure counts, and censoring data.'))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=public_error_message(e, message='The special Weibull model could not be fitted. Review the observations and model settings.'))
 
     params = [{"name": str(p), "value": _safe(v)}
               for p, v in zip(fit.results["Parameter"], fit.results["Value"])]
@@ -2089,25 +2169,25 @@ def fit_special_model(req: SpecialModelRequest):
     # Build display curves over a sensible x-range.
     pos = failures[failures > 0]
     hi = float(pos.max()) * 1.4 if len(pos) else 100.0
-    x = np.linspace(max(hi / 500, 1e-3), hi, 300)
+    x = np.linspace(hi / 500, hi, 300)
     curves = {"x": x.tolist()}
     try:
         if hasattr(fit, "SF"):
-            curves["sf"] = np.asarray(fit.SF(x), dtype=float).tolist()
+            curves["sf"] = _finite_curve(fit.SF(x))
         if hasattr(fit, "CDF"):
-            curves["cdf"] = np.asarray(fit.CDF(x), dtype=float).tolist()
+            curves["cdf"] = _finite_curve(fit.CDF(x))
         if hasattr(fit, "PDF"):
-            curves["pdf"] = np.asarray(fit.PDF(x), dtype=float).tolist()
+            curves["pdf"] = _finite_curve(fit.PDF(x))
         if hasattr(fit, "HF"):
-            curves["hf"] = np.asarray(fit.HF(x), dtype=float).tolist()
+            curves["hf"] = _finite_curve(fit.HF(x))
         elif "pdf" in curves and "sf" in curves:
             # Fallback HF = PDF / SF (e.g. the library's 2-component mixture
             # exposes PDF/SF/CDF but no hazard function).
             pdf_a = np.asarray(curves["pdf"], dtype=float)
             sf_a = np.asarray(curves["sf"], dtype=float)
             with np.errstate(divide="ignore", invalid="ignore"):
-                hf_a = np.where(sf_a > 0, pdf_a / sf_a, 0.0)
-            curves["hf"] = hf_a.tolist()
+                hf_a = np.where(sf_a > 0, pdf_a / sf_a, np.nan)
+            curves["hf"] = _finite_curve(hf_a)
     except Exception:
         pass
 
@@ -2205,9 +2285,9 @@ def weibayes(req: WeibayesRequest):
             seed=req.seed,
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=public_error_message(e, message='The Weibayes estimate could not be calculated. Review the assumed shape, failure times, and censoring observations.'))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=public_error_message(e, message='The Weibayes calculation failed. Review the analysis inputs and retry.'))
 
     def _safe_list(lst):
         if lst is None:
@@ -2262,6 +2342,7 @@ def weibayes(req: WeibayesRequest):
         "r": result["r"],
         "n_total": len(all_times),
         "sum_tb": _safe(result["sum_tb"], 6),
+        "log_sum_tb": _safe(result["log_sum_tb"]),
         "CI": req.CI,
         "zero_failure": result["zero_failure"],
         "beta_assumption": result["beta_assumption"],
@@ -2391,7 +2472,7 @@ def competing_failure_modes(req: CompetingFailureModesRequest):
                 "mode": mode,
                 "n_failures": len(mode_failures),
                 "n_suspensions": len(mode_rc) if mode_rc is not None else 0,
-                "error": str(e),
+                "error": public_error_message(e, message='This failure-mode distribution could not be fitted. Review its observations, censoring data, and selected distribution.'),
                 "params": {},
                 "gof": {},
                 "probability_plot": None,
@@ -2536,7 +2617,7 @@ def cfm_monte_carlo(req: CFMMonteCarloRequest):
             dist = _build_distribution(req.distribution, base_params)
         except Exception as e:
             raise HTTPException(status_code=400,
-                                detail=f"Cannot build distribution for mode '{mode_name}': {e}")
+                                detail=public_error_message(e, message="A failure-mode distribution could not be built. Review each mode's distribution and required parameters.")) from e
         mode_dists.append((mode_name, dist))
 
     mode_names = [m for m, _ in mode_dists]
@@ -2567,7 +2648,7 @@ def cfm_monte_carlo(req: CFMMonteCarloRequest):
             for name in mode_names:
                 rows.append({
                     "unit": j + 1,
-                    "time": round(float(horizon), 6),
+                    "time": float(horizon),
                     "mode": name,
                     "state": "S",
                 })
@@ -2577,7 +2658,7 @@ def cfm_monte_carlo(req: CFMMonteCarloRequest):
         for i, name in enumerate(mode_names):
             rows.append({
                 "unit": j + 1,
-                "time": round(t, 6),
+                "time": t,
                 "mode": name,
                 "state": "F" if i == winner else "S",
             })

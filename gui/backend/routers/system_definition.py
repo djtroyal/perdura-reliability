@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
+from api_contract import public_error_message
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
 
@@ -67,7 +68,7 @@ def review_requirement(request: SystemRequirementsReviewRequest) -> dict:
             request.reviewed_at,
         )
     except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
+        raise HTTPException(status_code=422, detail=public_error_message(error, message='The verification review cannot be recorded. Check the case identity, reviewer, current evidence, and passing acceptance results.')) from error
 
 
 @router.post("/resolve-profile", response_model=dict,

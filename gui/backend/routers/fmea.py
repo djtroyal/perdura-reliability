@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
+from api_contract import public_error_message
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
 
@@ -101,7 +102,7 @@ def revision(request: FMEARevisionRequest) -> dict[str, Any]:
     except FMEAPrerequisiteError as exc:
         raise HTTPException(status_code=409, detail=exc.readiness) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=409, detail=public_error_message(exc, message='The FMEA revision cannot be created. Check study identity, revision history, and prerequisite readiness.')) from exc
 
 
 @router.post("/releases", response_model=dict[str, Any],
@@ -128,7 +129,7 @@ def release(request: FMEAReleaseRequest) -> dict[str, Any]:
     except FMEAPrerequisiteError as exc:
         raise HTTPException(status_code=409, detail=exc.readiness) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=409, detail=public_error_message(exc, message='The FMEA release cannot be created. Check study readiness, approved evidence, rating profiles, and release attestations.')) from exc
 
 
 @router.post("/releases/verify", response_model=dict[str, Any],
@@ -157,7 +158,7 @@ def transition(request: FMEALifecycleTransitionRequest) -> dict[str, Any]:
     except FMEAPrerequisiteError as exc:
         raise HTTPException(status_code=409, detail=exc.readiness) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=409, detail=public_error_message(exc, message='The FMEA lifecycle transition is not permitted. Check the current status, target status, actor, and required attestations.')) from exc
 
 
 @router.post("/evidence/impact", response_model=dict[str, Any],
@@ -189,7 +190,7 @@ def instantiate_library(
     except FMEAPrerequisiteError as exc:
         raise HTTPException(status_code=409, detail=exc.readiness) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=409, detail=public_error_message(exc, message='The FMEA library item cannot be instantiated. Check its release, checksum, target study, and instance identity.')) from exc
 
 
 @router.post("/suggestions", response_model=dict[str, Any],

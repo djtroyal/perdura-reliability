@@ -1336,7 +1336,7 @@ def optimal_replacement_time(cost_PM, cost_CM, weibull_alpha, weibull_beta,
                     )
                 return (
                     delta_cost * hazard_times_cycle
-                    - (cost_CM - delta_cost * reliability)
+                    - (cost_PM + delta_cost * -math.expm1(-z))
                 )
 
             log_lo = math.log(np.finfo(float).eps)
@@ -1381,7 +1381,7 @@ def optimal_replacement_time(cost_PM, cost_CM, weibull_alpha, weibull_beta,
         z = (t / alpha) ** beta
         R = np.exp(-z)
         integral_R = mttf * gammainc(1.0 / beta, z)
-        cost_per_time = (cost_PM * R + cost_CM * (1.0 - R)) / integral_R
+        cost_per_time = (cost_PM * R + cost_CM * -np.expm1(-z)) / integral_R
 
     if finite_optimum:
         if q == 1:
@@ -1392,7 +1392,7 @@ def optimal_replacement_time(cost_PM, cost_CM, weibull_alpha, weibull_beta,
             z_opt = (optimal_time / alpha) ** beta
             r_opt = math.exp(-z_opt)
             cycle_opt = mttf * float(gammainc(1.0 / beta, z_opt))
-            min_cost = (cost_PM * r_opt + cost_CM * (1.0 - r_opt)) / cycle_opt
+            min_cost = (cost_PM * r_opt + cost_CM * -math.expm1(-z_opt)) / cycle_opt
     else:
         min_cost = corrective_only
 
@@ -1430,15 +1430,10 @@ def _age_metrics(cost_PM, cost_CM, alpha, beta, T, n=4000):
     T = float(T)
     if T <= 0:
         return None
-    from scipy.special import gammainc
-    mttf = alpha * math.gamma(1.0 + 1.0 / beta)
-    z = (T / alpha) ** beta
-    # Exact E[min(X,T)] for Weibull X via the lower incomplete gamma.
-    e_cycle = mttf * float(gammainc(1.0 / beta, z))
-    if e_cycle <= 0:
-        return None
-    R_T = float(np.exp(-z))
-    F_T = 1.0 - R_T
+    from reliability.Life_metrics import weibull_age_replacement_metrics
+    metrics = weibull_age_replacement_metrics(alpha, beta, T)
+    e_cycle = metrics['cycle_operating_time']
+    R_T, F_T = metrics['survival_probability'], metrics['failure_probability']
     return {
         'cost_rate': (cost_PM * R_T + cost_CM * F_T) / e_cycle,
         'pm_per_time': R_T / e_cycle,
@@ -1465,7 +1460,7 @@ def _block_metrics(cost_PM, cost_CM, alpha, beta, T):
 
 
 def replacement_policy_comparison(cost_PM, cost_CM, weibull_alpha, weibull_beta,
-                                  t_max=None, n_points=10000):
+                                  t_max=None, n_points=10000, block_repair_model='minimal'):
     """Compare AGE vs BLOCK preventive-replacement policies for a Weibull item.
 
     Both policies trade scheduled preventive-maintenance (PM) cost against the
@@ -1492,8 +1487,16 @@ def replacement_policy_comparison(cost_PM, cost_CM, weibull_alpha, weibull_beta,
 
     age = optimal_replacement_time(cost_PM, cost_CM, alpha, beta, q=0,
                                    t_max=t_max, n_points=n_points)
-    block = optimal_replacement_time(cost_PM, cost_CM, alpha, beta, q=1,
-                                     t_max=t_max, n_points=n_points)
+    if block_repair_model not in {'minimal', 'perfect'}:
+        raise ValueError("block_repair_model must be 'minimal' or 'perfect'.")
+    if block_repair_model == 'perfect':
+        from reliability.Distributions import Weibull_Distribution
+        from reliability.Renewal import perfect_block_replacement
+        block = perfect_block_replacement(
+            Weibull_Distribution(alpha, beta), cost_PM, cost_CM, t_max=t_max)
+    else:
+        block = optimal_replacement_time(cost_PM, cost_CM, alpha, beta, q=1,
+                                         t_max=t_max, n_points=n_points)
     mttf = alpha * math.gamma(1.0 + 1.0 / beta)
     corrective_only = float(cost_CM) / mttf
 
@@ -1505,6 +1508,9 @@ def replacement_policy_comparison(cost_PM, cost_CM, weibull_alpha, weibull_beta,
         # The product-level decision is no scheduled PM. Use the same renewal
         # corrective baseline for a directly comparable policy table.
         bm = {'pm_per_time': 0.0, 'cm_per_time': 1.0 / mttf}
+    elif block_repair_model == 'perfect':
+        bm = {'pm_per_time': 1. / block['optimal_replacement_time'],
+              'cm_per_time': block['expected_cm_per_block'] / block['optimal_replacement_time']}
     else:
         bm = _block_metrics(cost_PM, cost_CM, alpha, beta, block['optimal_replacement_time'])
 
@@ -1514,6 +1520,8 @@ def replacement_policy_comparison(cost_PM, cost_CM, weibull_alpha, weibull_beta,
         and result['min_cost'] < corrective_only * (1.0 - 1e-12)
     ]
     cheaper = min(candidates, key=lambda item: item[1]['min_cost'])[0] if candidates else 'corrective'
+    if block['decision'] == 'withheld':
+        cheaper = 'undetermined'
 
     def _policy_payload(result, metrics):
         return {
@@ -1528,6 +1536,9 @@ def replacement_policy_comparison(cost_PM, cost_CM, weibull_alpha, weibull_beta,
             'decision_reason': result['decision_reason'],
             'boundary_minimum': result['boundary_minimum'],
             'search_expanded': result['search_expanded'],
+            **({"numerical": result['numerical']} if 'numerical' in result else {}),
+            **({key: result[key] for key in ('candidate_cost_lower', 'candidate_cost_upper')}
+               if 'candidate_cost_lower' in result else {}),
         }
 
     return {
@@ -1537,21 +1548,27 @@ def replacement_policy_comparison(cost_PM, cost_CM, weibull_alpha, weibull_beta,
         'mttf': float(mttf),
         'cheaper_policy': cheaper,
         'recommendation': (
+            'Policy recommendation withheld because the perfect-block numerical search is unresolved. Age-policy results remain available.'
+            if cheaper == 'undetermined' else
             'Run to failure; no finite preventive-replacement interval is cost-optimal.'
             if cheaper == 'corrective'
             else f"Use the {cheaper} preventive-replacement policy."
         ),
         'analysis_basis': 'long_run_renewal_reward_cost_rate',
+        'block_repair_model': block_repair_model,
         'maintenance_assumptions': {
             'age': 'Perfect renewal after failure or scheduled age replacement.',
-            'block': 'Minimal repair between perfect scheduled block replacements.',
+            'block': ('Perfect renewal after failures and at scheduled block replacements.'
+                      if block_repair_model == 'perfect' else
+                      'Minimal repair between perfect scheduled block replacements.'),
             'corrective': 'Perfect renewal after each failure.',
         },
     }
 
 
 def maintenance_cost_forecast(policy, cost_PM, cost_CM, weibull_alpha,
-                              weibull_beta, horizon, interval=None, n_points=200):
+                              weibull_beta, horizon, interval=None, n_points=200,
+                              block_repair_model='minimal'):
     """Forecast expected maintenance events and cost over a planning horizon.
 
     ``policy`` is one of ``'corrective'`` (run-to-failure, renewal),
@@ -1568,6 +1585,14 @@ def maintenance_cost_forecast(policy, cost_PM, cost_CM, weibull_alpha,
         ``total_cost``, ``cost_rate``, ``mttf``, and ``time`` /
         ``cumulative_cost`` arrays for plotting.
     """
+    if block_repair_model not in {'minimal', 'perfect'}:
+        raise ValueError("block_repair_model must be 'minimal' or 'perfect'.")
+    if policy == 'block' and block_repair_model == 'perfect':
+        from reliability.Renewal import perfect_block_cost_forecast
+        from reliability.Distributions import Weibull_Distribution
+        return perfect_block_cost_forecast(Weibull_Distribution(weibull_alpha, weibull_beta),
+                                           cost_PM, cost_CM, horizon, interval=interval,
+                                           n_points=n_points)
     policy = str(policy).lower()
     alpha = float(weibull_alpha)
     beta = float(weibull_beta)
@@ -1620,6 +1645,7 @@ def maintenance_cost_forecast(policy, cost_PM, cost_CM, weibull_alpha,
     cumulative_cost = cost_rate * t
     return {
         'policy': policy,
+        'block_repair_model': block_repair_model if policy == 'block' else None,
         'interval': used_interval,
         'expected_pm': float(pm_rate * horizon),
         'expected_cm': float(cm_rate * horizon),
@@ -1993,13 +2019,36 @@ def _mcf_prepare(data=None, observation_ends=None, records=None):
     return systems
 
 
+def _mcf_prepare_cost(records):
+    """Retain monetary increments and system histories without rounding costs."""
+    if records is None:
+        raise ValueError("Cost MCF requires explicit records with a cost for every event.")
+    # Reuse all event/end validation, retaining zero-event systems in the risk set.
+    systems = _mcf_prepare(records=records)
+    grouped = {}
+    for item in records:
+        item = dict(item)
+        history = grouped.setdefault(str(item['system_id']), [])
+        if str(item['status']).strip().lower() != 'event':
+            continue
+        cost = item.get('cost')
+        if cost is None or isinstance(cost, (bool, np.bool_)):
+            raise ValueError('Every event requires a finite non-negative per-event cost.')
+        cost = float(cost)
+        if not np.isfinite(cost) or cost < 0:
+            raise ValueError('Every event requires a finite non-negative per-event cost.')
+        history.extend([(float(item['time']), cost)] * int(item.get('count', 1)))
+    return [(repairs, end, np.asarray([cost for _, cost in sorted(history)], dtype=float))
+            for (repairs, end), history in zip(systems, grouped.values())]
+
+
 def _mcf_estimate(systems, event_times=None, include_variance=True):
     """Nelson MCF and Lawless-Nadeau subject-cluster robust variance."""
     n_systems = len(systems)
-    censor_times = np.array([censor for _, censor in systems], dtype=float)
+    censor_times = np.array([system[1] for system in systems], dtype=float)
     if event_times is None:
-        all_repairs = np.concatenate([repairs for repairs, _ in systems]) if any(
-            len(repairs) for repairs, _ in systems) else np.array([])
+        all_repairs = np.concatenate([system[0] for system in systems]) if any(
+            len(system[0]) for system in systems) else np.array([])
         event_times = np.unique(all_repairs)
     else:
         event_times = np.asarray(event_times, dtype=float)
@@ -2017,9 +2066,10 @@ def _mcf_estimate(systems, event_times=None, include_variance=True):
             event_count_out.append(0)
             continue
         subject_events = np.array([
-            int(np.sum(repairs == time)) for repairs, _ in systems
+            float(np.sum(system[2][system[0] == time])) if len(system) == 3
+            else float(np.sum(system[0] == time)) for system in systems
         ], dtype=float)
-        events = int(np.sum(subject_events))
+        events = float(np.sum(subject_events))
         increment = events / at_risk
         mcf += increment
         if include_variance:
@@ -2044,13 +2094,13 @@ def _mcf_estimate(systems, event_times=None, include_variance=True):
         'MCF': np.asarray(mcf_out, dtype=float),
         'variance': np.asarray(variance_out, dtype=float),
         'at_risk': np.asarray(risk_out, dtype=int),
-        'events_at_time': np.asarray(event_count_out, dtype=int),
+        'events_at_time': np.asarray(event_count_out, dtype=float),
     }
 
 
 def MCF_nonparametric(data=None, CI=0.95, observation_ends=None, records=None,
                       interval_method='log_transformed', bootstrap_samples=0,
-                      seed=None):
+                      seed=None, measure='events'):
     """Non-parametric Mean Cumulative Function (Nelson estimator).
 
     Estimates the average cumulative number of recurrences (e.g. repairs) per
@@ -2094,8 +2144,12 @@ def MCF_nonparametric(data=None, CI=0.95, observation_ends=None, records=None,
             "interval_method='cluster_bootstrap' requires at least 50 "
             'bootstrap samples.')
 
-    systems = _mcf_prepare(
-        data=data, observation_ends=observation_ends, records=records)
+    if measure not in {'events', 'cost'}:
+        raise ValueError("measure must be 'events' or 'cost'.")
+    if measure == 'cost' and (data is not None or observation_ends is not None):
+        raise ValueError('Cost MCF accepts explicit records only.')
+    systems = (_mcf_prepare_cost(records) if measure == 'cost' else _mcf_prepare(
+        data=data, observation_ends=observation_ends, records=records))
     n_systems = len(systems)
     if bootstrap_samples and n_systems < 2:
         raise ValueError(
@@ -2227,7 +2281,12 @@ def MCF_nonparametric(data=None, CI=0.95, observation_ends=None, records=None,
         'interval_method': interval_method,
         'bootstrap': bootstrap,
         'n_systems': n_systems,
-        'n_events': int(sum(len(repairs) for repairs, _ in systems)),
+        'n_events': int(sum(len(system[0]) for system in systems)),
+        'measure': measure,
+        'estimand': ('mean_cumulative_cost_per_system' if measure == 'cost'
+                     else 'mean_cumulative_events_per_system'),
+        'total_observed_cost': (float(sum(np.sum(system[2]) for system in systems))
+                                if measure == 'cost' else None),
         'variance_available': variance_available,
         'interval_available': interval_available,
         'interval_point_available': interval_point_available.tolist(),
