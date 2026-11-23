@@ -6,7 +6,7 @@
   "createdWith": {
     "version": "0.8.4",
     "commit": "dev",
-    "builtAt": "2026-11-22T02:57:53.650Z"
+    "builtAt": "2026-11-23T16:20:01.433Z"
   },
   "engineRevisions": {
     "lifeData": 3,
@@ -59,11 +59,13 @@
     "maintTaskAnalysis": 1,
     "faultTreeCatalog": 1,
     "maintFleet": 1,
+    "predictionComparison": 1,
+    "maintInventory": 1,
     "lifeTools": 1
   },
   "project": "Perdura Demo Project",
   "units": "hours",
-  "exported": "2026-11-22T03:05:18.800Z",
+  "exported": "2026-11-23T16:20:39.236Z",
   "identity": {
     "projectId": "prj-demo-project"
   },
@@ -74,14 +76,14 @@
       "moduleKey": "lifeTools",
       "analysisId": "default",
       "engineRevision": 1,
-      "completedAt": "2026-11-22T03:05:18.164Z",
+      "completedAt": "2026-11-23T16:20:38.837Z",
       "inputSha256": "abbe69e9be4a686982823d44984cce10e759090328df49da5b478dbd2ed7da95",
       "resultSha256": "81bd8aa6e5492e4e8979ca2799a50c2e1258f78a04c87d0fb0ea03ee4bfcfc34",
       "software": {
         "product": "Perdura",
         "version": "0.8.4",
         "commit": "dev",
-        "builtAt": "2026-11-22T02:57:53.650Z",
+        "builtAt": "2026-11-23T16:20:01.433Z",
         "repository": "djtroyal/perdura-reliability",
         "commitUrl": null,
         "releaseUrl": "https://github.com/djtroyal/perdura-reliability/releases/tag/v0.8.4",
@@ -90,10 +92,10 @@
         "runtimeExecutableSha256": null,
         "buildStatus": "development"
       },
-      "runId": "run-1df18898-c67a-40ed-aca6-0b06ddd428f7",
+      "runId": "run-816211c5-403c-4bf6-9b93-e1a4ad4273c7",
       "moduleLabel": "Maintenance — Lifetime Tools",
       "analysisName": "Maintenance — Lifetime Tools",
-      "fingerprintSha256": "7de060fe5eef715816de377218e65506eee804720585d7de45d2e1cd9cac1296"
+      "fingerprintSha256": "0be0374e3126510c07045b556885d3e0590fdc4c6d96f6e8508dc0da0e6a0b13"
     }
   ],
   "exportLedger": [],

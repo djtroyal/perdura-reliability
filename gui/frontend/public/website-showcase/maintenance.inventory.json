@@ -6,7 +6,7 @@
   "createdWith": {
     "version": "0.8.4",
     "commit": "dev",
-    "builtAt": "2026-11-22T02:57:53.650Z"
+    "builtAt": "2026-11-23T16:20:01.433Z"
   },
   "engineRevisions": {
     "lifeData": 3,
@@ -59,11 +59,13 @@
     "maintTaskAnalysis": 1,
     "faultTreeCatalog": 1,
     "maintFleet": 1,
-    "maintInventory": 1
+    "predictionComparison": 1,
+    "maintInventory": 1,
+    "lifeTools": 1
   },
   "project": "Perdura Demo Project",
   "units": "hours",
-  "exported": "2026-11-22T03:05:16.011Z",
+  "exported": "2026-11-23T16:20:38.109Z",
   "identity": {
     "projectId": "prj-demo-project"
   },
@@ -74,14 +76,14 @@
       "moduleKey": "maintInventory",
       "analysisId": "default",
       "engineRevision": 1,
-      "completedAt": "2026-11-22T03:05:15.613Z",
-      "inputSha256": "31ef54aad7cc744e3156cb77d8a7807f7b0c0b90e806bc4b34ff1cb961e98a84",
-      "resultSha256": "5f14bf6d63876f6aa9d9007f816f878f3a6b9db1da662dd7dd0682275bc1e509",
+      "completedAt": "2026-11-23T16:20:37.775Z",
+      "inputSha256": "f882546bc452635dcd69010c12d32f3f6811f67940f80c5758e48105d5647ffb",
+      "resultSha256": "2ce1e66584eb4d549d54946bceea6439599b5fcdc6a9245a8e34ef7720e35cdd",
       "software": {
         "product": "Perdura",
         "version": "0.8.4",
         "commit": "dev",
-        "builtAt": "2026-11-22T02:57:53.650Z",
+        "builtAt": "2026-11-23T16:20:01.433Z",
         "repository": "djtroyal/perdura-reliability",
         "commitUrl": null,
         "releaseUrl": "https://github.com/djtroyal/perdura-reliability/releases/tag/v0.8.4",
@@ -90,10 +92,10 @@
         "runtimeExecutableSha256": null,
         "buildStatus": "development"
       },
-      "runId": "run-78322a82-39f2-4a02-a1d1-8d8f89418db8",
+      "runId": "run-e6e9a2d8-bd2b-4061-ac8f-871015a4c87c",
       "moduleLabel": "Maintenance — Inventory Planning",
       "analysisName": "Maintenance — Inventory Planning",
-      "fingerprintSha256": "fe079e9892ecf373676ba47c7cbcb0262ad6eee9a5ad58d286ec9ee70110aeae"
+      "fingerprintSha256": "369710520e5d34a25f6b335e743ac06d74869f4a925b8b583d1603882adcf318"
     }
   ],
   "exportLedger": [],
@@ -747,9 +749,15 @@
       "dependence": "unspecified",
       "trials": "1000",
       "seed": "42",
+      "allocation": "equal_risk",
+      "maximumStock": "200",
+      "selectedId": "e442ff78-95dd-41b9-b980-bd981c9b61b1",
+      "scenarioId": "",
+      "sourceFingerprint": "",
+      "linkedScenarioId": "",
       "rows": [
         {
-          "id": "4d07101a-5bb3-415d-9901-61936aa26b6d",
+          "id": "e442ff78-95dd-41b9-b980-bd981c9b61b1",
           "pn": "Serviceable pump",
           "sourceIds": [],
           "quantity": "100",
@@ -771,10 +779,6 @@
           "exit": ""
         }
       ],
-      "selectedId": "4d07101a-5bb3-415d-9901-61936aa26b6d",
-      "scenarioId": "",
-      "sourceFingerprint": "",
-      "linkedScenarioId": "",
       "result": {
         "mode": "lifetime",
         "rows": [
@@ -814,10 +818,8 @@
         "source_fingerprint": "",
         "units": "hours",
         "input_fingerprint": "d96de584cc14c52af771fedc352a86ae864f2ba1db6b189d1ea10432facd6728",
-        "_inputSignature": "[\"hours\",[\"mode\",\"lifetime\"],[\"horizon\",\"43800\"],[\"service\",\".95\"],[\"target\",\"per_part\"],[\"dependence\",\"unspecified\"],[\"trials\",\"1000\"],[\"seed\",\"42\"],[\"rows\",[{\"id\":\"4d07101a-5bb3-415d-9901-61936aa26b6d\",\"pn\":\"Serviceable pump\",\"sourceIds\":[],\"quantity\":\"100\",\"rate\":\"0.00002\",\"duty\":\"1\",\"stock\":\"0\",\"cost\":\"500\",\"model\":\"poisson\",\"dispersion\":\"10\",\"eta\":\"\",\"beta\":\"\",\"repair\":\".8\",\"pipeline\":false,\"lead\":\"0\",\"leadSd\":\"0\",\"storageRate\":\"0\",\"age\":\"0\",\"entry\":\"0\",\"exit\":\"\"}]],[\"allocation\",\"equal_risk\"],[\"maximumStock\",\"200\"],[\"sourceFingerprint\",\"\"],[\"linkedScenarioId\",\"\"]]"
-      },
-      "allocation": "equal_risk",
-      "maximumStock": "200"
+        "_inputSignature": "[\"hours\",[\"mode\",\"lifetime\"],[\"horizon\",\"43800\"],[\"service\",\".95\"],[\"target\",\"per_part\"],[\"dependence\",\"unspecified\"],[\"trials\",\"1000\"],[\"seed\",\"42\"],[\"rows\",[{\"id\":\"e442ff78-95dd-41b9-b980-bd981c9b61b1\",\"pn\":\"Serviceable pump\",\"sourceIds\":[],\"quantity\":\"100\",\"rate\":\"0.00002\",\"duty\":\"1\",\"stock\":\"0\",\"cost\":\"500\",\"model\":\"poisson\",\"dispersion\":\"10\",\"eta\":\"\",\"beta\":\"\",\"repair\":\".8\",\"pipeline\":false,\"lead\":\"0\",\"leadSd\":\"0\",\"storageRate\":\"0\",\"age\":\"0\",\"entry\":\"0\",\"exit\":\"\"}]],[\"allocation\",\"equal_risk\"],[\"maximumStock\",\"200\"],[\"sourceFingerprint\",\"\"],[\"linkedScenarioId\",\"\"]]"
+      }
     }
   }
 }

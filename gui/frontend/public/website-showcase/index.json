@@ -1,7 +1,7 @@
 {
   "schema": "perdura.website-showcase-fixtures/v1",
-  "generatedAt": "2026-11-22T03:05:25.338Z",
-  "demoProjectSha256": "b41b49b113de744c5b217169b5a240a687d35c819e0d3177fa5bbf36f9c226d4",
+  "generatedAt": "2026-11-23T16:20:39.402Z",
+  "demoProjectSha256": "9ce01cba18b2996bcf081135428a8995c106de4b36ba136bc68be3b2884d2a36",
   "captures": [
     {
       "id": "life-data.parametric",
@@ -446,7 +446,7 @@
         "faultTree",
         "maintInventory"
       ],
-      "sha256": "390323b317ef0d5b0dd150757eb2ddc03aa138df67ccbee37b41bcd287bf5a75"
+      "sha256": "e9ceda36430e2a14230f0880a3ca26fbe6e705a7bf1fe127a4ca384e9cd77ce9"
     },
     {
       "id": "maintenance.lifetime-tools",
@@ -454,7 +454,7 @@
         "faultTree",
         "lifeTools"
       ],
-      "sha256": "29edcd8cff89eaed533a93b7b5ac77578e580a58ba56b2d4d2358cc74f257a2c"
+      "sha256": "4e47832952af59561178fc2fb6705c145d42500e458c796dd564712dd2666014"
     },
     {
       "id": "maintenance.replacement",
