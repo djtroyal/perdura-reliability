@@ -9,6 +9,7 @@ import {
   HELP_TOPICS, HELP_TOPICS_BY_MODULE,
 } from './catalog'
 import HelpArticle from './HelpArticle'
+import ReferenceSearch from './ReferenceSearch'
 import { HELP_MODULE_BY_ID } from './modules'
 import { searchHelp } from './search'
 import type { GlossaryEntry, HelpSearchResult, HelpTopic } from './types'
@@ -29,7 +30,7 @@ function topicGroup(topic: HelpTopic): { label: string; rank: number } {
     if (leaf.startsWith('life-stress-')) return { label: 'Life–stress models', rank: 10 }
     if (leaf.startsWith('acceleration-')) return { label: 'Acceleration factors', rank: 20 }
     if (leaf.startsWith('rdt-')) return { label: 'Reliability demonstration', rank: 40 }
-    if (inSet(leaf, ['expected-failure-times', 'difference-detection', 'test-simulation', 'exponential-planner', 'test-duration', 'zero-failure-sample-size', 'sprt', 'one-proportion', 'two-proportion', 'goodness-of-fit'])) return { label: 'Test planning & statistics', rank: 50 }
+    if (inSet(leaf, ['expected-failure-times', 'difference-detection', 'test-simulation', 'exponential-planner', 'test-duration', 'zero-failure-sample-size', 'sprt', 'field-mtbf', 'normal-summary', 'discrete-probability', 'sequential', 'one-proportion', 'two-proportion', 'goodness-of-fit'])) return { label: 'Test planning & statistics', rank: 50 }
     if (leaf.startsWith('degradation-') || inSet(leaf, ['ess', 'hass', 'burn-in'])) return { label: 'Degradation & screening', rank: 60 }
     return { label: 'Accelerated-test workflows', rank: 30 }
   }
@@ -147,6 +148,7 @@ export default function HelpCenter({ open, onClose, activeModule, contextualTopi
   const [selectedModule, setSelectedModule] = useState(starting.moduleId)
   const [topicId, setTopicId] = useState(starting.id)
   const [glossaryId, setGlossaryId] = useState<string | null>(null)
+  const [libraryView, setLibraryView] = useState(false)
   const [revealSectionId, setRevealSectionId] = useState<string | undefined>()
   const [query, setQuery] = useState('')
   const [mobileNav, setMobileNav] = useState(false)
@@ -157,6 +159,7 @@ export default function HelpCenter({ open, onClose, activeModule, contextualTopi
     setSelectedModule(next.moduleId)
     setTopicId(next.id)
     setGlossaryId(null)
+    setLibraryView(false)
     setRevealSectionId(undefined)
     setQuery('')
     setMobileNav(false)
@@ -203,6 +206,7 @@ export default function HelpCenter({ open, onClose, activeModule, contextualTopi
     setSelectedModule(topic.moduleId)
     setTopicId(id)
     setGlossaryId(null)
+    setLibraryView(false)
     setRevealSectionId(sectionId)
     setQuery('')
     setMobileNav(false)
@@ -213,6 +217,7 @@ export default function HelpCenter({ open, onClose, activeModule, contextualTopi
   }
   const chooseSearch = (result: HelpSearchResult) => {
     if (result.kind === 'glossary') {
+      setLibraryView(false)
       setGlossaryId(result.id.replace('glossary:', ''))
       setQuery('')
       setRevealSectionId(undefined)
@@ -273,15 +278,19 @@ export default function HelpCenter({ open, onClose, activeModule, contextualTopi
             <div>{topicGroups.map(group => <section key={`${group.rank}:${group.label}`} className="mt-3 first:mt-0">
               <p className="sticky top-0 z-[1] bg-white/95 px-2 py-1 text-[9px] font-semibold uppercase tracking-wide text-slate-400 backdrop-blur-xs">{group.label}</p>
               <div className="space-y-0.5">{group.topics.map(topic => <button key={topic.id} type="button" data-help-topic={topic.id} onClick={() => chooseTopic(topic.id)}
-                className={`flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-xs ${topic.id === selectedTopic.id && !glossaryView ? 'bg-blue-50 font-semibold text-blue-800' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
-                <span>{topic.title}</span>{topic.id === selectedTopic.id && !glossaryView && <ChevronRight size={13} />}
+                className={`flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-xs ${topic.id === selectedTopic.id && !glossaryView && !libraryView ? 'bg-blue-50 font-semibold text-blue-800' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
+                <span>{topic.title}</span>{topic.id === selectedTopic.id && !glossaryView && !libraryView && <ChevronRight size={13} />}
               </button>)}</div>
             </section>)}</div>
           </nav>
           <div className="border-t border-slate-200 p-2.5">
-            <button type="button" onClick={() => { setGlossaryId(''); setQuery(''); setMobileNav(false) }}
+            <button type="button" onClick={() => { setLibraryView(false); setGlossaryId(''); setQuery(''); setMobileNav(false) }}
               className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-medium ${glossaryView ? 'bg-violet-50 text-violet-800' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
               <Library size={13} /> Glossary A–Z
+            </button>
+            <button type="button" onClick={() => { setLibraryView(true); setGlossaryId(null); setQuery(''); setMobileNav(false) }}
+              className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-medium ${libraryView ? 'bg-blue-50 text-blue-800' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
+              <BookOpen size={13} /> Reference library
             </button>
             <p className="mt-2 px-2 text-[10px] leading-4 text-slate-400">Scientific references identify the edition and, where provided, the applicable locator; public sources open in a new tab.</p>
           </div>
@@ -291,6 +300,7 @@ export default function HelpCenter({ open, onClose, activeModule, contextualTopi
 
         <main className="min-w-0 flex-1 overflow-y-auto bg-slate-50/60 px-4 py-5 sm:px-7 lg:px-10">
           {query ? <SearchResults results={results} onSelect={chooseSearch} />
+            : libraryView ? <ReferenceSearch onTopic={chooseTopic} />
             : glossaryView ? selectedGlossary
               ? <GlossaryDetail entry={selectedGlossary} onTopic={chooseTopic} />
               : <GlossaryIndex onSelect={entry => setGlossaryId(entry.id)} />
@@ -300,7 +310,7 @@ export default function HelpCenter({ open, onClose, activeModule, contextualTopi
               </div><HelpArticle topic={selectedTopic} glossary={HELP_GLOSSARY} bibliography={HELP_BIBLIOGRAPHY} revealSectionId={revealSectionId} /></>}
         </main>
 
-        {!query && !glossaryView && <aside className="hidden w-56 shrink-0 overflow-y-auto border-l border-slate-200 bg-white px-4 py-5 xl:block" aria-label="On this page">
+        {!query && !glossaryView && !libraryView && <aside className="hidden w-56 shrink-0 overflow-y-auto border-l border-slate-200 bg-white px-4 py-5 xl:block" aria-label="On this page">
           <p className="text-[9px] font-semibold uppercase tracking-wider text-slate-400">On this page</p>
           <a href="#" onClick={event => { event.preventDefault(); panelRef.current?.querySelector('main')?.scrollTo({ top: 0, behavior: 'smooth' }) }} className="mt-2 block text-xs font-medium text-slate-700 hover:text-blue-700">Start here</a>
           <div className="mt-2 space-y-1.5">{selectedTopic.sections.map(section => <a key={section.id} href={`#help-section-${section.id}`}

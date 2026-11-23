@@ -20,6 +20,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from fastapi.encoders import jsonable_encoder
 from starlette.middleware.base import BaseHTTPMiddleware
+from public_validation import PublicValidationError
 
 
 log = logging.getLogger("perdura.api")
@@ -37,6 +38,17 @@ _COMPATIBILITY_EXEMPT_PATHS = {
     f"{API_PREFIX}/version",
     f"{API_PREFIX}/openapi.json",
 }
+
+
+def public_error_message(exc: Exception, *, message: str) -> str:
+    """Log private diagnostics and return an application-authored public message.
+
+    Callers must supply a fixed message or vetted domain guidance, never text
+    derived from the exception. Exception messages, arguments, causes and stack
+    traces belong only in server logs.
+    """
+    log.error(message, exc_info=(type(exc), exc, exc.__traceback__))
+    return exc.public_message if isinstance(exc, PublicValidationError) else message
 
 
 def request_id(request: Request) -> str:
@@ -71,9 +83,19 @@ def validation_error_response(request: Request, exc: RequestValidationError) -> 
     # serialization switches. Select only the public fields below instead of
     # passing Pydantic-version-specific keyword arguments.
     for issue in exc.errors():
+        cause = (issue.get('ctx') or {}).get('error')
+        if isinstance(cause, PublicValidationError):
+            message = cause.public_message
+        elif (isinstance(cause, BaseException)
+              or issue.get('type') in {'value_error', 'assertion_error'}):
+            message = 'Value is invalid for this field or selected model.'
+        else:
+            message = issue.get('msg', 'Invalid value')
         issues.append({
             "path": ".".join(str(part) for part in issue.get("loc", ())),
-            "message": issue.get("msg", "Invalid value"),
+            # Custom validators can wrap arbitrary exception details in msg.
+            # Keep the field and error type, but not that underlying text.
+            "message": message,
             "type": issue.get("type", "validation_error"),
         })
     return JSONResponse(

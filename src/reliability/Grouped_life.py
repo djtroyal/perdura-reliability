@@ -9,6 +9,10 @@ Two observation models are deliberately kept distinct:
 ``interval_censored``
     Failure times known only to lie in ``(lower, upper]`` together with left-
     and right-censored groups.  No midpoint substitution is used.
+
+``mixed``
+    A unified weighted likelihood with exact failures, right censoring,
+    left censoring, and interval observations in the same study.
 """
 
 from __future__ import annotations
@@ -81,6 +85,16 @@ class IntervalObservation:
     lower: float | None
     upper: float | None
     count: int
+    id: str = ''
+
+
+@dataclass(frozen=True)
+class MixedLifeObservation:
+    kind: str
+    time: float | None = None
+    lower: float | None = None
+    upper: float | None = None
+    count: int = 1
     id: str = ''
 
 
@@ -434,6 +448,40 @@ def validate_interval_observations(
     return clean
 
 
+def validate_mixed_observations(
+    observations: Iterable[MixedLifeObservation],
+) -> list[MixedLifeObservation]:
+    """Validate explicit observation kinds without inventing event intervals."""
+    rows = list(observations)
+    if not rows:
+        raise ValueError('At least one mixed observation is required.')
+    failure_count = 0
+    for i, row in enumerate(rows, 1):
+        if (isinstance(row.count, bool) or not isinstance(row.count, (int, np.integer))
+                or row.count < 1):
+            raise ValueError(f'Mixed row {i} count must be a positive integer.')
+        if row.kind in ('failure', 'right_censored'):
+            if (row.time is None or not np.isfinite(row.time) or row.time <= 0
+                    or row.lower is not None or row.upper is not None):
+                raise ValueError(f'Mixed row {i} requires only a finite positive time.')
+        elif row.kind == 'left_censored':
+            if (row.upper is None or not np.isfinite(row.upper) or row.upper <= 0
+                    or row.time is not None or row.lower is not None):
+                raise ValueError(f'Mixed row {i} requires only a finite positive upper bound.')
+        elif row.kind == 'interval_censored':
+            if (row.time is not None or row.lower is None or row.upper is None
+                    or not np.isfinite(row.lower) or not np.isfinite(row.upper)
+                    or row.lower < 0 or row.lower >= row.upper):
+                raise ValueError(f'Mixed row {i} requires finite 0 <= lower < upper.')
+        else:
+            raise ValueError(f'Mixed row {i} has an unknown observation kind.')
+        if row.kind != 'right_censored':
+            failure_count += row.count
+    if failure_count < 2:
+        raise ValueError('At least 2 failures are required after applying counts.')
+    return rows
+
+
 def _weighted_ad(failures: np.ndarray, counts: np.ndarray, cdf) -> float:
     order = np.argsort(failures)
     times = failures[order]
@@ -634,13 +682,24 @@ def _natural_covariance(spec: _DistributionSpec, theta, objective):
 
 def fit_grouped_life(
     observation_model: str,
-    observations: Iterable[FrequencyObservation | IntervalObservation],
+    observations: Iterable[FrequencyObservation | IntervalObservation | MixedLifeObservation],
     distribution: str,
     CI: float = 0.95,
 ) -> GroupedLifeFit:
-    """Fit one distribution using a weighted exact or interval likelihood."""
+    """Fit one distribution using weighted exact, interval, or mixed likelihood."""
     if not 0 < CI < 1:
         raise ValueError('CI must be between 0 and 1.')
+
+    if observation_model == 'mixed':
+        observations = validate_mixed_observations(observations)
+        if all(row.kind in ('failure', 'right_censored') for row in observations):
+            # Retain the same likelihood and supported exact confidence pivots
+            # when a mixed-schema study happens to contain only exact records.
+            return fit_grouped_life('frequency_exact', [
+                FrequencyObservation(row.time, 'F' if row.kind == 'failure' else 'S',
+                                     row.count, row.id)
+                for row in observations
+            ], distribution, CI)
 
     if observation_model == 'frequency_exact':
         rows = validate_frequency_observations(observations)  # type: ignore[arg-type]
@@ -682,8 +741,19 @@ def fit_grouped_life(
             except (ValueError, FloatingPointError, OverflowError):
                 return _GROUPED_INVALID_NLL
 
-    elif observation_model == 'interval_censored':
-        rows = validate_interval_observations(observations)  # type: ignore[arg-type]
+    elif observation_model in ('interval_censored', 'mixed'):
+        if observation_model == 'mixed':
+            mixed_rows = list(observations)
+            exact = [row for row in mixed_rows if row.kind == 'failure']
+            rows = [IntervalObservation(
+                lower=(row.time if row.kind == 'right_censored' else row.lower),
+                upper=row.upper, count=row.count, id=row.id,
+            ) for row in mixed_rows if row.kind != 'failure']
+        else:
+            exact = []
+            rows = validate_interval_observations(observations)  # type: ignore[arg-type]
+        exact_times = np.asarray([row.time for row in exact], dtype=float)
+        exact_weights = np.asarray([row.count for row in exact], dtype=float)
         finite_failure_rows = [row for row in rows if row.upper is not None]
         # These representative values seed the optimizer only.  The objective,
         # fit statistics, and plot context below always use the full interval
@@ -693,6 +763,10 @@ def fit_grouped_life(
             for row in finite_failure_rows
         ], dtype=float)
         failure_weights = np.asarray([row.count for row in finite_failure_rows], dtype=float)
+        reference_times = np.concatenate([exact_times, midpoints])
+        reference_weights = np.concatenate([exact_weights, failure_weights])
+        if distribution == 'Beta_2P' and np.any(exact_times >= 1):
+            raise ValueError('Beta_2P exact failures must lie strictly between 0 and 1.')
         if distribution == 'Beta_2P' and any(
             (row.lower is not None and row.lower < 0)
             or (row.upper is not None and row.upper > 1)
@@ -700,7 +774,7 @@ def fit_grouped_life(
         ):
             raise ValueError('Beta_2P interval bounds must lie within [0, 1].')
         spec = grouped_distribution_spec(
-            distribution, np.maximum(midpoints, 1e-6), failure_weights,
+            distribution, np.maximum(reference_times, 1e-6), reference_weights,
             allow_threshold=False,
         )
 
@@ -720,6 +794,11 @@ def fit_grouped_life(
                 frozen, _ = spec.decode(np.asarray(theta, dtype=float))
                 value = 0.0
                 with np.errstate(all='ignore'):
+                    if len(exact_times):
+                        terms = np.asarray(frozen.logpdf(exact_times), dtype=float)
+                        if np.any(~np.isfinite(terms)):
+                            return _GROUPED_INVALID_NLL
+                        value += float(np.sum(exact_weights * terms))
                     if len(lower):
                         terms = log_interval_probability(frozen, lower, upper)
                         if np.any(~np.isfinite(terms)):
@@ -739,13 +818,14 @@ def fit_grouped_life(
             except (ValueError, FloatingPointError, OverflowError):
                 return _GROUPED_INVALID_NLL
 
-        n_failures = int(sum(row.count for row in rows if row.upper is not None))
+        n_failures = int(sum(row.count for row in rows if row.upper is not None)
+                         + np.sum(exact_weights))
         n_censored = int(sum(row.count for row in rows if row.upper is None))
         failures = np.asarray([], dtype=float)
         failure_weights = np.asarray([], dtype=float)
         censored = np.asarray([], dtype=float)
     else:
-        raise ValueError("observation_model must be 'frequency_exact' or 'interval_censored'.")
+        raise ValueError("observation_model must be 'frequency_exact', 'interval_censored', or 'mixed'.")
 
     rng = np.random.default_rng(2027)
     starts = [spec.start]
@@ -862,7 +942,7 @@ def fit_grouped_life(
             'validation_status': 'unsupported',
             'primary': False,
         }
-    elif observation_model == 'interval_censored' and distribution == 'Exponential_1P':
+    elif observation_model in ('interval_censored', 'mixed') and distribution == 'Exponential_1P':
         # The exact chi-square pivot implemented for exponential data requires
         # exact complete or Type-II observations.  Do not silently substitute a
         # Wald/delta approximation for inspection-interval data.
@@ -878,7 +958,7 @@ def fit_grouped_life(
         confidence_metadata = {
             'available': False,
             'reason': 'interval_censored_data',
-            'sample_design': 'interval_censored',
+            'sample_design': observation_model,
             'confidence_level': float(CI),
             'exact': False,
             'band_scope': None,

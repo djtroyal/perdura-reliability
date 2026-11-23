@@ -14,7 +14,8 @@ try{
  const model=await vite.ssrLoadModule('/src/components/shared/adoptedDistribution.ts')
  const sources=await vite.ssrLoadModule('/src/components/shared/reliabilitySources.ts')
  const dashboard=await vite.ssrLoadModule('/src/store/dashboardSummary.ts')
- function source(eta){const f={id:'source',name:'Source',dataSource:'spec',quantity:{kind:'time',unit:'hours'},spec:{distribution:'Weibull_2P',params:{eta:String(eta),beta:'2'},mcMode:'single'},specResult:{distribution:'Weibull_2P',params:{eta,beta:2}}};f.fitProvenance=model.createFitProvenance(f);f.adoptedDistribution=model.adoptDistribution(f,'Weibull_2P');return f}
+ const { CURRENT_ENGINE_REVISIONS }=await vite.ssrLoadModule('/src/version.ts')
+ function source(eta){const f={id:'source',name:'Source',dataSource:'spec',quantity:{kind:'time',unit:'hours'},spec:{distribution:'Weibull_2P',params:{eta:String(eta),beta:'2'},mcMode:'single'},specResult:{distribution:'Weibull_2P',params:{eta,beta:2}}};f.fitProvenance=model.createFitProvenance(f,{engineRevision:CURRENT_ENGINE_REVISIONS.lifeData});f.adoptedDistribution=model.adoptDistribution(f,'Weibull_2P',{engineRevision:CURRENT_ENGINE_REVISIONS.lifeData});return f}
  project.newProject('Linked-source integration')
  project.setModuleState('lifeData',{folios:[source(10)],activeId:'source'})
  project.setModuleState('system',{_folioWrap:true,activeId:'parent',folios:[
@@ -67,7 +68,7 @@ try{
  const mc=await vite.ssrLoadModule('/src/components/LifeData/monteCarloModel.ts')
  for(const kind of ['ssi','mc']) {
   project.newProject('External context '+kind)
-  const sourceA=source(10),quantity={kind:'time',unit:'hours'},options={projectUnit:'hours',engineRevision:2}
+  const sourceA=source(10),quantity={kind:'time',unit:'hours'},options={projectUnit:'hours',engineRevision:CURRENT_ENGINE_REVISIONS.lifeData}
   const owner=kind==='ssi'?{id:'owner',name:'SSI',quantity,
    ssStressInput:{mode:'dataset',source:{module:'lifeData',analysisId:'source'}},
    ssStrengthInput:{mode:'manual',distribution:'Weibull_2P',parameters:{eta:'30',beta:'2'},quantity}}:

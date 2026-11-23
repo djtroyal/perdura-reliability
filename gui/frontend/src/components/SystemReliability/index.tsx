@@ -1,3 +1,4 @@
+import { useSystemLifecycleNavigation } from '../shared/useSystemLifecycleNavigation'
 import DropdownDetails from '../shared/DropdownDetails'
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import {
@@ -58,6 +59,8 @@ import { adaptiveConnectorOffset, layoutHorizontalGraph } from '../shared/adapti
 import AdaptiveOrthogonalEdge from '../shared/AdaptiveOrthogonalEdge'
 import { nextRbdEdgeId, normalizeRbdEdges } from './rbdEdges'
 import RbdAnalysisLibrary, { type RbdLibraryAnalysis } from './RbdAnalysisLibrary'
+import SystemLifecycle from './SystemLifecycle'
+import type { LifecycleState } from '../../api/systemTools'
 import { handleTabKey } from '../shared/tabKeyboard'
 import type { SystemStarterResult } from '../../api/systemDefinition'
 import {
@@ -289,6 +292,7 @@ const DEFAULT_NODES: Node[] = [
 ]
 
 interface CanvasState {
+  lifecycle?: LifecycleState
   nodes: Node[]
   edges: Edge[]
   annotations?: Node[]
@@ -446,6 +450,9 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
   const [resultTab, setResultTab] = useUiPreference<typeof RESULT_VIEWS[number]>('rbd.resultTab', 'overview', RESULT_VIEWS)
   const [clipboard, setClipboard] = useState<RBDClipboard | null>(null)
   const [missionTime, setMissionTime] = useState(persisted.missionTime ?? '1000')
+  const [lifecycle, setLifecycle] = useState(persisted.lifecycle)
+  const [lifecycleOpen, setLifecycleOpen] = useState(false)
+  useSystemLifecycleNavigation('system', folios.activeId, () => setLifecycleOpen(true))
   const [density, setDensity] = useState<RBDDensity>(normalizeDensity(persisted.density))
   const [layoutOptions, setLayoutOptions] = useState(() => normalizeLayoutOptions(persisted.layoutOptions, persisted.density))
   const layoutPending = useRef(false)
@@ -465,12 +472,12 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
   // corrupt the canvas and blank the page. Debouncing coalesces a drag into a
   // single write once motion settles, with a flush on unmount so nothing is lost.
   const latest = useRef<CanvasState>({
-    nodes, edges, annotations, result, missionTime, density, layoutOptions, connectorStyle, snapToGrid, showNodeIds,
+    nodes, edges, annotations, result, missionTime, density, layoutOptions, connectorStyle, snapToGrid, showNodeIds, lifecycle,
     conversionProvenance: persisted.conversionProvenance,
     pendingSystemStarter: persisted.pendingSystemStarter,
   })
   latest.current = {
-    nodes, edges, annotations, result, missionTime, density, layoutOptions, connectorStyle, snapToGrid, showNodeIds,
+    nodes, edges, annotations, result, missionTime, density, layoutOptions, connectorStyle, snapToGrid, showNodeIds, lifecycle,
     conversionProvenance: persisted.conversionProvenance,
     pendingSystemStarter: persisted.pendingSystemStarter,
   }
@@ -484,7 +491,7 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
     if (layoutPending.current) return
     if (persistTimer.current) clearTimeout(persistTimer.current)
     persistTimer.current = setTimeout(() => setPersisted(latest.current), 250)
-  }, [nodes, edges, annotations, result, missionTime, density, layoutOptions, connectorStyle, snapToGrid, showNodeIds]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [nodes, edges, annotations, result, missionTime, density, layoutOptions, connectorStyle, snapToGrid, showNodeIds, lifecycle]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => {
     if (persistTimer.current) clearTimeout(persistTimer.current)
     setPersisted(latest.current)
@@ -509,6 +516,7 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
       setActivePathIndex(null)
       setResult(persisted.result ?? null)
       setMissionTime(persisted.missionTime ?? '1000')
+      setLifecycle(persisted.lifecycle); setLifecycleOpen(false)
       setDensity(normalizeDensity(persisted.density))
       setLayoutOptions(normalizeLayoutOptions(persisted.layoutOptions, persisted.density))
       setConnectorStyle(persisted.connectorStyle ?? 'smoothstep')
@@ -1985,7 +1993,12 @@ export default function SystemReliability({ onNavigate }: { onNavigate?: (target
 
   const modernView = (
     <div className="flex min-h-0 flex-1 flex-col">
+      {lifecycleOpen && <SystemLifecycle key={folios.activeId} analysisId={folios.activeId} value={lifecycle} onClose={() => setLifecycleOpen(false)}
+        diagram={{ kind: 'rbd', nodes: materializedNodes.map(n => ({ id: n.id, type: n.type ?? 'component', data: n.data })),
+          edges: edges.map(e => ({ id: e.id, source: e.source, target: e.target })), mission_time: Number(missionTime) }}
+        onChange={next => { setLifecycle(next); latest.current = { ...latest.current, lifecycle: next }; setPersisted(latest.current) }} />}
       <FolioBar api={folios} />
+      <div className="border-b bg-white px-3 py-1"><button onClick={() => setLifecycleOpen(true)} className="rounded border border-blue-300 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-900">Lifecycle: renewal, state table and repairable simulation</button></div>
       {persisted.sourceStale && <p role="status" className="border-b border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">Historical result — {persisted.sourceStaleReason} Recalculate to refresh.</p>}
       {persisted.pendingSystemStarter && <div className="flex items-center gap-3 border-b border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
         <span className="font-medium">System Definition starter ready</span>

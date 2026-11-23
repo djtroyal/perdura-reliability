@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import List, Optional, Union, Literal
 
 from fastapi import APIRouter, HTTPException
+from api_contract import public_error_message
 from pydantic import BaseModel
 
 # Bootstrap the reliability src package path
@@ -62,6 +63,6 @@ def chart(req: ChartRequest):
             phase_i_remove_signals=req.phase_i_remove_signals,
         )
     except (ValueError, IndexError, ZeroDivisionError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=public_error_message(exc, message='The control chart could not be calculated. Check observations, subgroup sizes, baseline data, and the selected chart requirements.')) from exc
 
     return _safe(result)

@@ -35,6 +35,43 @@ _D2 = {
 }
 
 
+def distribution_specification_tails(distribution, lsl=None, usl=None):
+    """Specification probabilities from an explicit continuous distribution.
+
+    Limits and model parameters must use the same measurement unit.  This is
+    a model-based tail calculation, not a refit or an assertion that the
+    process is stable.  Evaluate the upper tail directly rather than 1-CDF.
+    """
+    if lsl is None and usl is None:
+        raise ValueError('Provide at least one specification limit.')
+    if any(value is not None and not np.isfinite(value) for value in (lsl, usl)):
+        raise ValueError('Specification limits must be finite.')
+    if lsl is not None and usl is not None and lsl >= usl:
+        raise ValueError('LSL must be less than USL.')
+    cdf = getattr(distribution, '_cdf', None) or getattr(distribution, 'cdf', None)
+    sf = getattr(distribution, '_sf', None) or getattr(distribution, 'sf', None)
+    if cdf is None or sf is None:
+        raise ValueError('The model must provide direct CDF and survival functions.')
+    below = float(np.asarray(cdf(lsl))) if lsl is not None else 0.0
+    above = float(np.asarray(sf(usl))) if usl is not None else 0.0
+    if any(not np.isfinite(v) or not 0 <= v <= 1 for v in (below, above)):
+        raise ValueError('The model produced an invalid specification probability.')
+    total = below + above
+    if total > 1 + 1e-12:
+        raise ValueError('The model produced overlapping specification probabilities.')
+    return {
+        'lsl': lsl, 'usl': usl,
+        'probability_below_lsl': below,
+        'probability_above_usl': above,
+        'probability_total': min(total, 1.0),
+        'below_lsl': below * 1e6,
+        'above_usl': above * 1e6,
+        'total': min(total, 1.0) * 1e6,
+        'method': 'specified_distribution_direct_tails',
+        'parameter_uncertainty_included': False,
+    }
+
+
 def _d2(n: int) -> float:
     if n not in _D2:
         raise ValueError(

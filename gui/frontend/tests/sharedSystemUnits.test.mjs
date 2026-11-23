@@ -56,6 +56,12 @@ try {
   assert.deepEqual(convertStateObject(prediction, UNIT_RULES.prediction, 'hours', 'days'), prediction)
   const mcf = convertStateObject({ mcf: { text: '1234.56789012345 | 2345.67890123456' } }, UNIT_RULES.growth, 'hours', 'days')
   assert.equal(mcf.mcf.text, `${1234.56789012345/24} | ${2345.67890123456/24}`)
+  const monetary = convertStateObject({ mcf: { text: '24:12.50, 48:0 | 72\n | 48' } }, UNIT_RULES.growth, 'hours', 'days')
+  assert.equal(monetary.mcf.text, '1:12.50, 2:0 | 3\n | 2', 'time conversion must preserve monetary marks')
+  const fleet = convertStateObject({alpha:'240',beta:'2',costPerEvent:'50',horizon:'120',
+    cohorts:[{count:'100',age:'48',entry:'24',exit:'96'}]}, UNIT_RULES.maintFleet,'hours','days')
+  assert.deepEqual(fleet,{alpha:'10',beta:'2',costPerEvent:'50',horizon:'5',
+    cohorts:[{count:'100',age:'2',entry:'1',exit:'4'}]})
   const markov = { tMax: 240, transitions: [{ rate: .0123456789123 }, { rate: 10, sourceId: 'fit' }],
     canvasEdges: [{ data: { rate: .0123456789123 } }, { data: { rate: 10, sourceId: 'fit' } }] }
   const converted = convertStateObject(markov, UNIT_RULES.markov, 'hours', 'days')

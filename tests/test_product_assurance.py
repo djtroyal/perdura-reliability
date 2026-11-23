@@ -36,8 +36,11 @@ def test_ci_computation_survives_failure_but_respects_cancellation():
     jobs = _workflow("ci.yml")["jobs"]
     # A status function prevents GitHub from adding its default success() guard;
     # !cancelled() still runs after failures but releases superseded CI runs.
-    for job_id in ("python", "release-environment"):
-        assert jobs[job_id]["if"] == "${{ !cancelled() }}"
+    assert jobs["release-environment"]["if"] == "${{ !cancelled() }}"
+    assert jobs["python"]["if"] == (
+        "${{ !cancelled() && needs.repository-preflight.result == 'success' }}"
+    )
+    assert set(jobs["python"]["needs"]) == {"dependency-lock", "repository-preflight"}
     for job_id, step_ids in {
         "python": {"version", "library", "backend", "smoke"},
         "release-environment": {"environment-smoke", "application-wheel"},
@@ -60,6 +63,56 @@ def test_ci_computation_survives_failure_but_respects_cancellation():
         "${{ !cancelled() && matrix.python-version == '3.13' "
         "&& github.event_name == 'pull_request' }}"
     )
+
+
+def test_preflight_qualifies_generated_artifacts_with_real_candidate_dependencies():
+    jobs = _workflow("ci.yml")["jobs"]
+    steps = jobs["repository-preflight"]["steps"]
+    by_id = {step.get("id"): step for step in steps}
+    assert "npm ci" in by_id["install"]["run"]
+    assert "--check-generated" in by_id["demo"]["run"]
+    assert "--evidence evidence/preflight/demo-generation.json" in by_id["demo"]["run"]
+    assert steps.index(by_id["install"]) < steps.index(by_id["demo"])
+    assert "test:website-resources" in by_id["fixtures"]["run"]
+    compile_command = next(step["run"] for step in jobs["verification-report"]["steps"]
+                           if step.get("id") == "compile")
+    assert "--expected repository-preflight" in compile_command
+    assert "--job-result repository-preflight=${{ needs.repository-preflight.result }}" in compile_command
+
+
+def test_security_and_performance_are_not_skipped_by_browser_journey_failures():
+    jobs = _workflow("product-assurance.yml")["jobs"]
+    assert jobs["browser-journeys"]["strategy"]["fail-fast"] == "false"
+    for name in ("web-security", "dynamic-and-performance"):
+        assert jobs[name]["needs"] == "scope"
+    security = jobs["web-security"]["steps"]
+    assert not any('playwright install' in step.get('run', '') for step in security), (
+        'ZAP supplies its own browser; scanner startup must not depend on an unused Playwright install'
+    )
+    baseline = next(step for step in security if step.get("uses", "").startswith("zaproxy/action-baseline@"))
+    assert "zap_baseline_hooks.py" in baseline["with"]["cmd_options"]
+    assert "--autooff" in baseline["with"]["cmd_options"]
+    assert baseline["with"]["fail_action"] == "true"
+    assert not baseline.get("continue-on-error")
+    active = next(step for step in security if step.get("uses", "").startswith("zaproxy/action-api-scan@"))
+    assert "!cancelled()" in active["if"] and "steps.start-app.outcome == 'success'" in active["if"]
+    performance = jobs["dynamic-and-performance"]["steps"]
+    for name in ("Run Lighthouse laboratory profile", "Run API performance profile"):
+        step = next(step for step in performance if step.get("name") == name)
+        assert "!cancelled()" in step["if"] and "steps.start-app.outcome == 'success'" in step["if"]
+        assert not step.get("continue-on-error")
+
+
+def test_runtime_image_version_migrations_are_coordinated_but_digest_refreshes_remain():
+    config = yaml.load((ROOT / '.github/dependabot.yml').read_text(), Loader=yaml.BaseLoader)
+    docker = next(update for update in config['updates'] if update['package-ecosystem'] == 'docker')
+    ignores = {rule['dependency-name']: rule for rule in docker['ignore']}
+    for name in ('python', 'astral-sh/uv'):
+        assert set(ignores[name]['update-types']) == {
+            'version-update:semver-major', 'version-update:semver-minor', 'version-update:semver-patch',
+        }
+        assert 'versions' not in ignores[name]
+    assert '*' not in ignores and 'node' not in ignores
 
 
 def test_ci_keeps_partial_evidence_and_enforces_every_job_after_cancellation():

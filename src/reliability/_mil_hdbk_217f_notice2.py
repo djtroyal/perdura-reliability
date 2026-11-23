@@ -136,10 +136,19 @@ def _check_standard(standard: str) -> None:
         raise ValueError(f"standard must be one of {STANDARDS}, got {standard!r}")
 
 
+class PredictionChoiceError(ValueError):
+    """A request field disagrees with the handbook's authored choice table."""
+
+    def __init__(self, value: Any, choices: Sequence[Any], field: str):
+        self.field = field
+        self.choices = tuple(choices)
+        super().__init__(f"{field} must be one of {list(choices)}, got {value!r}")
+
+
 def _choice(value: Any, choices: Mapping | Iterable, name: str) -> Any:
     options = list(choices)
     if value not in options:
-        raise ValueError(f"{name} must be one of {options}, got {value!r}")
+        raise PredictionChoiceError(value, options, name)
     return value
 
 

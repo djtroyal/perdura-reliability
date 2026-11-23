@@ -1,9 +1,10 @@
+import { computeLifecycleMCF } from '../../api/lifecycle'
 import { useEffect, useRef, useState } from 'react'
 import Plot from '../shared/ExportablePlot'
 import { Play } from 'lucide-react'
 import {
   computeROCOF, ROCOFResponse,
-  computeMCF, MCFResponse,
+  MCFResponse,
 } from '../../api/client'
 import { useUnits } from '../../store/project'
 import InfoLabel from '../shared/InfoLabel'
@@ -15,6 +16,7 @@ import {
   INITIAL_MCF_STATE,
   isMCFRequestTokenCurrent,
   parseMCFWideText,
+  parseMCFCostText,
   parseStrictFiniteNumber,
   type MCFState,
 } from './mcfContracts'
@@ -178,14 +180,16 @@ function MCF({ state, setState, folioId }: {
       requestIdRef.current,
     )
     try {
-      const { data, observation_ends } = parseMCFWideText(state.text)
-      if (data.length < 1) { setError('Enter at least one system (one row).'); return }
-      const eventCount = data.reduce((total, row) => total + row.length, 0)
+      const measure = state.measure ?? 'events'
+      const parsed = measure === 'cost' ? { records: parseMCFCostText(state.text), measure } : { ...parseMCFWideText(state.text), measure }
+      const data = 'data' in parsed ? parsed.data : []
+      const eventCount = 'records' in parsed ? (parsed.records?.filter(row => row.status === 'event').length ?? 0) : data.reduce((total, row) => total + row.length, 0)
+      if (measure === 'events' && data.length < 1) { setError('Enter at least one system (one row).'); return }
       if (eventCount < 1) { setError('Enter at least one repair event.'); return }
-      if (state.parametric && eventCount < 2) {
+      if (measure === 'events' && state.parametric && eventCount < 2) {
         setError('The optional power-law fit requires at least 2 repair events.'); return
       }
-      if (state.parametric && data.some(row => row.some(time => time <= 0))) {
+      if (measure === 'events' && state.parametric && data.some(row => row.some(time => time <= 0))) {
         setError('Power-law MCF event times must be greater than zero.'); return
       }
       const confidence = parseStrictFiniteNumber(state.ciText, 'Confidence level')
@@ -205,8 +209,8 @@ function MCF({ state, setState, folioId }: {
       const requestId = ++requestIdRef.current
       requestToken = createMCFRequestToken(folioId, state, requestId)
       setError(null); setLoading(true)
-      const r = await computeMCF({
-        data, observation_ends, CI: confidence, parametric: state.parametric,
+      const r = await computeLifecycleMCF({
+        ...parsed, CI: confidence, parametric: measure === 'events' && state.parametric,
         interval_method: state.intervalMethod,
         bootstrap_samples: bootstrapSamples,
       })
@@ -227,18 +231,24 @@ function MCF({ state, setState, folioId }: {
 
   const res = state.result
   const np = res?.nonparametric
-  const resTrend = res?.trend
+  const resTrend = state.measure === 'cost' ? null : res?.trend
   const parametric = res?.parametric
   const intervalPct = np ? `${(100 * np.CI).toFixed(1).replace('.0', '')}%` : ''
   return (
     <div className="flex flex-1 overflow-hidden">
       <div className="w-80 shrink-0 bg-white border-r border-gray-200 overflow-y-auto p-4 flex flex-col gap-3">
         <p className="text-xs text-gray-500 leading-snug">
-          Mean cumulative repairs per system over time.
+          Mean cumulative events or cost per system over time.
         </p>
+        <div><InfoLabel tip="Costs are nonnegative per-event amounts in one shared currency and price basis.">Measure</InfoLabel>
+          <select aria-label="MCF measure" className={inputCls} value={state.measure ?? 'events'} onChange={e => patch({
+            measure: e.target.value as 'events' | 'cost', parametric: e.target.value === 'events',
+            text: e.target.value === 'cost' ? '5:100, 10:250 | 17\n6:150 | 17\n| 17' : INITIAL_MCF_STATE.text,
+          })}><option value="events">Event count</option><option value="cost">Accumulated cost</option></select>
+        </div>
         <div>
-          <InfoLabel tip="One system per line in explicit 'event times | observation end' form. An event may equal the observation end and will still be counted.">Repair data (events | end)</InfoLabel>
-          <textarea value={state.text} onChange={e => patch({ text: e.target.value })} rows={8}
+          <InfoLabel tip="One system per line in explicit 'event times | observation end' form. An event may equal the observation end and will still be counted.">{state.measure === 'cost' ? 'Cost data (time:cost | end)' : 'Repair data (events | end)'}</InfoLabel>
+          <textarea aria-label={state.measure === 'cost' ? 'MCF cost data' : 'MCF event data'} value={state.text} onChange={e => patch({ text: e.target.value })} rows={8}
             className={inputCls + ' resize-none'} placeholder="5, 10, 15 | 17" />
           <p className="text-[10px] text-gray-400 mt-1">The value after | is censoring; every value before | is an event, including ties at the endpoint.</p>
         </div>
@@ -261,7 +271,7 @@ function MCF({ state, setState, folioId }: {
           <ConfidenceInput value={state.ciText} onChange={value => patch({ ciText: value })} className="w-full" />
         </div>
         <label className="flex items-center gap-2 text-xs text-gray-700">
-          <input type="checkbox" checked={state.parametric} onChange={e => patch({ parametric: e.target.checked })} />
+          <input type="checkbox" disabled={state.measure === 'cost'} checked={state.measure !== 'cost' && state.parametric} onChange={e => patch({ parametric: e.target.checked })} />
           Also fit power-law (parametric) MCF
         </label>
         {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
@@ -311,7 +321,7 @@ function MCF({ state, setState, folioId }: {
             {np.tail_warning && (
               <p className="mb-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">{np.tail_warning}</p>
             )}
-            <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 440 }}>
+            <div className="bg-white border border-gray-200 rounded-lg">
               <Plot
                 data={[
                   ...(np.interval_point_available.some(Boolean) ? [
@@ -324,11 +334,11 @@ function MCF({ state, setState, folioId }: {
                 layout={{
                   title: { text: 'Mean Cumulative Function', font: { size: 13 } },
                   xaxis: { title: { text: `Time (${units})` }, gridcolor: '#e5e7eb' },
-                  yaxis: { title: { text: 'Mean cumulative repairs' }, gridcolor: '#e5e7eb' },
+                  yaxis: { title: { text: state.measure === 'cost' ? 'Mean cumulative cost' : 'Mean cumulative repairs' }, gridcolor: '#e5e7eb' },
                   margin: { t: 40, r: 20, b: 50, l: 60 }, paper_bgcolor: 'white', plot_bgcolor: 'white',
                   legend: { x: 0.02, y: 0.98, font: { size: 10 } },
                 } as Partial<Plotly.Layout>}
-                config={{ responsive: true }} style={{ width: '100%', height: '100%' }} useResizeHandler
+                config={{ responsive: true }} style={{ width: '100%', height: 440 }} useResizeHandler
                 plotId="mean-cumulative-function"
               />
             </div>
@@ -341,7 +351,7 @@ function MCF({ state, setState, folioId }: {
                     <th className="px-2 py-1.5 text-right">Lower</th>
                     <th className="px-2 py-1.5 text-right">Upper</th>
                     <th className="px-2 py-1.5 text-right">At risk</th>
-                    <th className="px-2 py-1.5 text-right">Events</th>
+                    <th className="px-2 py-1.5 text-right">{state.measure === 'cost' ? 'Cost' : 'Events'}</th>
                     <th className="px-2 py-1.5 text-left">Interval availability</th>
                     {np.bootstrap && <th className="px-2 py-1.5 text-right">Valid bootstrap replicates</th>}
                   </tr>

@@ -1,4 +1,6 @@
 import json
+import ast
+from pathlib import Path
 
 from tools.build_scientific_inventory import build_inventory
 
@@ -51,3 +53,48 @@ def _helper():
     result = build_inventory(tmp_path)
     assert {row['method'] for row in result['entries']} == {'GET', 'POST'}
     assert result['summary']['router_operations'] == 2
+
+
+def test_new_standard_method_surfaces_map_to_explicit_assurance_procedures():
+    inventory = {row['id']: row for row in build_inventory()['entries']}
+    expected = {
+        'core.Special_models.Fit_Weibull_Partial_CR': 'life_data.composite_weibull_mle',
+        'core.Special_models.Fit_Weibull_Bathtub': 'life_data.composite_weibull_mle',
+        'core.Special_models.Weibull_Partial_CR.SF': 'life_data.composite_weibull_mle',
+        'core.Life_metrics.remaining_life': 'life_data.conditional_life_metrics',
+        'core.Life_metrics.interference_probability': 'life_data.stress_strength_interference',
+        'core.Process_capability.distribution_specification_tails': 'capability.adopted_distribution_specification_tails',
+        'api.capability.POST./spec-tail': 'capability.adopted_distribution_specification_tails',
+        'core.Renewal.renewal_count': 'maintenance.delayed_renewal_fleet',
+        'api.maintenance.POST./fleet-forecast': 'maintenance.delayed_renewal_fleet',
+        'core.Renewal.perfect_block_cost_forecast': 'maintenance.perfect_block_replacement',
+        'core.Repairable_systems.MCF_nonparametric': 'growth.mean_cumulative_cost',
+    }
+    for surface, procedure in expected.items():
+        mappings = inventory[surface]['assurance_records']
+        assert any(mapping['procedure_id'] == procedure and mapping['claim_ids'] for mapping in mappings)
+
+
+def test_standard_method_evidence_nodes_exist_and_release_gaps_remain_explicit():
+    root = Path(__file__).resolve().parents[1]
+    matrix = json.loads((root / 'docs/audit/model-assurance-matrix.json').read_text())
+    procedures = {
+        'life_data.standard_rank_regression', 'life_data.fixed_shape_weibull',
+        'life_data.mixed_censoring_mle', 'life_data.composite_weibull_mle',
+        'life_data.conditional_life_metrics', 'life_data.stress_strength_interference',
+        'capability.adopted_distribution_specification_tails', 'maintenance.delayed_renewal_fleet',
+        'maintenance.perfect_block_replacement', 'growth.mean_cumulative_cost',
+    }
+    models = {model['id']: model for model in matrix['models']}
+    for procedure in procedures:
+        model = models[procedure]
+        assert model['status'] == 'needs_revision'
+        assert model['blockers'] and model['capabilities']['explicit_gaps']
+        for evidence in model['evidence']:
+            source = (root / evidence['path']).read_text()
+            if evidence['path'].endswith('.py'):
+                names = {node.name for node in ast.walk(ast.parse(source))
+                         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
+                assert evidence['node'] in names, (procedure, evidence['node'])
+            else:
+                assert f"test('{evidence['node']}'" in source, (procedure, evidence['node'])

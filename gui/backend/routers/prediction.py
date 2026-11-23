@@ -10,6 +10,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
 
+from api_contract import public_error_message
+
 from reliability.MIL_HDBK_217F import (
     ENVIRONMENTS, ENVIRONMENT_DESCRIPTIONS, STANDARDS,
     VITA_PART_CATEGORIES, annotate_vita_result,
@@ -34,6 +36,7 @@ from reliability.MIL_HDBK_217F import (
     SystemFailureRate,
 )
 from reliability.Standards import get_derating_disclosure, get_standard_disclosure
+from reliability._mil_hdbk_217f_notice2 import PredictionChoiceError
 from reliability.RADC_TR_85_91 import (
     NONOPERATING_ENVIRONMENTS,
     NONOPERATING_ENVIRONMENT_DESCRIPTIONS,
@@ -66,6 +69,14 @@ _DERATING_INPUT_MESSAGE = (
 _DERATING_UNAVAILABLE_MESSAGE = (
     "The selected derating standard is unavailable, so this part was not evaluated."
 )
+
+
+def _part_input_message(exc: Exception, fallback: str) -> str:
+    if isinstance(exc, PredictionChoiceError):
+        # The field and choices come from the authored handbook tables. Never
+        # expose the rejected value or the exception's diagnostic string.
+        return f"{exc.field} must be one of {list(exc.choices)}."
+    return fallback
 
 
 def _public_custom_rule_error(exc: Exception) -> str:
@@ -1152,7 +1163,7 @@ def predict(req: PredictionRequest):
         try:
             part = cls(**kwargs)
         except (TypeError, ValueError) as e:
-            skipped[i] = {"name": name, "category": spec.category, "error": str(e)}
+            skipped[i] = {"name": name, "category": spec.category, "error": public_error_message(e, message=_part_input_message(e, 'This part could not be evaluated. Review its category and required prediction parameters.'))}
             continue
         if vita and vita_applicable:
             annotate_vita_result(part, spec.category)
@@ -1367,7 +1378,7 @@ def _predict_standard(standard: str, parts_spec, environment: str, blocks=None,
             model_inputs.append(effective_model_inputs(cls, kwargs))
             valid_indices.append(i)
         except (TypeError, ValueError) as e:
-            skipped[i] = {"name": name, "category": spec.category, "error": str(e)}
+            skipped[i] = {"name": name, "category": spec.category, "error": public_error_message(e, message=_part_input_message(e, 'This part could not be evaluated under the selected standard. Review its category and required parameters.'))}
 
     total_fr = sum(p.total_failure_rate for p in parts)
     computed = []
@@ -1938,8 +1949,8 @@ def predict_mission_profile(req: MissionProfilePredictionRequest):
                         "category": spec.category,
                         "phase_index": phase_index,
                         "phase_name": phase.name,
-                        "error_type": type(e).__name__,
-                        "message": str(e),
+                        "error_type": 'ValueError' if isinstance(e, ValueError) else 'TypeError',
+                        "message": public_error_message(e, message=_part_input_message(e, 'This part could not be evaluated in the mission phase. Review its prediction parameters and phase environment.')),
                     },
                 ) from e
 
@@ -2180,7 +2191,7 @@ def predict_system(req: "SharedSystemPredictionRequest"):
         inputs = materialize_prediction_scenario(req.model.model_dump(), req.scenario)
         validated = MultiStandardPredictionRequest.model_validate(inputs)
     except (ValueError, TypeError, KeyError) as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        raise HTTPException(status_code=422, detail=public_error_message(exc, message='The system prediction scenario is invalid. Review the system hierarchy, installed parts, and scenario settings.')) from exc
     result = predict(PredictionRequest.model_validate(inputs)) if validated.standard == "MIL-HDBK-217F" else predict_standard(validated)
     for row, part in zip(result["results"], validated.parts):
         row["part_id"] = part.id

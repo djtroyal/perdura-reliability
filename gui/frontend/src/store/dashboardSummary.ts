@@ -5,6 +5,11 @@
 
 import { analysisInputSnapshot, getProjectState, hasComputedResults } from './project'
 import { isLifeDataFitCurrent, resolveAdoptedDistribution } from '../components/shared/adoptedDistribution'
+import { capabilityModelTailStatus, type CapabilityTailState } from '../components/ProcessCapability/modelTails'
+import { engineRevisionFor } from '../version'
+import { lifetimeResultStatus, inventoryResultStatus } from './toolkitFreshness'
+import { lifecycleSourceStatus } from '../components/shared/systemLifecycleSource'
+import { inferenceResultStatus } from '../components/ALT/inferenceToolContracts'
 
 export interface AreaSummary {
   tabId: string
@@ -45,7 +50,7 @@ interface AreaDef {
 const AREAS: AreaDef[] = [
   { tabId: 'life-data', label: 'Life Data Analysis', color: 'text-blue-500', slices: ['lifeData'], folioSlice: 'lifeData' },
   { tabId: 'alt', label: 'Reliability Testing', color: 'text-amber-500',
-    slices: ['alt', 'degradation', 'marginTest', 'expChiSquared', 'rdtBayesian', 'differenceDetection'], folioSlice: 'alt' },
+    slices: ['alt', 'degradation', 'marginTest', 'expChiSquared', 'rdtBayesian', 'differenceDetection', 'reliabilityTestingTools'], folioSlice: 'alt' },
   { tabId: 'system-modeling', label: 'System Modeling', color: 'text-emerald-500', slices: ['system', 'faultTree', 'markov'] },
   { tabId: 'allocation', label: 'Reliability Allocation', color: 'text-lime-600', slices: ['reliabilityAllocation'], folioSlice: 'reliabilityAllocation' },
   { tabId: 'prediction', label: 'Failure Rate Prediction', color: 'text-indigo-500', slices: ['prediction'], folioSlice: 'prediction' },
@@ -55,7 +60,7 @@ const AREAS: AreaDef[] = [
   { tabId: 'fmea', label: 'FMEA', color: 'text-amber-700', slices: ['fmea'], folioSlice: 'fmea' },
   { tabId: 'reliability-program', label: 'Reliability Program', color: 'text-orange-700', slices: ['reliabilityProgram'], folioSlice: 'reliabilityProgram' },
   { tabId: 'maintenance', label: 'Maintenance', color: 'text-teal-700',
-    slices: ['ram', 'maintReplacement', 'maintPMInterval', 'maintCostForecast', 'maintAvailability'], container: true },
+    slices: ['ram', 'maintReplacement', 'maintPMInterval', 'maintCostForecast', 'maintFleet', 'maintInventory', 'lifeTools', 'maintAvailability'], container: true },
   { tabId: 'hra', label: 'Human Reliability', color: 'text-rose-600',
     slices: ['hraTherp', 'hraHeart', 'hraSparH', 'hraCream', 'hraCreamExt', 'hraSlim', 'hraJhedi', 'hraSherpa', 'hraAtheana', 'hraMermos'], container: true },
   { tabId: 'warranty', label: 'Warranty Analysis', color: 'text-cyan-500', slices: ['warranty'], folioSlice: 'warranty' },
@@ -119,6 +124,44 @@ function staleDetailsForSlice(areaLabel: string, sliceKey: string, slice: unknow
   if (!slice || typeof slice !== 'object') return []
   const label = STALE_SLICE_LABELS[sliceKey] ?? areaLabel
   const details: string[] = []
+
+  if (sliceKey === 'reliabilityTestingTools') {
+    const state = slice as Record<string, { result?: unknown }>
+    for (const [key,title] of [['aggregateMTBF','Field MTBF'],['normalSummary','Normal mean'],['discreteProbability','Discrete acceptance'],['oneProportion','Binomial interval'],['sequentialSampling','Sequential test']]) {
+      if (!state[key]?.result) continue
+      const status = inferenceResultStatus(state[key],getProjectState().units)
+      if (!status.current) details.push(`${label} — ${title}: ${status.reason}`)
+    }
+  }
+
+  if (sliceKey === 'lifeTools') {
+    const state = slice as Record<string, unknown>
+    for (const [key, title] of [['matrixResult','Conditional survival'],['mechanicalResult','Mechanical rate'],['inspectionResult','Inspection prediction']]) {
+      if (!state[key]) continue
+      const status = lifetimeResultStatus(getProjectState(),state,key)
+      if (!status.current) details.push(`${label} — ${title}: ${status.reason}`)
+    }
+  }
+  if (sliceKey === 'maintInventory' && (slice as { result?: unknown }).result) {
+    const status = inventoryResultStatus(getProjectState())
+    if (!status.current) details.push(`${label} — Inventory plan: ${status.reason}`)
+  }
+  if (sliceKey === 'system' || sliceKey === 'faultTree') {
+    const entries = foliosOf(slice)
+    for (const folio of entries.length ? entries : [slice]) {
+      const state = folioState(folio) as Parameters<typeof lifecycleSourceStatus>[2]
+      if (!state?.lifecycle || !['renewalResult','stateResult','simulationResult'].some(key => (state.lifecycle as Record<string,unknown>)[key])) continue
+      try {
+        const status = lifecycleSourceStatus(getProjectState(),sliceKey === 'system' ? 'rbd' : 'fta',state)
+        if (!status.current) details.push(`${label} — Lifecycle: ${status.reason}`)
+      } catch { details.push(`${label} — Lifecycle: source cannot be resolved.`) }
+    }
+  }
+
+  if (sliceKey === 'sixSigma.capability') {
+    const status = capabilityModelTailStatus(getProjectState(), slice as CapabilityTailState, engineRevisionFor(sliceKey))
+    if (status && status.status !== 'current') details.push(`${label} — Specification PPM: ${status.reason}`)
+  }
 
   if (sliceKey === 'dataAnalysisFolios') {
     const value = slice as {

@@ -45,7 +45,12 @@ def test_current_and_newer_outputs_keep_their_declared_revision():
 
 
 def test_absent_modules_are_not_added_to_the_demo():
-    assert refresh.demo_engine_revisions({"modules": {"growth": {"input": 1}}}) == {"growth": 1}
+    demo = {"modules": {"growth": {"input": 1}}}
+    original = copy.deepcopy(demo)
+    revisions = refresh.demo_engine_revisions(demo)
+    assert set(revisions) == {"growth"}
+    assert revisions["growth"] == refresh.INPUT_ONLY_ENGINE_UPGRADES["growth"]
+    assert demo == original
 
 
 def test_showcase_revised_engine_outputs_will_not_be_discarded_on_import():

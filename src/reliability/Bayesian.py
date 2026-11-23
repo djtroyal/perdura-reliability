@@ -23,22 +23,33 @@ def _conditional_fit(times, failure_mask, beta, CI):
     failures = np.asarray(times, dtype=float)[failure_mask]
     censored = np.asarray(times, dtype=float)[~failure_mask]
     r = int(np.sum(failure_mask))
-    sum_tb = float(np.sum(times ** beta))
+    # Scale before exponentiation. The ordinary sum can overflow/underflow
+    # while the fitted scale remains entirely representable in the input unit.
+    log_reference = float(np.log(np.max(times)))
+    log_normalized_sum = float(logsumexp(beta * (np.log(times) - log_reference)))
+    log_sum_tb = beta * log_reference + log_normalized_sum
+    with np.errstate(over='ignore', under='ignore'):
+        raw_sum = float(np.exp(log_sum_tb))
+    sum_tb = raw_sum if np.isfinite(raw_sum) and raw_sum > 0 else None
+
+    def scale_from_log_divisor(log_divisor):
+        return float(np.exp(log_reference + (log_normalized_sum - log_divisor) / beta))
+
+    # A strictly increasing power transform preserves ordering and the
+    # complete/Type-II design; classification need not construct those powers.
     design = classify_exponential_censoring(
-        failures ** beta,
-        censored ** beta if len(censored) else None,
+        failures / np.max(times),
+        censored / np.max(times) if len(censored) else None,
     )
     if r > 0:
-        eta = (sum_tb / r) ** (1.0 / beta)
+        eta = scale_from_log_divisor(np.log(r))
         if design["design"] in ("complete", "type_ii"):
             alpha_tail = (1.0 - CI) / 2.0
             rate_lower_pivot = chi2.ppf(alpha_tail, df=2 * r)
             rate_upper_pivot = chi2.ppf(1.0 - alpha_tail, df=2 * r)
-            eta_lower = (
-                2.0 * sum_tb / rate_upper_pivot
-            ) ** (1.0 / beta)
+            eta_lower = scale_from_log_divisor(np.log(rate_upper_pivot / 2.0))
             eta_upper = (
-                (2.0 * sum_tb / rate_lower_pivot) ** (1.0 / beta)
+                scale_from_log_divisor(np.log(rate_lower_pivot / 2.0))
                 if rate_lower_pivot > 0 else None
             )
             interval_method = "exact_fixed_beta_chi_square"
@@ -54,12 +65,14 @@ def _conditional_fit(times, failure_mask, beta, CI):
         eta = None
         eta_upper = None
         chi2_value = chi2.ppf(CI, df=2)
-        eta_lower = (sum_tb / (chi2_value / 2.0)) ** (1.0 / beta)
+        eta_lower = scale_from_log_divisor(np.log(chi2_value / 2.0))
         interval_method = "exact_zero_failure_one_sided"
         available = True
         reason = None
     return {
-        "beta": float(beta), "sum_tb": sum_tb, "eta": eta,
+        "beta": float(beta), "sum_tb": sum_tb,
+        "log_sum_tb": float(log_sum_tb) if np.isfinite(log_sum_tb) else None,
+        "eta": eta,
         "eta_lower": eta_lower, "eta_upper": eta_upper,
         "sample_design": (
             "zero_failure_exposure" if r == 0 else design["design"]
@@ -321,6 +334,7 @@ def weibayes_fit(
         "eta_upper": conditional["eta_upper"],
         "r": r,
         "sum_tb": conditional["sum_tb"],
+        "log_sum_tb": conditional["log_sum_tb"],
         "CI": CI,
         "zero_failure": r == 0,
         "beta_assumption": "fixed" if method == "fixed" else "uncertain",

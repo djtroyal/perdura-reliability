@@ -4,36 +4,38 @@
   "website": "https://perdurareliability.com",
   "schemaVersion": 12,
   "createdWith": {
-    "version": "0.8.1",
+    "version": "0.8.4",
     "commit": "dev",
-    "builtAt": "2026-09-14T06:18:42.932Z"
+    "builtAt": "2026-11-20T18:37:39.032Z"
   },
   "engineRevisions": {
-    "lifeData": 2,
+    "lifeData": 3,
     "alt": 1,
     "degradation": 1,
+    "systemDefinition": 4,
     "system": 1,
     "faultTree": 1,
     "markov": 2,
+    "prediction": 2,
     "pof": 1,
-    "growth": 1,
+    "growth": 2,
     "softwareReliability": 1,
-    "reliabilityProgram": 1,
-    "warranty": 2,
+    "reliabilityProgram": 3,
+    "warranty": 3,
     "hypothesis": 1,
     "dataAnalysisData": 1,
     "descriptive": 1,
     "dataModeling": 1,
     "dataAnalysisFolios": 1,
-    "sixSigma.capability": 1,
+    "sixSigma.capability": 2,
     "sixSigma.spc": 1,
     "msa": 1,
     "doe": 1,
     "reliabilityAllocation": 1,
     "ram": 1,
-    "maintReplacement": 1,
+    "maintReplacement": 2,
     "maintPMInterval": 1,
-    "maintCostForecast": 1,
+    "maintCostForecast": 2,
     "maintAvailability": 1,
     "hraTherp": 1,
     "hraHeart": 1,
@@ -52,13 +54,15 @@
     "hraCreamExt": 1,
     "library": 1,
     "reportBuilder": 1,
-    "fmea": 2,
+    "fmea": 4,
     "fmeaFailureFlow": 1,
-    "maintTaskAnalysis": 1
+    "maintTaskAnalysis": 1,
+    "faultTreeCatalog": 1,
+    "maintFleet": 1
   },
   "project": "Perdura Demo Project",
   "units": "hours",
-  "exported": "2026-09-14T06:25:26.422Z",
+  "exported": "2026-11-20T18:40:34.372Z",
   "identity": {
     "projectId": "prj-demo-project"
   },
@@ -68,28 +72,28 @@
       "projectId": "prj-demo-project",
       "moduleKey": "lifeData",
       "analysisId": "folio1",
-      "engineRevision": 2,
-      "completedAt": "2026-09-14T06:25:25.937Z",
-      "inputSha256": "f75e44314fdf23a940b27c479e15a9cf9f85404de234a81fbd5450393e1712fd",
+      "engineRevision": 3,
+      "completedAt": "2026-11-20T18:40:27.760Z",
+      "inputSha256": "c7ff1217b21abb178d758ad5026486791d272bec90878eaf552c7fbd3abd7ee6",
       "resultSha256": "a76b7f013d413a7c6c999cf5b4d1d1ef054554313cab07d5d70decee55b841e3",
       "software": {
         "product": "Perdura",
-        "version": "0.8.1",
+        "version": "0.8.4",
         "commit": "dev",
-        "builtAt": "2026-09-14T06:18:42.932Z",
+        "builtAt": "2026-11-20T18:37:39.032Z",
         "repository": "djtroyal/perdura-reliability",
         "commitUrl": null,
-        "releaseUrl": "https://github.com/djtroyal/perdura-reliability/releases/tag/v0.8.1",
+        "releaseUrl": "https://github.com/djtroyal/perdura-reliability/releases/tag/v0.8.4",
         "verificationReportSha256": null,
         "verificationRunUrl": null,
         "runtimeExecutableSha256": null,
         "buildStatus": "development"
       },
-      "runId": "run-ba57241c-6104-4939-8792-228e795b20ff",
+      "runId": "run-684a6da5-b082-498a-b571-95905767301a",
       "moduleLabel": "Life Data Analysis",
-      "analysisName": "Airplane Glass \u2014 Complete Lifetimes",
+      "analysisName": "Airplane Glass — Complete Lifetimes",
       "method": "MLE",
-      "fingerprintSha256": "7041dc1cd6bb751f022f5ff448b94a7c1631152002b758aece3e141b3af9351d"
+      "fingerprintSha256": "dbc2fe6a13f8b8870d498f5ff42a1740741815ff6259e38d7f849e5aa7762aef"
     }
   ],
   "exportLedger": [],
@@ -98,7 +102,7 @@
       "folios": [
         {
           "id": "folio1",
-          "name": "Airplane Glass \u2014 Complete Lifetimes",
+          "name": "Airplane Glass — Complete Lifetimes",
           "rows": [
             {
               "key": "fuller2-1",
@@ -520,7 +524,7 @@
             }
           },
           "turnbullResult": null,
-          "dataSig": "{\"format\":\"individual\",\"observations\":[{\"t\":\"18.830\",\"s\":\"F\"},{\"t\":\"20.800\",\"s\":\"F\"},{\"t\":\"21.657\",\"s\":\"F\"},{\"t\":\"23.030\",\"s\":\"F\"},{\"t\":\"23.230\",\"s\":\"F\"},{\"t\":\"24.050\",\"s\":\"F\"},{\"t\":\"24.321\",\"s\":\"F\"},{\"t\":\"25.500\",\"s\":\"F\"},{\"t\":\"25.520\",\"s\":\"F\"},{\"t\":\"25.800\",\"s\":\"F\"},{\"t\":\"26.690\",\"s\":\"F\"},{\"t\":\"26.770\",\"s\":\"F\"},{\"t\":\"26.780\",\"s\":\"F\"},{\"t\":\"27.050\",\"s\":\"F\"},{\"t\":\"27.670\",\"s\":\"F\"},{\"t\":\"29.900\",\"s\":\"F\"},{\"t\":\"31.110\",\"s\":\"F\"},{\"t\":\"33.200\",\"s\":\"F\"},{\"t\":\"33.730\",\"s\":\"F\"},{\"t\":\"33.760\",\"s\":\"F\"},{\"t\":\"33.890\",\"s\":\"F\"},{\"t\":\"34.760\",\"s\":\"F\"},{\"t\":\"35.750\",\"s\":\"F\"},{\"t\":\"35.910\",\"s\":\"F\"},{\"t\":\"36.980\",\"s\":\"F\"},{\"t\":\"37.080\",\"s\":\"F\"},{\"t\":\"37.090\",\"s\":\"F\"},{\"t\":\"39.580\",\"s\":\"F\"},{\"t\":\"44.045\",\"s\":\"F\"},{\"t\":\"45.290\",\"s\":\"F\"},{\"t\":\"45.381\",\"s\":\"F\"}]}"
+          "dataSig": "e9691dabde548a434a45b74145da0202e1c2ab35a96fbaaa299d781cde39aadf"
         }
       ],
       "activeId": "folio1",
@@ -533,6 +537,647 @@
         "ciText": "0.95",
         "ci": 0.95
       }
+    },
+    "faultTree": {
+      "_folioWrap": true,
+      "activeId": "f0",
+      "folios": [
+        {
+          "id": "f0",
+          "name": "Aircraft Hydraulics — Loss of Pressure",
+          "state": {
+            "schemaVersion": 2,
+            "exposureTime": "1000",
+            "engine": "auto",
+            "confidenceLevel": "95",
+            "nSimulations": "20000",
+            "simSeed": "42",
+            "density": "comfortable",
+            "connectorStyle": "smoothstep",
+            "snapToGrid": false,
+            "annotations": [],
+            "showNodeIds": true,
+            "nodes": [
+              {
+                "id": "g1",
+                "type": "or",
+                "position": {
+                  "x": 320,
+                  "y": 40
+                },
+                "data": {
+                  "label": "Loss of Hydraulic Pressure",
+                  "description": "Illustrative loss of required hydraulic supply through both pump paths, controller failure, or electrical power loss. Basic-event probabilities are separate teaching inputs, not calibrated aircraft failure probabilities.",
+                  "gateId": "OR-1"
+                }
+              },
+              {
+                "id": "g2",
+                "type": "and",
+                "position": {
+                  "x": 150,
+                  "y": 210
+                },
+                "data": {
+                  "label": "Both Pumps Fail",
+                  "gateId": "AND-1"
+                }
+              },
+              {
+                "id": "b1",
+                "type": "basic",
+                "position": {
+                  "x": 30,
+                  "y": 400
+                },
+                "data": {
+                  "label": "Pump A Fails",
+                  "eventKey": "b1",
+                  "probability": 0.05,
+                  "description": ""
+                }
+              },
+              {
+                "id": "b2",
+                "type": "basic",
+                "position": {
+                  "x": 250,
+                  "y": 400
+                },
+                "data": {
+                  "label": "Pump B Fails",
+                  "eventKey": "b2",
+                  "probability": 0.05,
+                  "description": ""
+                }
+              },
+              {
+                "id": "b3",
+                "type": "basic",
+                "position": {
+                  "x": 430,
+                  "y": 210
+                },
+                "data": {
+                  "label": "Controller Fails",
+                  "eventKey": "b3",
+                  "probability": 0.02,
+                  "description": ""
+                }
+              },
+              {
+                "id": "b4",
+                "type": "basic",
+                "position": {
+                  "x": 640,
+                  "y": 210
+                },
+                "data": {
+                  "label": "Power Loss",
+                  "eventKey": "b4",
+                  "probability": 0.01,
+                  "description": ""
+                }
+              }
+            ],
+            "edges": [
+              {
+                "id": "e-g1-g2",
+                "source": "g1",
+                "target": "g2",
+                "data": {
+                  "role": "input",
+                  "order": 0
+                }
+              },
+              {
+                "id": "e-g1-b3",
+                "source": "g1",
+                "target": "b3",
+                "data": {
+                  "role": "input",
+                  "order": 1
+                }
+              },
+              {
+                "id": "e-g1-b4",
+                "source": "g1",
+                "target": "b4",
+                "data": {
+                  "role": "input",
+                  "order": 2
+                }
+              },
+              {
+                "id": "e-g2-b1",
+                "source": "g2",
+                "target": "b1",
+                "data": {
+                  "role": "input",
+                  "order": 0
+                }
+              },
+              {
+                "id": "e-g2-b2",
+                "source": "g2",
+                "target": "b2",
+                "data": {
+                  "role": "input",
+                  "order": 1
+                }
+              }
+            ],
+            "result": null
+          },
+          "dirty": false
+        },
+        {
+          "id": "fta-simple-or",
+          "name": "Example — Simple OR",
+          "state": {
+            "schemaVersion": 2,
+            "exposureTime": "1000",
+            "engine": "auto",
+            "confidenceLevel": "95",
+            "nSimulations": "20000",
+            "simSeed": "42",
+            "density": "comfortable",
+            "connectorStyle": "smoothstep",
+            "snapToGrid": false,
+            "annotations": [],
+            "showNodeIds": true,
+            "nodes": [
+              {
+                "id": "TOP",
+                "type": "or",
+                "position": {
+                  "x": 360,
+                  "y": 50
+                },
+                "data": {
+                  "label": "Loss of Function",
+                  "description": "Either failure mode causes the top event",
+                  "gateId": "OR-1"
+                }
+              },
+              {
+                "id": "A",
+                "type": "basic",
+                "position": {
+                  "x": 210,
+                  "y": 250
+                },
+                "data": {
+                  "label": "Failure Mode A",
+                  "eventKey": "A",
+                  "probability": 0.01,
+                  "description": ""
+                }
+              },
+              {
+                "id": "B",
+                "type": "basic",
+                "position": {
+                  "x": 510,
+                  "y": 250
+                },
+                "data": {
+                  "label": "Failure Mode B",
+                  "eventKey": "B",
+                  "probability": 0.02,
+                  "description": ""
+                }
+              }
+            ],
+            "edges": [
+              {
+                "id": "e-TOP-A",
+                "source": "TOP",
+                "target": "A",
+                "data": {
+                  "role": "input",
+                  "order": 0
+                }
+              },
+              {
+                "id": "e-TOP-B",
+                "source": "TOP",
+                "target": "B",
+                "data": {
+                  "role": "input",
+                  "order": 1
+                }
+              }
+            ],
+            "result": null
+          },
+          "dirty": false
+        },
+        {
+          "id": "fta-vote",
+          "name": "Example — 2-of-3 Voting",
+          "state": {
+            "schemaVersion": 2,
+            "exposureTime": "1000",
+            "engine": "auto",
+            "confidenceLevel": "95",
+            "nSimulations": "20000",
+            "simSeed": "42",
+            "density": "comfortable",
+            "connectorStyle": "smoothstep",
+            "snapToGrid": false,
+            "annotations": [],
+            "showNodeIds": true,
+            "nodes": [
+              {
+                "id": "TOP",
+                "type": "vote",
+                "position": {
+                  "x": 360,
+                  "y": 40
+                },
+                "data": {
+                  "label": "Two Channels Unavailable",
+                  "k": 2,
+                  "gateId": "VOTE-1"
+                }
+              },
+              {
+                "id": "A",
+                "type": "basic",
+                "position": {
+                  "x": 80,
+                  "y": 250
+                },
+                "data": {
+                  "label": "Channel A Fails",
+                  "eventKey": "A",
+                  "probability": 0.01,
+                  "description": ""
+                }
+              },
+              {
+                "id": "B",
+                "type": "basic",
+                "position": {
+                  "x": 360,
+                  "y": 250
+                },
+                "data": {
+                  "label": "Channel B Fails",
+                  "eventKey": "B",
+                  "probability": 0.01,
+                  "description": ""
+                }
+              },
+              {
+                "id": "C",
+                "type": "basic",
+                "position": {
+                  "x": 640,
+                  "y": 250
+                },
+                "data": {
+                  "label": "Channel C Fails",
+                  "eventKey": "C",
+                  "probability": 0.01,
+                  "description": ""
+                }
+              }
+            ],
+            "edges": [
+              {
+                "id": "e-TOP-A",
+                "source": "TOP",
+                "target": "A",
+                "data": {
+                  "role": "input",
+                  "order": 0
+                }
+              },
+              {
+                "id": "e-TOP-B",
+                "source": "TOP",
+                "target": "B",
+                "data": {
+                  "role": "input",
+                  "order": 1
+                }
+              },
+              {
+                "id": "e-TOP-C",
+                "source": "TOP",
+                "target": "C",
+                "data": {
+                  "role": "input",
+                  "order": 2
+                }
+              }
+            ],
+            "result": null
+          },
+          "dirty": false
+        },
+        {
+          "id": "fta-pand",
+          "name": "Example — PAND Sequence",
+          "state": {
+            "schemaVersion": 2,
+            "exposureTime": "1000",
+            "engine": "auto",
+            "confidenceLevel": "95",
+            "nSimulations": "20000",
+            "simSeed": "42",
+            "density": "comfortable",
+            "connectorStyle": "smoothstep",
+            "snapToGrid": false,
+            "annotations": [],
+            "showNodeIds": true,
+            "nodes": [
+              {
+                "id": "TOP",
+                "type": "pand",
+                "position": {
+                  "x": 360,
+                  "y": 40
+                },
+                "data": {
+                  "label": "Unsafe Ordered Failure",
+                  "tie_policy": "inclusive",
+                  "description": "Protection must fail before the demand occurs",
+                  "gateId": "PAND-1"
+                }
+              },
+              {
+                "id": "A",
+                "type": "basic",
+                "position": {
+                  "x": 210,
+                  "y": 260
+                },
+                "data": {
+                  "label": "Protection Fails First",
+                  "eventKey": "A",
+                  "probability": 0.6321205588285577,
+                  "description": "",
+                  "distribution": "exponential",
+                  "dist_params": {
+                    "lambda": 0.001,
+                    "gamma": 0
+                  }
+                }
+              },
+              {
+                "id": "B",
+                "type": "basic",
+                "position": {
+                  "x": 510,
+                  "y": 260
+                },
+                "data": {
+                  "label": "Demand Occurs Second",
+                  "eventKey": "B",
+                  "probability": 0.6321205588285577,
+                  "description": "",
+                  "distribution": "exponential",
+                  "dist_params": {
+                    "lambda": 0.001,
+                    "gamma": 0
+                  }
+                }
+              }
+            ],
+            "edges": [
+              {
+                "id": "e-TOP-A",
+                "source": "TOP",
+                "target": "A",
+                "data": {
+                  "role": "input",
+                  "order": 0
+                }
+              },
+              {
+                "id": "e-TOP-B",
+                "source": "TOP",
+                "target": "B",
+                "data": {
+                  "role": "input",
+                  "order": 1
+                }
+              }
+            ],
+            "result": null
+          },
+          "dirty": false
+        },
+        {
+          "id": "fta-spare",
+          "name": "Example — Cold Standby",
+          "state": {
+            "schemaVersion": 2,
+            "exposureTime": "1000",
+            "engine": "auto",
+            "confidenceLevel": "95",
+            "nSimulations": "20000",
+            "simSeed": "42",
+            "density": "comfortable",
+            "connectorStyle": "smoothstep",
+            "snapToGrid": false,
+            "annotations": [],
+            "showNodeIds": true,
+            "nodes": [
+              {
+                "id": "TOP",
+                "type": "spare",
+                "position": {
+                  "x": 360,
+                  "y": 40
+                },
+                "data": {
+                  "label": "Primary and Standby Unavailable",
+                  "spare_mode": "cold",
+                  "dormancy_factor": 0,
+                  "coverage": 1,
+                  "gateId": "SPR-1"
+                }
+              },
+              {
+                "id": "A",
+                "type": "basic",
+                "position": {
+                  "x": 210,
+                  "y": 260
+                },
+                "data": {
+                  "label": "Primary Unit",
+                  "eventKey": "A",
+                  "probability": 0.6321205588285577,
+                  "description": "",
+                  "distribution": "exponential",
+                  "dist_params": {
+                    "lambda": 0.001,
+                    "gamma": 0
+                  }
+                }
+              },
+              {
+                "id": "B",
+                "type": "basic",
+                "position": {
+                  "x": 510,
+                  "y": 260
+                },
+                "data": {
+                  "label": "Standby Unit",
+                  "eventKey": "B",
+                  "probability": 0.6321205588285577,
+                  "description": "",
+                  "distribution": "exponential",
+                  "dist_params": {
+                    "lambda": 0.001,
+                    "gamma": 0
+                  }
+                }
+              }
+            ],
+            "edges": [
+              {
+                "id": "e-TOP-A",
+                "source": "TOP",
+                "target": "A",
+                "data": {
+                  "role": "primary",
+                  "order": 0
+                }
+              },
+              {
+                "id": "e-TOP-B",
+                "source": "TOP",
+                "target": "B",
+                "data": {
+                  "role": "spare",
+                  "order": 1
+                }
+              }
+            ],
+            "result": null
+          },
+          "dirty": false
+        },
+        {
+          "id": "fta-fdep",
+          "name": "Example — Functional Dependency",
+          "state": {
+            "schemaVersion": 2,
+            "exposureTime": "1000",
+            "engine": "auto",
+            "confidenceLevel": "95",
+            "nSimulations": "20000",
+            "simSeed": "42",
+            "density": "comfortable",
+            "connectorStyle": "smoothstep",
+            "snapToGrid": false,
+            "annotations": [],
+            "showNodeIds": true,
+            "nodes": [
+              {
+                "id": "TOP",
+                "type": "or",
+                "position": {
+                  "x": 250,
+                  "y": 40
+                },
+                "data": {
+                  "label": "Dependent Function Unavailable",
+                  "gateId": "OR-1"
+                }
+              },
+              {
+                "id": "DEP",
+                "type": "fdep",
+                "position": {
+                  "x": 570,
+                  "y": 190
+                },
+                "data": {
+                  "label": "Shared Support Dependency",
+                  "gateId": "FDEP-1"
+                }
+              },
+              {
+                "id": "A",
+                "type": "basic",
+                "position": {
+                  "x": 570,
+                  "y": 390
+                },
+                "data": {
+                  "label": "Support Failure Trigger",
+                  "eventKey": "A",
+                  "probability": 0.6321205588285577,
+                  "description": "",
+                  "distribution": "exponential",
+                  "dist_params": {
+                    "lambda": 0.001,
+                    "gamma": 0
+                  }
+                }
+              },
+              {
+                "id": "B",
+                "type": "basic",
+                "position": {
+                  "x": 250,
+                  "y": 250
+                },
+                "data": {
+                  "label": "Dependent Function",
+                  "eventKey": "B",
+                  "probability": 0.6321205588285577,
+                  "description": "",
+                  "distribution": "exponential",
+                  "dist_params": {
+                    "lambda": 0.001,
+                    "gamma": 0
+                  }
+                }
+              }
+            ],
+            "edges": [
+              {
+                "id": "e-TOP-B",
+                "source": "TOP",
+                "target": "B",
+                "data": {
+                  "role": "input",
+                  "order": 0
+                }
+              },
+              {
+                "id": "e-DEP-A",
+                "source": "DEP",
+                "target": "A",
+                "data": {
+                  "role": "trigger",
+                  "order": 0
+                }
+              },
+              {
+                "id": "e-DEP-B",
+                "source": "DEP",
+                "target": "B",
+                "data": {
+                  "role": "dependent",
+                  "order": 1
+                }
+              }
+            ],
+            "result": null
+          },
+          "dirty": false
+        }
+      ]
     }
   }
 }

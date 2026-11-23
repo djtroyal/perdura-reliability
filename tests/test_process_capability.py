@@ -3,7 +3,20 @@
 import numpy as np
 import pytest
 
-from reliability.Process_capability import process_capability
+from reliability.Process_capability import process_capability, distribution_specification_tails
+from reliability.Distributions import Exponential_Distribution
+
+
+@pytest.mark.parametrize('scale', [1e-30, 1., 3600., 1e30])
+def test_adopted_tail_ppm_matches_exponential_identity_across_units(scale):
+    # exp(-60) is lost by subtracting its CDF from one; direct survival must
+    # retain it. The oracle does not call either distribution tail method.
+    result = distribution_specification_tails(Exponential_Distribution(2 / scale), usl=30 * scale)
+    expected = np.exp(-60.)
+    assert result['probability_above_usl'] == pytest.approx(expected, rel=1e-13, abs=0.)
+    assert result['total'] == pytest.approx(expected * 1e6, rel=1e-13, abs=0.)
+    assert result['probability_below_lsl'] == 0.
+    assert result['parameter_uncertainty_included'] is False
 
 
 def test_centered_cp_equals_cpk():

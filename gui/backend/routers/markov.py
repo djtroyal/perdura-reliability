@@ -3,6 +3,7 @@
 import sys
 import numpy as np
 from fastapi import APIRouter, HTTPException
+from api_contract import public_error_message
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
@@ -63,7 +64,7 @@ def validate_model(req: MarkovRequest) -> dict:
         issues.append(_issue("error", "NO_STATES", "Add at least one state."))
     if not req.transitions:
         issues.append(_issue(
-            "error", "NO_TRANSITIONS", "Add at least one transition between states."
+            "warning", "NO_TRANSITIONS", "No transitions: each state is absorbing; transient probabilities remain at the specified initial distribution."
         ))
 
     transition_ids = [
@@ -155,7 +156,9 @@ def validate_model(req: MarkovRequest) -> dict:
             state_id=req.initial_state,
         ))
     elif initial_state in state_id_set:
-        reachable = _reachable(initial_state, adjacency)
+        starts = ([key for key, value in req.initial_probabilities.items() if value > 0]
+                  if req.initial_probabilities else [initial_state])
+        reachable = set().union(*(_reachable(key, adjacency) for key in starts))
         for state in req.states:
             if state.id not in reachable:
                 issues.append(_issue(
@@ -248,7 +251,9 @@ def analyze(req: MarkovRequest):
         ))
 
     initial = None
-    if req.initial_state:
+    if req.initial_probabilities:
+        initial = np.array([req.initial_probabilities.get(s.id, 0.) for s in mc.states])
+    elif req.initial_state:
         initial = np.zeros(mc.n_states)
         initial[mc._state_index[req.initial_state]] = 1.0
 
@@ -289,7 +294,7 @@ def analyze(req: MarkovRequest):
         )
         result['validation'] = validation
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=public_error_message(e, message='The Markov model could not be analyzed. Check state definitions, transition rates, initial probabilities, and mission time.'))
 
     return result
 

@@ -15,6 +15,7 @@ export interface IntervalDataRow {
   lower: string
   upper: string
   count: string
+  kind?: 'interval' | 'exact'
 }
 
 interface FrequencyProps {
@@ -48,8 +49,10 @@ export default function GroupedDataGrid(props: FrequencyProps | IntervalProps) {
   ], [props.units])
   const intervalColumns = useMemo(() => [
     { key: 'id', label: 'ID', placeholder: '—' },
-    { key: 'lower', label: `Lower (${props.units})`, inputMode: 'decimal' as const, placeholder: 'blank = left' },
-    { key: 'upper', label: `Upper (${props.units})`, inputMode: 'decimal' as const, placeholder: 'blank = right' },
+    { key: 'kind', label: 'Observation', options: [{value:'interval',label:'Range'}, {value:'exact',label:'Exact'}] },
+    { key: 'lower', label: `Time / lower (${props.units})`, inputMode: 'decimal' as const, placeholder: 'time or lower' },
+    { key: 'upper', label: `Upper (${props.units})`, inputMode: 'decimal' as const, placeholder: 'blank = right',
+      disabledWhen: (values: Record<string,string>) => values.kind === 'exact' },
     { key: 'count', label: 'Count', inputMode: 'numeric' as const, placeholder: '1', align: 'right' as const },
   ], [props.units])
   return <div>
@@ -57,10 +60,11 @@ export default function GroupedDataGrid(props: FrequencyProps | IntervalProps) {
       ? <ObservationEntryGrid key="frequency" {...props} columns={frequencyColumns}
         hasContent={hasFrequencyContent} caption="Frequency Life Data observations." />
       : <ObservationEntryGrid key="interval" {...props} columns={intervalColumns}
-        hasContent={hasIntervalContent} caption="Interval Life Data observations." />}
+        onChange={rows => props.onChange(rows.map(row => row.kind === 'exact' ? {...row,upper:''} : row))}
+        hasContent={hasIntervalContent} caption="Mixed and interval Life Data observations." />}
     {props.format === 'interval' && <p className="mt-2 text-xs leading-5 text-slate-600">
-      Finite lower and upper = interval failure; blank lower = left-censored;
-      blank upper = right-censored. Bounds represent (lower, upper].
+      Exact failures use Time. For ranges, blank lower means left-censored;
+      blank upper means right-censored. Bounds represent (lower, upper].
     </p>}
   </div>
 }

@@ -25,6 +25,7 @@ from api_contract import (
     complete_openapi_contract,
     error_payload,
     http_error_response,
+    public_error_message,
     validation_error_response,
 )
 from project_api import router as project_router
@@ -34,7 +35,7 @@ from routers import (
     descriptive, hypothesis, regression, doe, msa, capability, spc, predictive, modeling,
     markov, ram, allocation, maintenance, hra, system_conversion, system_definition,
     software_reliability,
-    reliability_program, fmea,
+    reliability_program, fmea, inference_tools, life_tools, system_tools, inventory, references,
 )
 
 
@@ -228,6 +229,11 @@ app.include_router(markov.router, prefix=f"{API_PREFIX}/markov", tags=["Markov C
 app.include_router(ram.router, prefix=f"{API_PREFIX}/ram", tags=["RAM"])
 app.include_router(allocation.router, prefix=f"{API_PREFIX}/allocation", tags=["Reliability Allocation"])
 app.include_router(maintenance.router, prefix=f"{API_PREFIX}/maintenance", tags=["Maintenance"])
+app.include_router(inference_tools.router, prefix=f"{API_PREFIX}/inference-tools", tags=["Reliability Inference"])
+app.include_router(life_tools.router, prefix=f"{API_PREFIX}/life-tools", tags=["Lifetime Tools"])
+app.include_router(system_tools.router, prefix=f"{API_PREFIX}/system-tools", tags=["System Lifecycle"])
+app.include_router(inventory.router, prefix=f"{API_PREFIX}/inventory", tags=["Inventory Planning"])
+app.include_router(references.router, prefix=f"{API_PREFIX}/references", tags=["Reference Library"])
 app.include_router(hra.router, prefix=f"{API_PREFIX}/hra", tags=["Human Reliability"])
 app.include_router(project_router, prefix=f"{API_PREFIX}/projects", tags=["Projects"])
 app.include_router(catalog_router, prefix=API_PREFIX, tags=["Discovery"])
@@ -239,7 +245,8 @@ async def _value_error_handler(request: Request, exc: ValueError):
     boilerplate `except ValueError: raise HTTPException(400, ...)` wrapper."""
     return JSONResponse(
         status_code=400,
-        content=error_payload(request, code="invalid_model_input", message=str(exc)),
+        content=error_payload(request, code="invalid_model_input", message=public_error_message(
+            exc, message="The selected model could not use these inputs. Review the analysis settings and required values.")),
     )
 
 

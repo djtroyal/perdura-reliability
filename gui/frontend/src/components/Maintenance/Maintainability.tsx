@@ -1,15 +1,16 @@
 import { useState } from 'react'
 import Plot from '../shared/ExportablePlot'
-import { ToolLayout, Card, Select, detail, fmtNum, inputCls, labelCls, PLOT_CFG, plotBase } from '../ALT/toolkit'
+import { ToolLayout, Card, Field, Select, detail, fmtNum, inputCls, labelCls, PLOT_CFG, plotBase } from '../ALT/toolkit'
 import { computeMaintainability } from '../../api/client'
 import { useModuleState, useUnits } from '../../store/project'
 import { RamState, MaintState, INITIAL, pf } from './ram'
+import { parseRepairTimes } from './repairTimeInput'
 
 /** Repair-time roll-up: mean corrective time (Mct) and Mmax at a percentile. */
 export default function Maintainability() {
   const [s, setS] = useModuleState<RamState>('ram', INITIAL)
-  const mt = s.maint
-  const patch = (p: Partial<MaintState>) => setS(prev => ({ ...prev, maint: { ...prev.maint, ...p } }))
+  const mt = { ...INITIAL.maint, ...s.maint }
+  const patch = (p: Partial<MaintState>) => setS(prev => ({ ...prev, maint: { ...INITIAL.maint, ...prev.maint, ...(!('curveView' in p) ? { result: null } : {}), ...p } }))
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [units] = useUnits()
@@ -17,11 +18,11 @@ export default function Maintainability() {
   const run = async () => {
     setErr(null); setLoading(true)
     try {
-      const samples = mt.samples.split(/[\s,]+/).map(Number).filter(n => isFinite(n))
+      const observations = ['data', 'frequency'].includes(mt.mode) ? parseRepairTimes(mt.samples, mt.mode === 'frequency') : {}
       const r = await computeMaintainability({
         mode: mt.mode,
         mu: pf(mt.mu), sigma: pf(mt.sigma),
-        samples: mt.mode === 'data' ? samples : null,
+        ...observations, estimator: mt.estimator, mttr: pf(mt.mttr),
         percentile: pf(mt.percentile) ?? 0.95,
       })
       patch({ result: r })
@@ -36,6 +37,8 @@ export default function Maintainability() {
         options={[
           { value: 'lognormal', label: 'Lognormal parameters' },
           { value: 'data', label: 'Repair-time samples' },
+          { value: 'frequency', label: 'Duration / frequency rows' },
+          { value: 'exponential', label: 'MTTR only (exponential)' },
         ]} />
       {mt.mode === 'lognormal' ? <>
         <div>
@@ -46,14 +49,15 @@ export default function Maintainability() {
           <label className={labelCls}>σ (log-space scale)</label>
           <input type="number" min="0" step="0.1" value={mt.sigma} onChange={e => patch({ sigma: e.target.value })} className={inputCls} />
         </div>
-      </> : (
+      </> : mt.mode === 'exponential' ? <Field label={`MTTR (${units})`} value={mt.mttr} onChange={v => patch({ mttr: v })} tip="Exponential repair-duration approximation from its mean." /> : (
         <div>
-          <label className={labelCls}>Repair-time samples</label>
-          <textarea value={mt.samples} onChange={e => patch({ samples: e.target.value })}
-            rows={5} placeholder="e.g. 2.0 3.5 2.8 4.1 3.0" className={`${inputCls} resize-y`} />
-          <p className="text-[10px] text-gray-400 mt-1">Fitted to a lognormal distribution (whitespace/comma separated).</p>
+          <label htmlFor="repair-observations" className={labelCls}>{mt.mode === 'frequency' ? 'Duration, frequency — one pair per row' : `Repair-time samples (${units})`}</label>
+          <textarea id="repair-observations" value={mt.samples} onChange={e => patch({ samples: e.target.value })}
+            rows={5} placeholder={mt.mode === 'frequency' ? '2.0, 4\n3.5, 2' : '2.0 3.5 2.8 4.1 3.0'} className={`${inputCls} resize-y`} />
         </div>
       )}
+      {['data', 'frequency'].includes(mt.mode) && <Select label="Lognormal estimator" value={mt.estimator} onChange={v => patch({ estimator: v as MaintState['estimator'] })}
+        options={[{ value: 'mle', label: 'Maximum likelihood' }, { value: 'sample_log_sd', label: 'Handbook sample log-SD' }]} />}
       <div>
         <label className={labelCls}>Percentile for Mmax</label>
         <input type="number" min="0" max="1" step="0.01" value={mt.percentile} onChange={e => patch({ percentile: e.target.value })} className={inputCls} />
@@ -74,17 +78,26 @@ export default function Maintainability() {
           <Card label="Fitted σ" value={fmtNum(r.fitted.sigma)} />
         </div>
       )}
+      {r.fitted?.sample_size != null && <p className="text-xs text-gray-600">{r.fitted.sample_size} repairs · {r.fitted.estimator === 'sample_log_sd' ? 'Sample log-SD' : 'Maximum likelihood'}</p>}
+      <Select label="Repair-time view" value={mt.curveView} onChange={v => patch({ curveView: v as MaintState['curveView'] })}
+        options={[{ value: 'completion', label: 'Completed by time' }, { value: 'exceedance', label: 'Exceeds time' }]} />
       <div>
-        <p className="text-xs font-semibold text-gray-600 mb-1">Probability a repair exceeds time t</p>
+        <p className="text-xs font-semibold text-gray-600 mb-1">{mt.curveView === 'completion' ? 'Repair completion probability' : 'Repair exceedance probability'}</p>
         <Plot
-          data={[{ x: r.curve.time, y: r.curve.sf, mode: 'lines', line: { color: '#8b5cf6', width: 2 }, name: 'P(T > t)' }] as Plotly.Data[]}
-          layout={{ ...plotBase, height: 320, xaxis: { title: { text: `Repair time (${units})` } }, yaxis: { title: { text: 'P(T > t)' }, range: [0, 1] } } as Plotly.Layout}
+          data={[{ x: r.curve.time, y: mt.curveView === 'completion' ? (r.curve.cdf ?? r.curve.sf.map(v => 1 - v)) : r.curve.sf, mode: 'lines', line: { color: '#7c3aed', width: 2 }, name: mt.curveView === 'completion' ? 'P(T ≤ t)' : 'P(T > t)' }] as Plotly.Data[]}
+          layout={{ ...plotBase, height: 320, xaxis: { title: { text: `Repair time (${units})` } }, yaxis: { title: { text: 'Probability' }, range: [0, 1] } } as Plotly.Layout}
           config={PLOT_CFG} style={{ width: '100%' }} useResizeHandler />
       </div>
+      <details><summary className="cursor-pointer text-xs font-semibold">Repair probabilities</summary>
+        <div className="mt-2 max-h-80 overflow-auto"><table aria-label="Repair-time probabilities" className="w-full text-right text-xs">
+          <thead><tr><th className="p-2">Time ({units})</th><th className="p-2">Completed by time</th><th className="p-2">Exceeds time</th></tr></thead>
+          <tbody>{r.curve.time.map((time, i) => <tr key={i} className="border-t"><td className="p-2">{fmtNum(time)}</td><td>{fmtNum(r.curve.cdf?.[i] ?? 1-r.curve.sf[i])}</td><td>{fmtNum(r.curve.sf[i])}</td></tr>)}</tbody>
+        </table></div>
+      </details>
     </div>
   )
 
   return <ToolLayout
-    intro="Estimate mean and percentile corrective maintenance times assuming lognormal repair times."
+    intro="Estimate mean and percentile repair durations."
     controls={controls} err={err} loading={loading} onRun={run} runLabel="Compute" results={results} />
 }

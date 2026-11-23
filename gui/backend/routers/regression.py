@@ -13,9 +13,11 @@ if str(_src) not in sys.path:
     sys.path.insert(0, str(_src))
 
 from fastapi import APIRouter, HTTPException
+from api_contract import public_error_message
 from pydantic import BaseModel, Field
 
 from reliability.Regression import (
+    _RankDeficientError,
     linear_regression,
     ridge_regression,
     lasso_regression,
@@ -81,7 +83,7 @@ def _validate_stability_work(req: FitRequest, n_features: int) -> None:
     coordinate_paths = 2 * req.stability_pairs * req.stability_lambdas
     work_units = coordinate_paths * n_features
     if work_units > 500_000:
-        raise ValueError(
+        raise HTTPException(400,
             "Selection stability request is too large for an interactive fit "
             f"({coordinate_paths} half-sample paths across {n_features} "
             "features). Reduce Half-sample pairs or the predictor set."
@@ -198,7 +200,7 @@ def fit_regression(req: FitRequest):
             alpha = req.alpha if req.alpha is not None else 1.0
             l1_ratio = req.l1_ratio if req.l1_ratio is not None else 0.5
             if req.stability_selection and l1_ratio == 0.0:
-                raise ValueError(
+                raise HTTPException(400,
                     "Selection stability is unavailable when l1_ratio=0 "
                     "(ridge-equivalent Elastic Net). Set l1_ratio above 0 or "
                     "disable Selection stability."
@@ -225,7 +227,7 @@ def fit_regression(req: FitRequest):
 
         elif model == "polynomial":
             if len(req.x) != 1:
-                raise ValueError("Polynomial regression requires exactly one predictor column.")
+                raise HTTPException(400, "Polynomial regression requires exactly one predictor column.")
             degree = req.degree if req.degree is not None else 2
             x_1d = X[:, 0]
             result = polynomial_regression(x_1d, y, degree=degree, CI=ci_level)
@@ -237,8 +239,10 @@ def fit_regression(req: FitRequest):
                        "Choose from: linear, ridge, lasso, elastic_net, logistic, polynomial.",
             )
 
+    except _RankDeficientError as exc:
+        raise HTTPException(400, public_error_message(exc, message='Rank-deficient design matrix: coefficient inference is not identifiable. Remove duplicate or constant predictors, or change the model.')) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=public_error_message(exc, message='The regression could not be fitted. Check numeric observations, matching column lengths, independent predictors, and model settings.')) from exc
 
     result["model"] = req.model
     if class_mapping is not None:

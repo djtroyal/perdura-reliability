@@ -58,7 +58,7 @@ from sklearn.ensemble import (
     RandomForestRegressor,
 )
 
-from api_contract import stream_error_event, stream_result_event
+from api_contract import stream_error_event, stream_result_event, public_error_message
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.impute import SimpleImputer
 from sklearn.inspection import partial_dependence, permutation_importance
@@ -1919,7 +1919,7 @@ def evaluate(req: EvaluateRequest):
     try:
         return evaluate_models(req)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=public_error_message(exc, message='Model evaluation could not use these inputs. Review data readiness, features, targets, and validation settings.')) from exc
 
 
 @router.post("/evaluate/stream", response_class=StreamingResponse, responses={
@@ -2202,10 +2202,9 @@ def finalize(req: FinalizeRequest):
             _candidates(spec, req.evaluation, prepared),
         )
         if selected_params is None:
-            raise ValueError(
+            raise HTTPException(status_code=400, detail=(
                 "The selected parameters are outside this evaluation recipe; "
-                "run model comparison again before finalizing."
-            )
+                "run model comparison again before finalizing."))
         model = _make_model(req.model, prepared, req.evaluation,
                             req.evaluation.validation.seed + 202_607)
         # Fit with the canonical recipe candidate, not the representation sent
@@ -2280,7 +2279,7 @@ def finalize(req: FinalizeRequest):
         }
         return _safe(asset)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=public_error_message(exc, message='The model asset could not be built. Review the selected model, evaluation results, and artifact support.')) from exc
 
 
 _ALLOWED_ONNX_OPERATORS = {
@@ -2357,7 +2356,8 @@ def _validated_onnx(artifact: dict[str, Any]) -> tuple[bytes, Any]:
         import onnx
         import onnxruntime as ort
     except ImportError as exc:
-        raise ValueError(f"ONNX runtime dependencies are unavailable: {exc}") from exc
+        raise ValueError(public_error_message(
+            exc, message="ONNX runtime dependencies are unavailable. Install the supported application runtime and retry.")) from exc
     encoded = artifact.get("bytes_base64")
     if not isinstance(encoded, str):
         raise ValueError("ONNX asset does not contain model bytes.")
@@ -2370,7 +2370,7 @@ def _validated_onnx(artifact: dict[str, Any]) -> tuple[bytes, Any]:
     if len(payload) > 32 * 1024 * 1024:
         raise ValueError("ONNX asset exceeds the 32 MiB safety limit.")
     if hashlib.sha256(payload).hexdigest() != artifact.get("sha256"):
-        raise ValueError("ONNX artifact checksum does not match its model card.")
+        raise HTTPException(status_code=400, detail="ONNX artifact checksum does not match its model card.")
     try:
         graph = onnx.load_model_from_string(payload)
         _validate_onnx_graphs(graph)
@@ -2443,9 +2443,10 @@ def _validate_prediction_policy(asset: dict[str, Any], probability_columns: Opti
                 try:
                     values = [float(state.get("coefficient")), float(state.get("intercept"))]
                 except (TypeError, ValueError) as exc:
-                    raise ValueError("The stored sigmoid calibration policy is invalid.") from exc
+                    raise HTTPException(status_code=400, detail=public_error_message(
+                        exc, message="The stored sigmoid calibration policy is invalid.")) from exc
                 if not all(math.isfinite(value) for value in values):
-                    raise ValueError("The stored sigmoid calibration policy is invalid.")
+                    raise HTTPException(status_code=400, detail="The stored sigmoid calibration policy is invalid.")
             elif method == "isotonic":
                 try:
                     x = np.asarray(state.get("x_thresholds"), dtype=float)
@@ -2654,16 +2655,15 @@ def score(req: ScoreRequest):
         elif artifact.get("kind") == "native_chaid" and artifact.get("available"):
             result = _score_native_chaid(asset, req.rows)
         else:
-            raise ValueError(
-                artifact.get("reason") or
-                "This model has no executable safe artifact; rebuild it with ONNX support installed."
-            )
+            if artifact.get('kind') == 'recipe':
+                raise HTTPException(status_code=400, detail="This model is a rebuild-only recipe; rebuild a model with executable scoring support.")
+            raise HTTPException(status_code=400, detail="This model has no executable safe artifact; rebuild it with ONNX support installed.")
         return _safe({
             **result, "asset_id": asset.get("asset_id"), "task": asset.get("task"),
             "model": asset.get("model"), "scored_rows": len(req.rows),
         })
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=public_error_message(exc, message='The model asset could not score these rows. Review artifact integrity, executable support, and required input features.')) from exc
 
 
 @router.post("/export/onnx")
@@ -2680,4 +2680,4 @@ def export_onnx(req: ExportRequest):
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=public_error_message(exc, message='This model could not be exported as ONNX. Rebuild a supported model with a valid ONNX artifact.')) from exc

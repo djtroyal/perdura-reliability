@@ -1,6 +1,7 @@
+import { compareReplacementPolicies, type BlockRepairModel } from '../../api/lifecycle'
 import { useState, useRef } from 'react'
 import Plot from '../shared/ExportablePlot'
-import { computeReplacementPolicy, ReplacementPolicyResponse } from '../../api/client'
+import { ReplacementPolicyResponse } from '../../api/client'
 import { useUnits, useModuleState, getProjectState, beginFolioRequest, readFolioState } from '../../store/project'
 import { useReliabilitySources } from '../shared/ldaFolios'
 import { resolveReliabilitySource, linkedSourcesFingerprint } from '../shared/reliabilitySources'
@@ -12,6 +13,7 @@ import { inputCls } from '../shared/styles'
 import { fmtNum } from '../shared/format'
 
 interface State {
+  blockRepairModel?: BlockRepairModel
   sourceId?: string; sourceStale?: boolean; sourceStaleReason?: string
   costPM: string; costCM: string; alpha: string; beta: string
   result: ReplacementPolicyResponse | null
@@ -46,7 +48,8 @@ export default function ReplacementPolicy() {
       () => linkedSourcesFingerprint(getProjectState(), st))
     try {
       const source = sourceId ? resolveReliabilitySource(project, sourceId, 'weibull-2p') : null
-      const r = await computeReplacementPolicy({
+      const r = await compareReplacementPolicies({
+        block_repair_model: st.blockRepairModel ?? 'minimal',
         cost_PM: parseFloat(st.costPM), cost_CM: parseFloat(st.costCM),
         weibull_alpha: source?.dist_params.alpha ?? parseFloat(st.alpha), weibull_beta: source?.dist_params.beta ?? parseFloat(st.beta),
       })
@@ -61,6 +64,14 @@ export default function ReplacementPolicy() {
     <>
       <div className="flex justify-end -mb-1">
         <ExampleButton hasData={res != null} onLoad={() => setSt(EXAMPLE)} />
+      </div>
+      <div>
+        <InfoLabel tip="Minimal repair keeps the item's age after a failure. Perfect renewal replaces it with an independent new item; scheduled block replacements reset age in both models.">Repair between block replacements</InfoLabel>
+        <select aria-label="Repair between block replacements" className={inputCls} value={st.blockRepairModel ?? 'minimal'}
+          onChange={e => patch({ blockRepairModel: e.target.value as BlockRepairModel, result: null })}>
+          <option value="minimal">Minimal repair (same age)</option>
+          <option value="perfect">Perfect renewal (new item)</option>
+        </select>
       </div>
       <div>
         <InfoLabel tip="Cost of a planned preventive replacement. Must be less than the corrective cost.">Cost of preventive maintenance (PM)</InfoLabel>
@@ -99,7 +110,7 @@ export default function ReplacementPolicy() {
     ? 'Age replacement'
     : res?.cheaper_policy === 'block'
       ? 'Block replacement'
-      : 'Run to failure'
+      : res?.cheaper_policy === 'undetermined' ? 'Not established' : 'Run to failure'
   const replacementPlotData: Plotly.Data[] = res ? [
     { x: res.age.time, y: res.age.cost, mode: 'lines', name: 'Age', line: { color: '#3b82f6', width: 2 } } as Plotly.Data,
     { x: res.block.time, y: res.block.cost, mode: 'lines', name: 'Block', line: { color: '#f59e0b', width: 2 } } as Plotly.Data,
@@ -124,7 +135,7 @@ export default function ReplacementPolicy() {
         <Card label={`MTTF (${units})`} value={fmtNum(res.mttf)} />
         <Card label="Corrective-only cost/time" value={res.corrective_only_cost.toExponential(3)} tip="Baseline: run to failure with no preventive maintenance." />
       </div>
-      {res.cheaper_policy === 'corrective' && (
+      {(res.cheaper_policy === 'corrective' || res.cheaper_policy === 'undetermined') && (
         <p className="mb-4 rounded border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
           {res.recommendation}
         </p>
@@ -144,7 +155,7 @@ export default function ReplacementPolicy() {
             {([['Age replacement', res.age], ['Block replacement', res.block]] as const).map(([label, p]) => (
               <tr key={label} className="border-t border-gray-100">
                 <td className="px-3 py-2 text-gray-700 font-medium">{label}</td>
-                <td className="px-3 py-2 text-right">{p.optimal_time == null ? 'Run to failure' : fmtNum(p.optimal_time)}</td>
+                <td className="px-3 py-2 text-right">{p.decision === 'withheld' ? 'Not established' : p.optimal_time == null ? 'Run to failure' : fmtNum(p.optimal_time)}</td>
                 <td className="px-3 py-2 text-right">{p.min_cost.toExponential(3)}</td>
                 <td className="px-3 py-2 text-right">{p.pm_per_time != null ? p.pm_per_time.toExponential(3) : '—'}</td>
                 <td className="px-3 py-2 text-right">{p.cm_per_time != null ? p.cm_per_time.toExponential(3) : '—'}</td>
@@ -152,6 +163,16 @@ export default function ReplacementPolicy() {
             ))}
           </tbody>
         </table>
+      </div>
+      <div className="mb-4 space-y-1 text-xs text-gray-600">
+        <p>{res.maintenance_assumptions?.block}</p>
+        <p>{res.block.decision_reason}</p>
+        {res.block.numerical?.interval_grid_step != null && (
+          <p>Numerical interval resolution: {fmtNum(res.block.numerical.interval_grid_step)} {units}.
+            {res.block.candidate_cost_lower != null && res.block.candidate_cost_upper != null &&
+              ` Candidate cost/time: ${res.block.candidate_cost_lower.toExponential(3)}–${res.block.candidate_cost_upper.toExponential(3)} (discretization bounds).`}
+          </p>
+        )}
       </div>
       <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 420 }}>
         <Plot
@@ -171,7 +192,7 @@ export default function ReplacementPolicy() {
 
   return (
     <ToolLayout
-      intro="Compare age replacement with periodic replacement and minimal repair. Preventive replacement is useful for wear-out (β > 1)."
+      intro="Compare age replacement and periodic block replacement under the selected repair model."
       controls={controls} err={error} loading={loading} onRun={run} runLabel="Compare policies" results={results}
     />
   )

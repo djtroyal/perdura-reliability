@@ -1,0 +1,176 @@
+{
+  "schemaVersion": 1,
+  "groups": {
+    "analysis": [
+      {
+        "script": "assurance:plotly-migration",
+        "timeoutSeconds": 600
+      },
+      {
+        "script": "assurance:step-stress",
+        "timeoutSeconds": 600
+      },
+      {
+        "script": "assurance:adopted-distribution",
+        "timeoutSeconds": 600
+      },
+      {
+        "script": "assurance:reliability-sources",
+        "timeoutSeconds": 600
+      },
+      {
+        "script": "assurance:standard-life-methods",
+        "timeoutSeconds": 600
+      },
+      {
+        "script": "assurance:lifecycle",
+        "timeoutSeconds": 600
+      }
+    ],
+    "system": [
+      {
+        "script": "assurance:fta-library",
+        "timeoutSeconds": 600
+      },
+      {
+        "script": "assurance:fta-library-reports",
+        "timeoutSeconds": 600
+      },
+      {
+        "script": "assurance:shared-system",
+        "timeoutSeconds": 600
+      },
+      {
+        "script": "assurance:diagram-layout",
+        "timeoutSeconds": 600
+      },
+      {
+        "script": "assurance:diagram-fullscreen",
+        "timeoutSeconds": 600
+      },
+      {
+        "script": "assurance:rbd-library",
+        "timeoutSeconds": 600
+      },
+      {
+        "script": "assurance:system-interfaces",
+        "timeoutSeconds": 600
+      },
+      {
+        "script": "assurance:interface-visibility",
+        "timeoutSeconds": 600
+      }
+    ],
+    "architecture": [
+      {
+        "script": "assurance:shared-fmea",
+        "timeoutSeconds": 600
+      },
+      {
+        "script": "assurance:shared-fmea-diagram",
+        "timeoutSeconds": 600
+      },
+      {
+        "script": "assurance:shared-fmea-persistence",
+        "timeoutSeconds": 600
+      },
+      {
+        "script": "assurance:simplified-functions",
+        "timeoutSeconds": 600
+      },
+      {
+        "script": "assurance:inherited-inputs",
+        "timeoutSeconds": 600
+      },
+      {
+        "script": "assurance:process-transfer-authoring",
+        "timeoutSeconds": 600
+      },
+      {
+        "script": "assurance:canonical-fmea-workflow",
+        "timeoutSeconds": 600
+      },
+      {
+        "script": "assurance:fmea-readiness",
+        "timeoutSeconds": 600
+      },
+      {
+        "script": "assurance:system-requirements",
+        "timeoutSeconds": 600
+      },
+      {
+        "script": "assurance:shared-requirements",
+        "timeoutSeconds": 600
+      }
+    ],
+    "workspace": [
+      {
+        "script": "assurance:performance",
+        "timeoutSeconds": 600
+      },
+      {
+        "script": "assurance:shared-ui",
+        "timeoutSeconds": 600
+      },
+      {
+        "script": "assurance:project-persistence",
+        "timeoutSeconds": 600
+      },
+      {
+        "script": "assurance:startup-recovery",
+        "timeoutSeconds": 600
+      },
+      {
+        "script": "assurance:display-preferences",
+        "timeoutSeconds": 600
+      },
+      {
+        "script": "assurance:aircraft-example",
+        "timeoutSeconds": 600
+      },
+      {
+        "script": "assurance:popover-menus",
+        "timeoutSeconds": 600
+      },
+      {
+        "script": "assurance:life-data-entry",
+        "timeoutSeconds": 600
+      }
+    ],
+    "toolkit": [
+      {
+        "script": "assurance:inference-tools",
+        "timeoutSeconds": 600
+      },
+      {
+        "script": "assurance:lifetime-tools",
+        "timeoutSeconds": 600
+      },
+      {
+        "script": "assurance:inventory-ram",
+        "timeoutSeconds": 600
+      },
+      {
+        "script": "assurance:system-lifecycle",
+        "timeoutSeconds": 1200
+      },
+      {
+        "script": "assurance:prediction-comparison",
+        "timeoutSeconds": 600
+      },
+      {
+        "script": "assurance:reference-library",
+        "timeoutSeconds": 600
+      }
+    ]
+  },
+  "externallyManaged": {
+    "assurance:browser": "Product assurance browser-compatibility and dynamic-and-performance jobs use a shared running application.",
+    "assurance:plotly": "Product assurance dynamic-and-performance job uses the shared running application.",
+    "assurance:prediction": "Product assurance dynamic-and-performance job uses the shared running application.",
+    "assurance:lighthouse-summary": "Product assurance dynamic-and-performance job consumes the Lighthouse report."
+  },
+  "aliases": {
+    "assurance:structured-architecture": "assurance:simplified-functions"
+  }
+}

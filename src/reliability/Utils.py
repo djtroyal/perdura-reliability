@@ -20,6 +20,62 @@ class FitConvergenceError(RuntimeError):
         self.diagnostics = diagnostics or []
 
 
+PLOTTING_POSITION_METHODS = (
+    'benard', 'exact_median', 'mean', 'hazen', 'blom', 'kaplan_meier',
+)
+
+
+def validate_rank_method(rank_method):
+    if rank_method not in PLOTTING_POSITION_METHODS:
+        raise ValueError(
+            f"Unknown rank_method {rank_method!r}; choose one of "
+            f"{', '.join(PLOTTING_POSITION_METHODS)}."
+        )
+    return rank_method
+
+
+def plotting_positions(failures, right_censored=None, rank_method='benard'):
+    """Failure CDF ordinates aligned with sorted exact failure observations.
+
+    Benard, mean, Hazen and Blom use their standard complete-sample formulas;
+    ``exact_median`` is the beta-order-statistic median for complete data.
+    With suspensions these five schemes apply their formulas to mean-order
+    adjusted ranks. This fractional-rank extension is not an exact censored
+    median. Ties retain consecutive ranks, with failures before withdrawals.
+
+    Kaplan-Meier uses the post-event product-limit CDF. Failures tied at one
+    time receive the same probability and tied withdrawals remain at risk for
+    that event. Its terminal probability can equal one; callers performing
+    transformed regression must omit infinite ordinates, not replace them by
+    an arbitrary near-one probability.
+    """
+    validate_rank_method(rank_method)
+    failures = np.sort(np.asarray(failures, dtype=float))
+    censored = np.asarray([] if right_censored is None else right_censored,
+                          dtype=float)
+    if (failures.ndim != 1 or censored.ndim != 1
+            or np.any(~np.isfinite(failures)) or np.any(~np.isfinite(censored))):
+        raise ValueError('Plotting observations must be finite one-dimensional arrays.')
+    if not len(failures):
+        return np.asarray([], dtype=float)
+    if rank_method == 'kaplan_meier':
+        unique, counts = np.unique(failures, return_counts=True)
+        all_times = np.sort(np.concatenate([failures, censored]))
+        at_risk = len(all_times) - np.searchsorted(all_times, unique, side='left')
+        cdf = 1.0 - np.cumprod(1.0 - counts / at_risk)
+        return np.repeat(cdf, counts)
+    ranks, n = rank_adjustment(failures, censored)
+    if rank_method == 'benard':
+        return median_rank_approximation(ranks, n)
+    if rank_method == 'exact_median':
+        return stats.beta.ppf(.5, ranks, n + 1.0 - ranks)
+    if rank_method == 'mean':
+        return ranks / (n + 1.0)
+    if rank_method == 'hazen':
+        return (ranks - .5) / n
+    return (ranks - .375) / (n + .25)
+
+
 def median_rank_approximation(j, n):
     """Bernard's approximation for median ranks.
 

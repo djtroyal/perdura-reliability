@@ -34,7 +34,7 @@ import {
   type PlotSnapshot,
 } from '../../store/plotSnapshots'
 import {
-  KATEX_STYLESHEET_URL,
+  KATEX_STYLESHEET_TAG,
   MarkdownEquationWarning,
   ReportMarkdown,
   markdownMathErrors,
@@ -622,7 +622,7 @@ export async function renderReportHtml(report: SingleReport): Promise<string> {
     '<!DOCTYPE html><html><head><meta charset="utf-8">',
     `<title>${escHtml(report.title)}</title>`,
     PLOTLY_SCRIPT_TAG,
-    `<link rel="stylesheet" href="${KATEX_STYLESHEET_URL}">`,
+    KATEX_STYLESHEET_TAG,
     `<style>
 @page{size:${printW}mm ${printH}mm;margin:${pf.margin}mm}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:${printW - pf.margin * 2}mm;margin:0 auto;padding:40px 24px;color:#1e293b;line-height:1.6}

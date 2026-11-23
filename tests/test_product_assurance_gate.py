@@ -168,6 +168,7 @@ def test_gate_summary_links_original_jobs(monkeypatch, tmp_path):
     jobs.write_text(json.dumps([{"jobs": [{
         "name": "container (linux-arm64)", "conclusion": "failure",
         "html_url": "https://github.com/example/app/actions/runs/1/job/2",
+        "steps": [{"name": "Build candidate", "conclusion": "failure", "number": 4}],
     }]}]))
     summary = tmp_path / "summary.md"
     monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request")
@@ -178,7 +179,8 @@ def test_gate_summary_links_original_jobs(monkeypatch, tmp_path):
     monkeypatch.setattr(sys, "argv", ["product_assurance_gate.py", "check"])
     assert GATE.main() == 1
     assert "container (linux-arm64) | failure" in summary.read_text()
-    assert "[Open job](https://github.com/example/app/actions/runs/1/job/2)" in summary.read_text()
+    assert "Build candidate" in summary.read_text()
+    assert "[Open job](https://github.com/example/app/actions/runs/1/job/2#step:4:1)" in summary.read_text()
 
 
 def test_workflow_always_runs_the_aggregate_and_covers_every_assurance_job():

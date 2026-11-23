@@ -69,6 +69,8 @@ const ALL_DISTS = [
 const SPECIAL_MODELS: { value: string; label: string }[] = [
   { value: 'mixture', label: 'Weibull Mixture' },
   { value: 'competing_risks', label: 'Competing Risks' },
+  { value: 'partial_competing_risks', label: 'Susceptible fraction + common risk (5P)' },
+  { value: 'bathtub', label: 'Infant, random and wear-out risks (7P)' },
   { value: 'dszi', label: 'Defective Subpopulation Zero Inflated (DSZI)' },
   { value: 'ds', label: 'Defective Subpopulation (DS)' },
   { value: 'zi', label: 'Zero Inflated (ZI)' },
@@ -140,6 +142,7 @@ interface Folio {
   name: string
   rows: DataRow[]
   method: 'MLE' | 'RRX' | 'RRY'
+  rankMethod?: import('../../api/client').RankMethod
   ci: number
   ciText: string
   selectedDists: string[]
@@ -430,15 +433,16 @@ function buildEmpiricalLifeContext(failures: number[], rightCensored: number[]):
   return context
 }
 
-function CalcRow({ label, value, influences }: {
+function CalcRow({ label, value, influences, metric }: {
   label: string
   value: string
   influences?: string | readonly string[]
+  metric?: string
 }) {
   const row = (
-    <div className="flex justify-between border-b border-gray-100 last:border-0 py-0.5">
+    <div data-result-metric={metric} className="flex justify-between border-b border-gray-100 last:border-0 py-0.5">
       <span className="text-gray-500">{label}</span>
-      <span className="text-gray-800 font-semibold">{value}</span>
+      <span data-result-value={metric ? '' : undefined} className="text-gray-800 font-semibold">{value}</span>
     </div>
   )
   return influences ? <InfluenceTarget influences={influences} rounded="rounded-xs">{row}</InfluenceTarget> : row
@@ -562,7 +566,11 @@ export default function LifeData() {
   const [calcElapsed, setCalcElapsed] = useState('')
   const [calcRel, setCalcRel] = useState('0.9')
   const [calcBx, setCalcBx] = useState('10')
-  const [calcResult, setCalcResult] = useState<CalculatorResponse | null>(null)
+  const [calcResult, setCalcResult] = useState<(CalculatorResponse & {
+    mean_remaining_life?: number | null; conditional_mean_age?: number | null
+    mean_remaining_life_status?: string; negative_support_probability?: number
+  }) | null>(null)
+  const [exponentialMeanInput, setExponentialMeanInput] = useUiPreference<boolean>('lifeData.exponentialMeanInput', false)
   const calcRequestGeneration = useRef(0)
   const [calcLoading, setCalcLoading] = useState(false)
   const [uncertaintyMethod, setUncertaintyMethod] = useState<'profile_likelihood' | 'parametric_bootstrap'>('profile_likelihood')
@@ -877,6 +885,7 @@ export default function LifeData() {
           name: `${folio.name} — ${groupId}`,
           rows: copiedRows,
           method: folio.method,
+          rankMethod: folio.rankMethod ?? 'benard',
           ci: folio.ci,
           ciText: folio.ciText,
           selectedDists: [...folio.selectedDists],
@@ -925,8 +934,9 @@ export default function LifeData() {
           return
         }
         if (format === 'interval') {
-          const lowerKey = keys.find(k => /lower|start|left|from/i.test(k))
+          const lowerKey = keys.find(k => /lower|start|left|from|^time$|^value$/i.test(k))
           const upperKey = keys.find(k => /upper|end|right|to/i.test(k))
+          const kindKey = keys.find(k => /^(kind|observation|type)$/i.test(k))
           if (!lowerKey && !upperKey) {
             setError('Interval CSV needs a lower/start or upper/end column.')
             return
@@ -936,8 +946,14 @@ export default function LifeData() {
             const lower = lowerKey ? row[lowerKey]?.trim() ?? '' : ''
             const upper = upperKey ? row[upperKey]?.trim() ?? '' : ''
             if (!lower && !upper) continue
+            const rawKind = kindKey ? row[kindKey]?.trim().toLowerCase() : ''
+            if (rawKind && !['exact', 'failure', 'f', 'range', 'interval', 'interval/censored', 'interval / censored'].includes(rawKind)) {
+              setError(`Unknown observation type “${rawKind}”. Use Exact or Interval/censored.`)
+              return
+            }
             imported.push({
               key: makeKey(), id: idKey ? row[idKey]?.trim() ?? '' : '', lower, upper,
+              kind: ['exact', 'failure', 'f'].includes(rawKind) ? 'exact' : 'interval',
               count: countKey ? row[countKey]?.trim() || '1' : '1',
             })
           }
@@ -1031,51 +1047,10 @@ export default function LifeData() {
     return { failures, rc }
   }
 
-  const folioGroupedData = (f: Folio): {
-    observation_model: 'frequency_exact' | 'interval_censored'
-    frequency_observations?: FrequencyLifeObservation[]
-    interval_observations?: IntervalLifeObservation[]
-  } => {
-    const format = f.dataFormat ?? 'individual'
-    if (format === 'frequency') {
-      const observations: FrequencyLifeObservation[] = []
-      for (const [index, row] of (f.frequencyRows ?? []).entries()) {
-        if (!row.time.trim()) continue
-        const time = Number(row.time)
-        const count = Number(row.count)
-        if (!Number.isFinite(time) || time <= 0) {
-          throw new Error(`Frequency row ${index + 1}: time must be greater than 0.`)
-        }
-        if (!Number.isInteger(count) || count <= 0) {
-          throw new Error(`Frequency row ${index + 1}: count must be a positive integer.`)
-        }
-        observations.push({ id: row.id.trim(), time, state: row.state, count })
-      }
-      return { observation_model: 'frequency_exact', frequency_observations: observations }
-    }
-    const observations: IntervalLifeObservation[] = []
-    for (const [index, row] of (f.intervalRows ?? []).entries()) {
-      const lowerText = row.lower.trim()
-      const upperText = row.upper.trim()
-      if (!lowerText && !upperText) continue
-      const lower = lowerText ? Number(lowerText) : null
-      const upper = upperText ? Number(upperText) : null
-      const count = Number(row.count)
-      if (lower != null && (!Number.isFinite(lower) || lower < 0)) {
-        throw new Error(`Interval row ${index + 1}: lower bound must be at least 0.`)
-      }
-      if (upper != null && (!Number.isFinite(upper) || upper <= 0)) {
-        throw new Error(`Interval row ${index + 1}: upper bound must be greater than 0.`)
-      }
-      if (lower != null && upper != null && lower >= upper) {
-        throw new Error(`Interval row ${index + 1}: lower bound must be less than upper.`)
-      }
-      if (!Number.isInteger(count) || count <= 0) {
-        throw new Error(`Interval row ${index + 1}: count must be a positive integer.`)
-      }
-      observations.push({ id: row.id.trim(), lower, upper, count })
-    }
-    return { observation_model: 'interval_censored', interval_observations: observations }
+  const folioGroupedData = (f: Folio): import('../../api/client').GroupedLifeFitRequest => {
+    const observations = extractLifeObservations(f)
+    if (observations.observation_model === 'individual') throw new Error('Choose a grouped observation format.')
+    return observations
   }
 
   const folioObservationCounts = (f: Folio) => {
@@ -1093,6 +1068,10 @@ export default function LifeData() {
           censored: (grouped.frequency_observations ?? [])
             .filter(row => row.state === 'S').reduce((sum, row) => sum + row.count, 0),
         }
+      }
+      if (grouped.observation_model === 'mixed') return {
+        failures: (grouped.mixed_observations ?? []).filter(row=>row.kind!=='right_censored').reduce((sum,row)=>sum+row.count,0),
+        censored: (grouped.mixed_observations ?? []).filter(row=>row.kind==='right_censored').reduce((sum,row)=>sum+row.count,0),
       }
       return {
         failures: (grouped.interval_observations ?? [])
@@ -1161,6 +1140,7 @@ export default function LifeData() {
           distributions_to_fit: folio.selectedDists.length < ALL_DISTS.length
             ? folio.selectedDists : undefined,
           method: folio.method,
+          rank_method: folio.rankMethod ?? 'benard',
           CI: folio.ci,
         }, setFitProgress, fitAbortRef.current.signal)
         commit({
@@ -1172,6 +1152,7 @@ export default function LifeData() {
         setActiveViews(['Probability'])
       } else if (folio.analysisMode === 'nonparametric' && format === 'interval') {
         const grouped = folioGroupedData(folio)
+        if (grouped.observation_model === 'mixed') throw new Error('Mixed exact and interval observations currently use parametric likelihood. Select Parametric.')
         const res = await fitTurnbull(grouped.interval_observations ?? [])
         patchActive({ turnbullResult: res, npResult: null, dataSig: currentSig })
       } else if (folio.analysisMode === 'nonparametric' && format === 'frequency') {
@@ -1310,7 +1291,7 @@ export default function LifeData() {
     if(observations.observation_model!=='individual' || observations.failures.length<2) throw new Error('The ID group needs at least two failures.')
     const distribution=input.distribution ?? 'Normal_2P'
     const fitted=await fitDistributions({failures:observations.failures,right_censored:observations.right_censored,
-      distributions_to_fit:[distribution],method:folio.method,CI:folio.ci})
+      distributions_to_fit:[distribution],method:folio.method,rank_method:folio.rankMethod ?? 'benard',CI:folio.ci})
     const row=fitted.results.find(row=>row.Distribution===distribution)
     if(!row?.fit_eligible) throw new Error(`The ${distributionLabel(distribution)} group fit is ineligible.`)
     return {distribution,parameters:validateDistributionParameters(distribution,row.params ?? {}),quantity:folioQuantity(folio,sourceOptions)}
@@ -1638,7 +1619,7 @@ export default function LifeData() {
     const res = folio.result
     if (!res) return
     const header = [
-      'Distribution', 'Method', 'AICc', 'BIC', 'AD', 'LogLik',
+      'Distribution', 'Method', 'Plotting Positions', 'AICc', 'BIC', 'AD', 'LogLik',
       'Parameter CI Method', 'Function CI Method', 'Band Scope',
       'Sample Design', 'Uncertainty Warnings',
     ].join(',') + '\n'
@@ -1647,7 +1628,7 @@ export default function LifeData() {
       return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
     }
     const lines = res.results.map(r => [
-      r.Distribution, r.method, r.AICc, r.BIC, r.AD, r.LogLik,
+      r.Distribution, r.method, r.rank_method, r.AICc, r.BIC, r.AD, r.LogLik,
       r.parameter_ci_method, r.function_ci_method,
       r.confidence?.band_scope, r.confidence?.sample_design,
       r.uncertainty_warnings?.join('; '),
@@ -1771,6 +1752,7 @@ export default function LifeData() {
         failures,
         right_censored: rc.length ? rc : undefined,
         estimator: folio.method,
+        rank_method: folio.rankMethod ?? 'benard',
         target: uncertaintyTarget,
         target_value: targetValue,
         method: uncertaintyMethod,
@@ -1850,6 +1832,7 @@ export default function LifeData() {
         failures: calibratedData.failures,
         right_censored: calibratedData.rc.length ? calibratedData.rc : undefined,
         estimator: folio.method,
+        rank_method: folio.rankMethod ?? 'benard',
         curve_x: x,
         CI: folio.ci,
         n_bootstrap: nBootstrap,
@@ -1860,6 +1843,7 @@ export default function LifeData() {
         signature: folio.dataSig,
         distribution: parametricDist,
         estimator: folio.method,
+        rank_method: folio.rankMethod ?? 'benard',
         confidence: folio.ci,
       })
       setUncertaintyPackages(previous => ({ ...previous, [key]: response }))
@@ -1931,6 +1915,7 @@ export default function LifeData() {
     signature: folio.dataSig,
     distribution: parametricDist,
     estimator: folio.method,
+        rank_method: folio.rankMethod ?? 'benard',
     confidence: folio.ci,
   })
   const activeUncertaintyPackage = uncertaintyPackages[uncertaintyPackageKey] ?? null
@@ -1957,8 +1942,10 @@ export default function LifeData() {
     if (!fitResult || !parametricDist || activePlot) return
     if (!fitResult.results?.some(r => r.Distribution === parametricDist && r.fit_eligible)) return
     if (!isLifeDataFitCurrent(folio,sourceOptions)) return
-    if (pendingPlotRef.current === parametricDist) return
-    pendingPlotRef.current = parametricDist
+    const fingerprint = fitInputFingerprint(folio,sourceOptions)
+    const requestKey = `${folio.id}|${fingerprint}|${parametricDist}`
+    if (pendingPlotRef.current === requestKey) return
+    pendingPlotRef.current = requestKey
     const format = folio.dataFormat ?? 'individual'
     const request = format === 'individual'
       ? (() => {
@@ -1968,6 +1955,7 @@ export default function LifeData() {
           right_censored: rc.length ? rc : undefined,
           distribution: parametricDist,
           method: folio.method,
+          rank_method: folio.rankMethod ?? 'benard',
           CI: fitResult.CI ?? folio.ci,
         })
       })()
@@ -1977,14 +1965,16 @@ export default function LifeData() {
         CI: fitResult.CI ?? folio.ci,
       })
     request.then(res => {
-      patchActive({
-        result: { ...fitResult, plots: { ...fitResult.plots, [res.distribution]: res.plot } },
+      setFolio(folio.id, current => {
+        if (!current.result || !isLifeDataFitCurrent(current,sourceOptions)
+          || fitInputFingerprint(current,sourceOptions) !== fingerprint) return {}
+        return {result: {...current.result, plots: {...current.result.plots,[res.distribution]:res.plot}}}
       })
     }).catch(() => {
       // Non-fatal: the results table still shows the fit statistics.
-    }).finally(() => { pendingPlotRef.current = null })
+    }).finally(() => { if(pendingPlotRef.current === requestKey) pendingPlotRef.current = null })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [parametricDist, fitResult, activePlot, folio.analysisMode])
+  }, [parametricDist, fitResult, activePlot, folio.id, folio.analysisMode, folio.method, folio.rankMethod, folio.ci])
 
   // The fit endpoint includes plot arrays for the best distribution only.
   // When comparison mode opens, fetch the remaining successful fits and merge
@@ -1995,7 +1985,8 @@ export default function LifeData() {
     if (!isLifeDataFitCurrent(folio,sourceOptions)) return
 
     const missing = fitComparisonDists.filter(d => !fitResult.plots?.[d]?.curves)
-    const requestPrefix = `${folio.id}|${folio.dataSig ?? ''}|${folio.method}|${fitResult.CI}|`
+    const fingerprint = fitInputFingerprint(folio,sourceOptions)
+    const requestPrefix = `${folio.id}|${fingerprint}|`
     if (missing.length === 0) {
       const pending = [...fitComparePendingRef.current].some(k => k.startsWith(requestPrefix))
       setFitCompareLoading(pending)
@@ -2007,6 +1998,7 @@ export default function LifeData() {
     const grouped = format === 'individual' ? null : folioGroupedData(folio)
     const fitDataSig = folio.dataSig
     const fitMethod = folio.method
+    const fitRankMethod = folio.rankMethod ?? 'benard'
     const queued = missing.filter(distribution =>
       !fitComparePendingRef.current.has(`${requestPrefix}${distribution}`)
       && !fitCompareFailedRef.current.has(`${requestPrefix}${distribution}`))
@@ -2032,6 +2024,7 @@ export default function LifeData() {
               right_censored: rc.length ? rc : undefined,
               distribution,
               method: fitMethod,
+              rank_method: fitRankMethod,
               CI: fitResult.CI ?? folio.ci,
             })
             : await fetchGroupedDistPlot({
@@ -2040,6 +2033,7 @@ export default function LifeData() {
           setFolio(folio.id, current => {
             if (!current.result || current.dataSig !== fitDataSig || current.method !== fitMethod) return {}
             if (!isLifeDataFitCurrent(current,sourceOptions)) return {}
+            if (fitInputFingerprint(current,sourceOptions) !== fingerprint) return {}
             return {
               result: {
                 ...current.result,
@@ -2063,7 +2057,7 @@ export default function LifeData() {
     }
     void Promise.all(Array.from({ length: Math.min(3, queued.length) }, worker))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fitComparisonOpen, fitResult, folio.id, folio.dataSig, folio.method,
+  }, [fitComparisonOpen, fitResult, folio.id, folio.dataSig, folio.method, folio.rankMethod, folio.ci,
     folio.dataFormat, folio.frequencyRows, folio.intervalRows])
   const probSource = isWeibayesMode
     ? (weibayesResult?.probability ?? null)
@@ -2087,6 +2081,10 @@ export default function LifeData() {
           rc: (grouped.frequency_observations ?? [])
             .filter(row => row.state === 'S').map(row => row.time),
         }
+      }
+      if (grouped.observation_model === 'mixed') return {
+        failures: (grouped.mixed_observations ?? []).filter(row=>row.kind==='failure').map(row=>row.time!),
+        rc: (grouped.mixed_observations ?? []).filter(row=>row.kind==='right_censored').map(row=>row.time!),
       }
       return {
         failures: (grouped.interval_observations ?? [])
@@ -4101,7 +4099,7 @@ export default function LifeData() {
                   {([
                     ['individual', 'Individual'],
                     ['frequency', 'Frequency'],
-                    ['interval', 'Intervals'],
+                    ['interval', 'Mixed / intervals'],
                   ] as const).map(([format, label]) => (
                     <button key={format} onClick={() => {
                       patchActive({ dataFormat: format })
@@ -4170,15 +4168,19 @@ export default function LifeData() {
                       </select>
                     </div>
 
+                    {folio.spec.distribution.startsWith('Exponential') && lifetimeQuantity && <label className="text-xs flex gap-2 items-center">
+                      <input type="checkbox" checked={exponentialMeanInput} onChange={e => setExponentialMeanInput(e.target.checked)} />
+                      Enter mean waiting time (MTBF) instead of rate λ
+                    </label>}
                     <div className="grid grid-cols-2 gap-2">
                       {DIST_PARAM_FIELDS[folio.spec.distribution].map(p => (
                         <div key={p}>
-                          <InfoLabel tip={`Distribution parameter "${p}". Enter a numeric value.`}>{p}</InfoLabel>
+                          <InfoLabel tip={p === 'Lambda' && exponentialMeanInput && lifetimeQuantity ? 'Reciprocal of the exponential rate. For a shifted distribution this excludes the location offset.' : `Distribution parameter "${p}". Enter a numeric value.`}>{p === 'Lambda' && exponentialMeanInput && lifetimeQuantity ? `Mean waiting time / MTBF (${units})` : p}</InfoLabel>
                           <NumberField
-                            value={folio.spec.params[p] ?? ''}
+                            value={p === 'Lambda' && exponentialMeanInput && lifetimeQuantity ? (Number(folio.spec.params[p]) > 0 ? String(1 / Number(folio.spec.params[p])) : '') : folio.spec.params[p] ?? ''}
                             semantic={p}
                             onChange={value => patchActive(f => ({
-                              spec: { ...f.spec, params: { ...f.spec.params, [p]: value } },
+                              spec: { ...f.spec, params: { ...f.spec.params, [p]: p === 'Lambda' && exponentialMeanInput && lifetimeQuantity ? (Number(value) > 0 ? String(1 / Number(value)) : '') : value } },
                               specResult: null,
                               setDist: f.adoptedDistribution?.distribution ?? f.setDist,
                             }))}
@@ -4324,6 +4326,17 @@ export default function LifeData() {
                     />
                   </InfluenceSource>
                 </div>
+
+                {(folio.dataFormat ?? 'individual') === 'individual' && <label className="block text-xs text-slate-700">
+                  Plotting positions
+                  <select aria-label="Plotting positions" value={folio.rankMethod ?? 'benard'}
+                    onChange={event => patchActive({rankMethod:event.target.value as NonNullable<Folio['rankMethod']>})}
+                    className="mt-1 min-h-9 w-full rounded border border-slate-300 bg-white px-2">
+                    <option value="benard">Benard median ranks</option><option value="exact_median">Exact median ranks</option>
+                    <option value="mean">Mean ranks</option><option value="hazen">Hazen</option>
+                    <option value="blom">Blom</option><option value="kaplan_meier">Kaplan–Meier</option>
+                  </select>
+                </label>}
 
                 <fieldset aria-label="Distributions to fit" className="rounded-lg border border-slate-200 bg-slate-50/70 p-3">
                   <div className="flex items-center justify-between gap-2 mb-2">
@@ -4691,10 +4704,19 @@ export default function LifeData() {
                       {calcResult.reliability != null && <CalcRow influences="lda.calc.mission" label="R(t)" value={fmt(calcResult.reliability)} />}
                       {calcResult.prob_failure != null && <CalcRow influences="lda.calc.mission" label="F(t)" value={fmt(calcResult.prob_failure)} />}
                       {calcResult.conditional_reliability != null && <CalcRow influences={['lda.calc.mission', 'lda.calc.elapsed']} label="Conditional R" value={fmt(calcResult.conditional_reliability)} />}
+                      {calcResult.conditional_prob_failure != null && <CalcRow influences={['lda.calc.mission', 'lda.calc.elapsed']} label="Conditional F" value={fmt(calcResult.conditional_prob_failure)} />}
+                      {calcResult.remaining_life != null && <CalcRow metric="remaining_life" label={`Remaining exposure at R=${calcResult.remaining_reliability_target}`} value={fmtNum(calcResult.remaining_life)} />}
+                      {calcResult.total_life_at_target != null && <CalcRow metric="total_life_at_target" label="Total age at target" value={fmtNum(calcResult.total_life_at_target)} />}
+                      {calcResult.mean_remaining_life != null && <CalcRow label="Mean remaining exposure" value={fmtNum(calcResult.mean_remaining_life)} />}
+                      {calcResult.conditional_mean_age != null && <CalcRow label="Conditional mean age" value={fmtNum(calcResult.conditional_mean_age)} />}
+                      {calcResult.mean_remaining_life_status && <p className="text-amber-800">{calcResult.mean_remaining_life_status}</p>}
+                      {calcResult.remaining_life_status && <p className="text-amber-800">{calcResult.remaining_life_status}</p>}
+                      {calcResult.conditional_status && <p className="text-amber-800">{calcResult.conditional_status}</p>}
+                      {lifetimeQuantity && (calcResult.negative_support_probability ?? 0) > .001 && <p className="text-amber-800">This model assigns {fmt((calcResult.negative_support_probability ?? 0) * 100)}% probability below zero exposure; check its lifetime interpretation.</p>}
                       {calcResult.failure_rate != null && <CalcRow influences="lda.calc.mission" label="h(t)" value={fmt(calcResult.failure_rate)} />}
                       {calcResult.reliable_life != null && <CalcRow influences="lda.calc.reliability" label="Reliable life" value={fmtNum(calcResult.reliable_life)} />}
                       {calcResult.bx_life != null && <CalcRow influences="lda.calc.bx" label={`B${calcResult.bx_percent ?? ''} life`} value={fmtNum(calcResult.bx_life)} />}
-                      {calcResult.mean_life != null && <CalcRow label="Mean life" value={fmtNum(calcResult.mean_life)} />}
+                      {calcResult.mean_life != null && <CalcRow label="Unconditional mean" value={fmtNum(calcResult.mean_life)} />}
                     </div>
                   )}
                 </div>
@@ -4728,7 +4750,7 @@ export default function LifeData() {
                         <p className="font-semibold">
                           {fitResult.observation_model === 'frequency_exact'
                             ? 'Exact-time frequency likelihood'
-                            : 'Interval-censored likelihood'}
+                            : fitResult.observation_model === 'mixed' ? 'Mixed-observation likelihood' : 'Interval-censored likelihood'}
                         </p>
                         <p>
                           MLE with effective sample size F={fitResult.n_failures ?? 0},
@@ -5106,10 +5128,19 @@ export default function LifeData() {
                             {calcResult.prob_failure != null && <CalcRow influences="lda.calc.mission" label="Prob. of failure F(t)" value={fmt(calcResult.prob_failure)} />}
                             {calcResult.conditional_reliability != null && <CalcRow influences={['lda.calc.mission', 'lda.calc.elapsed']} label="Cond. reliability" value={fmt(calcResult.conditional_reliability)} />}
                             {calcResult.conditional_prob_failure != null && <CalcRow influences={['lda.calc.mission', 'lda.calc.elapsed']} label="Cond. prob. of failure" value={fmt(calcResult.conditional_prob_failure)} />}
+                            {calcResult.failure_rate_status === 'unbounded' && <CalcRow influences="lda.calc.mission" label="Failure rate at support boundary" value="∞ (unbounded)" />}
+                            {calcResult.conditional_status && <p className="text-amber-800">{calcResult.conditional_status}</p>}
+                            {calcResult.remaining_life != null && <CalcRow metric="remaining_life" influences={['lda.calc.elapsed','lda.calc.reliability']} label={`Remaining life at R=${calcResult.remaining_reliability_target} (${units})`} value={fmtNum(calcResult.remaining_life)} />}
+                            {calcResult.mean_remaining_life != null && <CalcRow influences="lda.calc.elapsed" label={`Mean remaining exposure (${units})`} value={fmtNum(calcResult.mean_remaining_life)} />}
+                            {calcResult.conditional_mean_age != null && <CalcRow influences="lda.calc.elapsed" label={`Conditional mean age (${units})`} value={fmtNum(calcResult.conditional_mean_age)} />}
+                            {calcResult.mean_remaining_life_status && <p className="text-amber-800">{calcResult.mean_remaining_life_status}</p>}
+                            {lifetimeQuantity && (calcResult.negative_support_probability ?? 0) > .001 && <p className="text-amber-800">This model assigns {fmt((calcResult.negative_support_probability ?? 0) * 100)}% probability below zero exposure; check its lifetime interpretation.</p>}
+                            {calcResult.total_life_at_target != null && <CalcRow metric="total_life_at_target" influences={['lda.calc.elapsed','lda.calc.reliability']} label={`Total age at target (${units})`} value={fmtNum(calcResult.total_life_at_target)} />}
+                            {calcResult.remaining_life_status && <p className="text-amber-800">{calcResult.remaining_life_status}</p>}
                             {calcResult.failure_rate != null && <CalcRow influences="lda.calc.mission" label={`Failure rate h(t) (/${units.replace(/s$/, '')})`} value={fmt(calcResult.failure_rate)} />}
                             {calcResult.reliable_life != null && <CalcRow influences="lda.calc.reliability" label={`Reliable life (${units})`} value={fmtNum(calcResult.reliable_life)} />}
                             {calcResult.bx_life != null && <CalcRow influences="lda.calc.bx" label={`B${calcResult.bx_percent ?? ''}% life (${units})`} value={fmtNum(calcResult.bx_life)} />}
-                            {calcResult.mean_life != null && <CalcRow label={`Mean life (${units})`} value={fmtNum(calcResult.mean_life)} />}
+                            {calcResult.mean_life != null && <CalcRow label={`Unconditional mean (${units})`} value={fmtNum(calcResult.mean_life)} />}
                           </div>
                         )}
                       </div>

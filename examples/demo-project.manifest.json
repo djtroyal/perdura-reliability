@@ -1,10 +1,9 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "authoringSources": {
-    "gui/frontend/package-lock.json": "5f5ce0ade8b21ce0bfe34ba1b330104b74f351924db837e835ffbd8ebcba9f84",
     "gui/frontend/scripts/adaptAircraftDemo.mjs": "e34487be5dc238e391a60bf7b3dbbef9a34f3c924b77c30b83f2153090c51175",
     "gui/frontend/scripts/materializeAircraftDemo.mjs": "086c2ff14c86e75144e71bc6fd218d3651e087680024f1f9c33230efb5afa84d",
-    "gui/frontend/src/api/client.ts": "e07ec6673a601e106a638672f52f1046b7f83c85a3414b5cd4d9eee42e2ce462",
+    "gui/frontend/src/api/client.ts": "f8ba751c89c4a0d4bc01633db4587dc9e91b8c9373f0048f934f6a88771fc570",
     "gui/frontend/src/api/fmea.ts": "f1c8011b11d54aed476c3d10662080f14c3dfb34b95a34619e4409a7d57c28f7",
     "gui/frontend/src/api/reliabilityProgram.ts": "306fdb3e6443ae93debc479294ea427e4a53f581f2c420d1a00af9413436aafa",
     "gui/frontend/src/api/serverCompatibility.ts": "8ea034a7010c2c9cfea72172c6222f866c75045e359b9192bbfeed6fc32592da",
@@ -28,12 +27,18 @@
     "gui/frontend/src/store/sharedSystemModel.ts": "3a47f5a63d1012f83135325d264c4edeac757ded64bcce3ccb6829e7b6a17c09",
     "gui/frontend/src/store/systemArchitecture.ts": "8dd30786529da76305be996316131cc57527f947c03a65dcb6271c2fea0b8295",
     "gui/frontend/src/store/systemRequirements.ts": "0e6bf7243ede58cf90877fcfd8d9f43f82e84fa05a2b16dd1dd9f8cf33c11d24",
-    "gui/frontend/src/version.ts": "58e067d901a4c9020c072c7103e04104880bb60d801cdd06a52dab402596970e",
+    "gui/frontend/src/version.ts": "bf6512f4601032e4254e7ec554164fc1f0de36be603521fdcd957f2972ccef03",
     "tools/build_aircraft_demo_model.py": "3f15d2a4a42e22968edc33c3fc55ae4b4a3ccde3e624b47755ef16dd994224ec",
-    "tools/refresh_demo_project.py": "886d320e7feef4f17edc4f0a1f0f0bbab4b462b27fe500c85cb89de9ba91c77c"
+    "tools/refresh_demo_project.py": "87433d5a5a10a7ef52fd64fb3fca0801b8b983a6efab4e27ba08772e8aa2233c"
+  },
+  "authoringEnvironment": {
+    "dependencyFiles": {
+      "gui/frontend/package.json": "7e20d0e2c61492bcdb77ecc3d539dd8969e765d6f14c36f050b7d9662097677f",
+      "gui/frontend/package-lock.json": "5f5ce0ade8b21ce0bfe34ba1b330104b74f351924db837e835ffbd8ebcba9f84"
+    }
   },
   "artifacts": {
-    "gui/frontend/src/data/demoProject.json": "ddc193e728bd8603f4ce8df2f21e8e6c025b42d8b373d75ff7cf38b4fd1cfed4",
-    "examples/demo-project.json": "ddc193e728bd8603f4ce8df2f21e8e6c025b42d8b373d75ff7cf38b4fd1cfed4"
+    "gui/frontend/src/data/demoProject.json": "9ce01cba18b2996bcf081135428a8995c106de4b36ba136bc68be3b2884d2a36",
+    "examples/demo-project.json": "9ce01cba18b2996bcf081135428a8995c106de4b36ba136bc68be3b2884d2a36"
   }
 }

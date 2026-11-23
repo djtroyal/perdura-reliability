@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
 import { createServer as createHttpServer } from 'node:http'
 import { createSsrTestServer } from './viteTestLifecycle.mjs'
 import domino from '@mixmark-io/domino'
@@ -105,8 +107,17 @@ try {
   const installedPlotly = JSON.parse(await import('node:fs/promises').then(fs => fs.readFile(
     new URL('../node_modules/plotly.js/package.json', import.meta.url), 'utf8'))).version
   assert.ok(html.includes(`https://cdn.plot.ly/plotly-${installedPlotly}.min.js`))
+  const exportedDocument = domino.createWindow(html).document
+  const externalScripts = exportedDocument.querySelectorAll('script[src]')
+  assert.equal(externalScripts.length, 1)
+  const fullRuntimeBytes = await readFile(new URL('../node_modules/plotly.js/dist/plotly.min.js', import.meta.url))
+  assert.equal(externalScripts[0].getAttribute('integrity'),
+    `sha384-${createHash('sha384').update(fullRuntimeBytes).digest('base64')}`,
+    'the exported CDN version and integrity must match the locked full runtime')
+  assert.equal(externalScripts[0].getAttribute('crossorigin'), 'anonymous',
+    'cross-origin integrity checks require a CORS request without credentials')
   assert.ok(!html.includes(exportedLayout.title.text))
-  const inlineScripts = domino.createWindow(html).document.querySelectorAll('script:not([src])')
+  const inlineScripts = exportedDocument.querySelectorAll('script:not([src])')
   assert.equal(inlineScripts.length, 1, 'Plot data containing mixed-case script tags must not create another script element')
   const { runInNewContext } = await import('node:vm')
   let plotArguments

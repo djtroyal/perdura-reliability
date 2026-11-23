@@ -154,6 +154,10 @@ const SLICE_DETAIL_LABELS: Record<string, string> = {
   maintTaskAnalysis: 'Maintenance — Task Analysis',
   maintPMInterval: 'Maintenance — PM Interval',
   maintCostForecast: 'Maintenance — Cost Forecast',
+  maintFleet: 'Maintenance — Fleet Forecast',
+  maintInventory: 'Maintenance — Inventory Planning',
+  lifeTools: 'Maintenance — Lifetime Tools',
+  predictionComparison: 'Prediction — Scenario Comparison',
   maintAvailability: 'Maintenance — Availability Sensitivity',
   maintVirtualAge: 'Maintenance — Virtual Age',
   dataAnalysisData: 'Statistical Modeling',
@@ -169,6 +173,7 @@ const SLICE_DETAIL_LABELS: Record<string, string> = {
 /** Some UI modules span several store slices. Expand a module key into the
  *  concrete slice keys that hold its state (for per-module export/import). */
 const MODULE_SLICE_GROUPS: Record<string, string[]> = {
+  prediction: ['prediction', 'predictionComparison'],
   alt: [
     'alt', 'degradation', 'marginTest', 'expChiSquared', 'rdtBayesian',
     'differenceDetection', 'reliabilityTestingTools',
@@ -177,7 +182,7 @@ const MODULE_SLICE_GROUPS: Record<string, string[]> = {
   dataAnalysis: ['dataAnalysisData', 'descriptive', 'dataModeling', 'dataAnalysisFolios'],
   maintenance: [
     'ram', 'maintTaskAnalysis', 'maintReplacement', 'maintPMInterval',
-    'maintCostForecast', 'maintAvailability', 'maintVirtualAge',
+    'maintCostForecast', 'maintFleet', 'maintInventory', 'lifeTools', 'maintAvailability', 'maintVirtualAge',
   ],
   fmea: ['fmea', 'fmeaFailureFlow'],
   hra: ['hraTherp', 'hraHeart', 'hraSparH', 'hraCream', 'hraCreamExt', 'hraSlim', 'hraJhedi', 'hraSherpa', 'hraAtheana', 'hraMermos'],
@@ -1068,6 +1073,10 @@ export const NAV_MAP: Record<string, NavLocation> = {
   maintReplacement: { tab: 'maintenance', sub: 'replacement' },
   maintPMInterval: { tab: 'maintenance', sub: 'pm-interval' },
   maintCostForecast: { tab: 'maintenance', sub: 'cost-forecast' },
+  maintFleet: { tab: 'maintenance', sub: 'fleet-forecast' },
+  maintInventory: { tab: 'maintenance', sub: 'inventory' },
+  lifeTools: { tab: 'maintenance', sub: 'lifetime-tools' },
+  predictionComparison: { tab: 'prediction', sub: 'comparison' },
   maintAvailability: { tab: 'maintenance', sub: 'availability-sensitivity' },
   maintVirtualAge: { tab: 'maintenance', sub: 'virtual-age' },
   // Human Reliability

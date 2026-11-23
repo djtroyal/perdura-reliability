@@ -4,6 +4,10 @@ import math
 from typing import Any, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 if __package__:
+    from .public_validation import PublicValidationError
+else:
+    from public_validation import PublicValidationError
+if __package__:
     from .requirement_schemas import FMEAFunctionalRequirement, FMEAEvidenceLink, FMEAVerificationPlanRow, SystemVerificationSource
 else:
     from requirement_schemas import FMEAFunctionalRequirement, FMEAEvidenceLink, FMEAVerificationPlanRow, SystemVerificationSource
@@ -17,11 +21,15 @@ else:
 
 # --- Life Data ---
 
+RankMethod = Literal['benard', 'exact_median', 'mean', 'hazen', 'blom', 'kaplan_meier']
+
 class LifeDataFitRequest(BaseModel):
+    model_config = ConfigDict(allow_inf_nan=False)
     failures: list[float] = Field(min_length=1)
     right_censored: Optional[list[float]] = None
     distributions_to_fit: Optional[list[str]] = None
-    method: str = "MLE"
+    method: Literal['MLE', 'RRX', 'RRY'] = "MLE"
+    rank_method: RankMethod = 'benard'
     CI: float = Field(0.95, gt=0, lt=1)
 
 
@@ -32,7 +40,8 @@ class SingleDistPlotRequest(BaseModel):
     failures: list[float] = Field(min_length=1)
     right_censored: Optional[list[float]] = None
     distribution: str
-    method: str = "MLE"
+    method: Literal['MLE', 'RRX', 'RRY'] = "MLE"
+    rank_method: RankMethod = 'benard'
     CI: float = Field(0.95, gt=0, lt=1)
 
 
@@ -50,11 +59,22 @@ class IntervalLifeObservation(BaseModel):
     count: int = Field(ge=1)
 
 
+class MixedLifeObservationRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid', allow_inf_nan=False)
+    id: str = ''
+    kind: Literal['failure', 'right_censored', 'left_censored', 'interval_censored']
+    time: Optional[float] = None
+    lower: Optional[float] = None
+    upper: Optional[float] = None
+    count: int = Field(1, ge=1)
+
+
 class GroupedLifeFitRequest(BaseModel):
     """Weighted exact-frequency or interval-censored life observations."""
-    observation_model: Literal["frequency_exact", "interval_censored"]
+    observation_model: Literal["frequency_exact", "interval_censored", "mixed"]
     frequency_observations: list[FrequencyLifeObservation] = Field(default_factory=list)
     interval_observations: list[IntervalLifeObservation] = Field(default_factory=list)
+    mixed_observations: list[MixedLifeObservationRequest] = Field(default_factory=list)
     distributions_to_fit: Optional[list[str]] = None
     CI: float = Field(0.95, gt=0, lt=1)
 
@@ -72,7 +92,7 @@ class TurnbullRequest(BaseModel):
     @model_validator(mode="after")
     def validate_bootstrap_count(self):
         if 0 < self.n_bootstrap < 20:
-            raise ValueError("n_bootstrap must be zero or at least 20.")
+            raise PublicValidationError("n_bootstrap must be zero or at least 20.")
         return self
 
 
@@ -120,12 +140,13 @@ class EvaluateRequest(BaseModel):
 
 class CalculatorRequest(BaseModel):
     """Comprehensive life-metrics calculator for a specified distribution."""
+    model_config = ConfigDict(allow_inf_nan=False)
     distribution: str
     params: dict[str, float]
-    mission_end: Optional[float] = None       # R(t), F(t), f(t), h(t)
-    elapsed: Optional[float] = None           # conditional R/F start time
-    reliability_target: Optional[float] = None  # for reliable life
-    bx_percent: Optional[float] = None        # for BX% life
+    mission_end: Optional[float] = Field(None, ge=0)
+    elapsed: Optional[float] = Field(None, ge=0)
+    reliability_target: Optional[float] = Field(None, gt=0, lt=1)
+    bx_percent: Optional[float] = Field(None, gt=0, lt=100)
 
 
 class CompareFolio(BaseModel):
@@ -185,38 +206,38 @@ class CensoringDesignRequest(BaseModel):
     def validate_design_contract(self):
         if self.type == "fixed_administrative":
             if self.time is None:
-                raise ValueError("fixed_administrative requires time.")
+                raise PublicValidationError("fixed_administrative requires time.")
             if any(value is not None for value in (
                 self.times, self.distribution, self.parameters,
             )):
-                raise ValueError(
+                raise PublicValidationError(
                     "fixed_administrative accepts only the time field."
                 )
         elif self.type == "type_ii":
             if any(value is not None for value in (
                 self.time, self.times, self.distribution, self.parameters,
             )):
-                raise ValueError("type_ii does not accept additional fields.")
+                raise PublicValidationError("type_ii does not accept additional fields.")
         elif self.type == "observed_schedule":
             if not self.times:
-                raise ValueError("observed_schedule requires non-empty times.")
+                raise PublicValidationError("observed_schedule requires non-empty times.")
             if any(not math.isfinite(value) or value <= 0 for value in self.times):
-                raise ValueError(
+                raise PublicValidationError(
                     "observed_schedule times must be positive and finite."
                 )
             if any(value is not None for value in (
                 self.time, self.distribution, self.parameters,
             )):
-                raise ValueError(
+                raise PublicValidationError(
                     "observed_schedule accepts only the times field."
                 )
         else:
             if self.distribution is None or self.parameters is None:
-                raise ValueError(
+                raise PublicValidationError(
                     "parametric_independent requires distribution and parameters."
                 )
             if self.time is not None or self.times is not None:
-                raise ValueError(
+                raise PublicValidationError(
                     "parametric_independent does not accept time or times."
                 )
         return self
@@ -230,6 +251,7 @@ class UncertaintyRequest(BaseModel):
     failures: list[float] = Field(min_length=2)
     right_censored: Optional[list[float]] = None
     estimator: Literal["MLE", "RRX", "RRY"] = "MLE"
+    rank_method: RankMethod = 'benard'
     target: Literal["reliability", "quantile", "median", "mean"] = "reliability"
     target_value: Optional[float] = None
     method: Literal["profile_likelihood", "parametric_bootstrap"] = "profile_likelihood"
@@ -242,22 +264,22 @@ class UncertaintyRequest(BaseModel):
     def validate_uncertainty_target(self):
         if self.target == "reliability":
             if self.target_value is None or self.target_value < 0:
-                raise ValueError(
+                raise PublicValidationError(
                     "reliability requires a non-negative mission time."
                 )
         elif self.target == "quantile":
             if (self.target_value is None
                     or not 0 < self.target_value < 1):
-                raise ValueError(
+                raise PublicValidationError(
                     "quantile requires a probability strictly between 0 and 1."
                 )
         elif self.target_value is not None:
-            raise ValueError(
+            raise PublicValidationError(
                 "median and mean targets do not accept target_value."
             )
         if (self.method != "parametric_bootstrap"
                 and self.censoring_design is not None):
-            raise ValueError(
+            raise PublicValidationError(
                 "censoring_design applies only to parametric_bootstrap."
             )
         return self
@@ -271,6 +293,7 @@ class UncertaintyPackageRequest(BaseModel):
     failures: list[float] = Field(min_length=2)
     right_censored: Optional[list[float]] = None
     estimator: Literal["MLE", "RRX", "RRY"] = "MLE"
+    rank_method: RankMethod = 'benard'
     curve_x: list[float] = Field(min_length=2, max_length=500)
     CI: float = Field(0.95, gt=0, lt=1)
     n_bootstrap: int = Field(499, ge=20, le=2000)
@@ -394,7 +417,7 @@ class DegradationRequest(BaseModel):
     @model_validator(mode="after")
     def validate_hierarchical_bootstrap_size(self):
         if self.analysis_method == "hierarchical_nlme" and 0 < self.n_bootstrap < 20:
-            raise ValueError(
+            raise PublicValidationError(
                 "n_bootstrap must be 0 (disabled) or at least 20; "
                 "smaller samples cannot support user-facing percentile intervals"
             )
@@ -486,14 +509,14 @@ class TestSimulationRequest(BaseModel):
         # eta is a location for Normal/Lognormal, so zero and negative values
         # are valid there. Exponential does not use beta.
         if self.distribution in {"Weibull", "Exponential"} and self.eta <= 0:
-            raise ValueError("eta must be positive for Weibull and Exponential distributions.")
+            raise PublicValidationError("eta must be positive for Weibull and Exponential distributions.")
         if self.distribution != "Exponential" and self.beta <= 0:
-            raise ValueError("beta must be positive for the selected distribution.")
+            raise PublicValidationError("beta must be positive for the selected distribution.")
         if self.metric == "reliability":
             if self.target_time < 0:
-                raise ValueError("target_time must be nonnegative for reliability.")
+                raise PublicValidationError("target_time must be nonnegative for reliability.")
             if self.target_value is not None and self.target_value > 1:
-                raise ValueError("A reliability target_value must be between 0 and 1.")
+                raise PublicValidationError("A reliability target_value must be between 0 and 1.")
         return self
 
 
@@ -654,72 +677,72 @@ class GrowthRequest(BaseModel):
         model_name = self.model.replace("-", "_")
 
         if model_name == "duane" and self.estimator != "mle":
-            raise ValueError("estimator applies only to Crow-AMSAA.")
+            raise PublicValidationError("estimator applies only to Crow-AMSAA.")
 
         if self.data_mode == "exact":
             if len(self.times) < 2:
-                raise ValueError("Exact-event analysis requires at least 2 failure times.")
+                raise PublicValidationError("Exact-event analysis requires at least 2 failure times.")
             if self.grouped_endpoints or self.grouped_counts:
-                raise ValueError(
+                raise PublicValidationError(
                     "grouped_endpoints/grouped_counts are accepted only when "
                     "data_mode='grouped'."
                 )
             if any(value <= 0 for value in self.times):
-                raise ValueError("Failure times must be positive and finite.")
+                raise PublicValidationError("Failure times must be positive and finite.")
             if any(right < left for left, right in zip(self.times, self.times[1:])):
-                raise ValueError("Failure times must be non-decreasing.")
+                raise PublicValidationError("Failure times must be non-decreasing.")
             if self.T is not None and self.T < self.times[-1]:
-                raise ValueError("T must be at least the final failure time.")
+                raise PublicValidationError("T must be at least the final failure time.")
             if model_name == "crow_amsaa" and self.termination is None:
-                raise ValueError(
+                raise PublicValidationError(
                     "Exact-event Crow-AMSAA requires an explicit termination "
                     "design ('time' or 'failure')."
                 )
             if self.termination == "time" and self.T is None:
-                raise ValueError("A time-terminated analysis requires T.")
+                raise PublicValidationError("A time-terminated analysis requires T.")
             if (self.termination == "failure" and self.T is not None
                     and not math.isclose(self.T, self.times[-1], rel_tol=1e-12,
                                          abs_tol=0.0)):
-                raise ValueError(
+                raise PublicValidationError(
                     "A failure-terminated analysis requires T to be blank or "
                     "equal to the final failure time."
                 )
             return self
 
         if model_name != "crow_amsaa":
-            raise ValueError("Grouped interval counts are supported only by Crow-AMSAA.")
+            raise PublicValidationError("Grouped interval counts are supported only by Crow-AMSAA.")
         if self.estimator != "mle":
-            raise ValueError(
+            raise PublicValidationError(
                 "Grouped Crow-AMSAA currently supports the likelihood estimator only."
             )
         if self.times:
-            raise ValueError("times must be empty when data_mode='grouped'.")
+            raise PublicValidationError("times must be empty when data_mode='grouped'.")
         if len(self.grouped_endpoints) < 3:
-            raise ValueError("Grouped analysis requires at least 3 interval endpoints.")
+            raise PublicValidationError("Grouped analysis requires at least 3 interval endpoints.")
         if len(self.grouped_counts) != len(self.grouped_endpoints):
-            raise ValueError(
+            raise PublicValidationError(
                 "grouped_counts must contain one count for every grouped endpoint."
             )
         if any(count < 0 for count in self.grouped_counts):
-            raise ValueError("Grouped failure counts cannot be negative.")
+            raise PublicValidationError("Grouped failure counts cannot be negative.")
         if any(value <= 0 for value in self.grouped_endpoints):
-            raise ValueError("Grouped endpoints must be positive and finite.")
+            raise PublicValidationError("Grouped endpoints must be positive and finite.")
         if any(right <= left for left, right in zip(
                 self.grouped_endpoints, self.grouped_endpoints[1:])):
-            raise ValueError("Grouped endpoints must be strictly increasing.")
+            raise PublicValidationError("Grouped endpoints must be strictly increasing.")
         if sum(self.grouped_counts) < 2:
-            raise ValueError("Grouped analysis requires at least 2 observed failures.")
+            raise PublicValidationError("Grouped analysis requires at least 2 observed failures.")
         if sum(count > 0 for count in self.grouped_counts) < 2:
-            raise ValueError(
+            raise PublicValidationError(
                 "Grouped analysis requires failures in at least 2 intervals "
                 "to identify a time trend."
             )
         if self.termination == "failure":
-            raise ValueError("Grouped interval counts require time termination.")
+            raise PublicValidationError("Grouped interval counts require time termination.")
         if (self.T is not None
                 and not math.isclose(self.T, self.grouped_endpoints[-1],
                                      rel_tol=1e-12, abs_tol=0.0)):
-            raise ValueError(
+            raise PublicValidationError(
                 "For grouped analysis, T must be blank or equal to the final endpoint."
             )
         return self
@@ -761,16 +784,16 @@ class SoftwareReliabilityRequest(BaseModel):
     @model_validator(mode="after")
     def validate_observation_contract(self):
         if bool(self.event_times) == bool(self.interval_endpoints):
-            raise ValueError(
+            raise PublicValidationError(
                 "Provide either event_times or interval_endpoints/interval_counts."
             )
         if self.interval_endpoints and (
                 len(self.interval_endpoints) != len(self.interval_counts)):
-            raise ValueError(
+            raise PublicValidationError(
                 "interval_endpoints and interval_counts must have equal length."
             )
         if not self.models:
-            raise ValueError("Select at least one software reliability model.")
+            raise PublicValidationError("Select at least one software reliability model.")
         return self
 
 
@@ -788,7 +811,7 @@ class GrowthCorrectiveAction(BaseModel):
         lower = self.effectiveness if self.effectiveness_lower is None else self.effectiveness_lower
         upper = self.effectiveness if self.effectiveness_upper is None else self.effectiveness_upper
         if not lower <= self.effectiveness <= upper:
-            raise ValueError(
+            raise PublicValidationError(
                 "effectiveness bounds must contain the effectiveness estimate."
             )
         self.effectiveness_lower = lower
@@ -810,7 +833,7 @@ class GrowthPlanRequest(BaseModel):
     def validate_fix_schedule(self):
         if any(action.planned_fix_time < self.current_test_time
                for action in self.corrective_actions):
-            raise ValueError(
+            raise PublicValidationError(
                 "Corrective-action fix times cannot precede current_test_time."
             )
         return self
@@ -1235,26 +1258,26 @@ class FMEARatingProfile(BaseModel):
             else {"severity", "occurrence", "detection"}
         )
         if set(self.rating_axes) != required_axes:
-            raise ValueError(
-                f"{self.kind} rating profile requires exactly "
-                f"{', '.join(sorted(required_axes))}.")
+            raise PublicValidationError(
+                "{kind} rating profile requires exactly {axes}.",
+                kind=self.kind, axes=', '.join(sorted(required_axes)))
         for name, criteria in self.rating_axes.items():
             if {item.rating for item in criteria} != set(range(1, 11)):
-                raise ValueError(
-                    f"Rating axis '{name}' must define each integer 1–10 once.")
+                raise PublicValidationError(
+                    "Rating axis '{axis}' must define each integer 1–10 once.", axis=name)
         if self.approved and (not self.approved_by or not self.approved_date):
-            raise ValueError(
+            raise PublicValidationError(
                 "Approved custom rating profiles require approver and date.")
         if self.built_in:
-            raise ValueError(
+            raise PublicValidationError(
                 "Built-in profiles are supplied by Perdura and cannot be uploaded.")
         expected_model = (
             "aiag_vda_sfm_2019" if self.kind == "fmea_msr"
             else "aiag_vda_sod_2019"
         )
         if self.ap_model != expected_model:
-            raise ValueError(
-                f"{self.kind} rating profiles must use {expected_model}.")
+            raise PublicValidationError(
+                "{kind} rating profiles must use {model}.", kind=self.kind, model=expected_model)
         return self
 
 
@@ -1313,19 +1336,19 @@ class AIAGVDAFMEAAnalysis(BaseModel):
               for effect in chain.effect_contexts),
         ]
         if len(ids) != len(set(ids)):
-            raise ValueError(
+            raise PublicValidationError(
                 "Structure, function-analysis, failure-chain, action, and "
                 "Control Plan IDs must be unique within an FMEA.")
         diagram_ids = [item.id for item in self.block_diagram.nodes]
         if len(diagram_ids) != len(set(diagram_ids)):
-            raise ValueError(
+            raise PublicValidationError(
                 "Block Diagram node IDs must be unique within an FMEA.")
         structure_ids = {item.id for item in self.structure_nodes}
         function_ids = {item.id for item in self.functions}
         for chain in self.failure_chains:
             if (chain.cause_structure_node_id is not None
                     and chain.cause_structure_node_id not in structure_ids):
-                raise ValueError(
+                raise PublicValidationError(
                     "Failure-chain cause_structure_node_id must reference a "
                     "structure node in the same FMEA.")
             for field_name, function_id in (
@@ -1333,25 +1356,25 @@ class AIAGVDAFMEAAnalysis(BaseModel):
                 ("cause_function_id", chain.cause_function_id),
             ):
                 if function_id is not None and function_id not in function_ids:
-                    raise ValueError(
-                        f"Failure-chain {field_name} must reference a function "
-                        "in the same FMEA.")
+                    raise PublicValidationError(
+                        "Failure-chain {field} must reference a function in the same FMEA.",
+                        field=field_name)
             if self.kind == "fmea_msr":
                 if chain.frequency is None or chain.monitoring is None:
-                    raise ValueError(
+                    raise PublicValidationError(
                         "FMEA-MSR chains require frequency and monitoring ratings.")
                 if chain.occurrence is not None or chain.detection is not None:
-                    raise ValueError(
+                    raise PublicValidationError(
                         "FMEA-MSR chains do not use occurrence or detection ratings.")
             else:
                 if chain.occurrence is None or chain.detection is None:
-                    raise ValueError(
+                    raise PublicValidationError(
                         "DFMEA/PFMEA chains require occurrence and detection ratings.")
                 if chain.frequency is not None or chain.monitoring is not None:
-                    raise ValueError(
+                    raise PublicValidationError(
                         "DFMEA/PFMEA chains do not use frequency or monitoring ratings.")
         if self.kind != "pfmea" and self.control_plan:
-            raise ValueError("Only PFMEA analyses may contain Control Plan rows.")
+            raise PublicValidationError("Only PFMEA analyses may contain Control Plan rows.")
         return self
 
 
@@ -1453,7 +1476,7 @@ class FMEAAttestation(BaseModel):
     def validate_identity_assurance(self):
         if self.identity_assurance == "authenticated_hosted" and (
                 not self.identity_provider or not self.identity_subject):
-            raise ValueError(
+            raise PublicValidationError(
                 "Hosted attestations require identity_provider and "
                 "identity_subject.")
         return self
@@ -1484,7 +1507,7 @@ class FMEDASource(BaseModel):
             if self.upper_rate_per_hour is None else self.upper_rate_per_hour
         )
         if not lower <= self.failure_rate_per_hour <= upper:
-            raise ValueError(
+            raise PublicValidationError(
                 "FMEDA source uncertainty requires lower <= rate <= upper.")
         return self
 
@@ -1833,24 +1856,24 @@ class FMEAStudy(BaseModel):
     @model_validator(mode="after")
     def validate_study_identity(self):
         if self.id != self.model.id:
-            raise ValueError("FMEA study ID must match its model ID.")
+            raise PublicValidationError("FMEA study ID must match its model ID.")
         ids = [link.id for link in self.evidence_links]
         if len(ids) != len(set(ids)):
-            raise ValueError("FMEA evidence-link IDs must be unique.")
+            raise PublicValidationError("FMEA evidence-link IDs must be unique.")
         source_ids = [source.id for source in self.fmeda_sources]
         if len(source_ids) != len(set(source_ids)):
-            raise ValueError("FMEDA source IDs must be unique.")
+            raise PublicValidationError("FMEDA source IDs must be unique.")
         mode_ids = [mode.id for mode in self.fmeda_modes]
         if len(mode_ids) != len(set(mode_ids)):
-            raise ValueError("FMEDA failure-mode IDs must be unique.")
+            raise PublicValidationError("FMEDA failure-mode IDs must be unique.")
         unknown_mode_sources = sorted({
             mode.source_id for mode in self.fmeda_modes
             if mode.source_id not in set(source_ids)
         })
         if unknown_mode_sources:
-            raise ValueError(
-                "FMEDA modes reference unknown sources: "
-                + ", ".join(unknown_mode_sources[:10]))
+            raise PublicValidationError(
+                "FMEDA modes reference unknown sources: {sources}",
+                sources=", ".join(unknown_mode_sources[:10]))
         controlled_ids = [
             *(item.id for item in self.process_steps),
             *(item.id for item in self.verification_plan),
@@ -1863,7 +1886,7 @@ class FMEAStudy(BaseModel):
             *(item.id for item in self.saved_views),
         ]
         if len(controlled_ids) != len(set(controlled_ids)):
-            raise ValueError(
+            raise PublicValidationError(
                 "Process, verification, and characteristic IDs must be unique.")
         return self
 
@@ -1991,7 +2014,7 @@ class ReliabilityProgramRequest(BaseModel):
                   self.testability_faults, self.rcm]
         ids = [row.id for group in groups for row in group]
         if len(ids) != len(set(ids)):
-            raise ValueError("Reliability-program record IDs must be unique across all workflows.")
+            raise PublicValidationError("Reliability-program record IDs must be unique across all workflows.")
         return self
 
 
@@ -2018,6 +2041,7 @@ class MCFRecord(BaseModel):
     time: float = Field(ge=0)
     status: str                  # event | censor
     count: int = Field(1, ge=1)
+    cost: Optional[float] = Field(None, ge=0)
 
 
 class MCFRequest(BaseModel):
@@ -2027,6 +2051,7 @@ class MCFRequest(BaseModel):
     observation_ends: Optional[list[float]] = None
     # Long-form alternative with explicit event/censor records.
     records: Optional[list[MCFRecord]] = None
+    measure: Literal['events', 'cost'] = 'events'
     CI: float = Field(0.95, gt=0, lt=1)
     parametric: bool = False     # also fit the power-law parametric MCF
     interval_method: Literal[
@@ -2038,10 +2063,10 @@ class MCFRequest(BaseModel):
     def validate_bootstrap_contract(self):
         if (self.interval_method == "cluster_bootstrap"
                 and self.bootstrap_samples < 50):
-            raise ValueError(
+            raise PublicValidationError(
                 "cluster_bootstrap intervals require at least 50 samples")
         if 0 < self.bootstrap_samples < 50:
-            raise ValueError(
+            raise PublicValidationError(
                 "at least 50 samples are required when bootstrap is enabled")
         return self
 
@@ -2138,22 +2163,22 @@ class PredictionPart(BaseModel):
     def require_enabled_failure_rate_override(self):
         if (self.failure_rate_override_enabled
                 and self.failure_rate_override_fpmh is None):
-            raise ValueError(
+            raise PublicValidationError(
                 "failure_rate_override_fpmh is required when the part override is enabled"
             )
         if self.nonoperating_rate_override_enabled:
             if self.nonoperating_rate_override_fpmh is None:
-                raise ValueError(
+                raise PublicValidationError(
                     "nonoperating_rate_override_fpmh is required when the "
                     "nonoperating override is enabled"
                 )
             if self.nonoperating_rate_source_type is None:
-                raise ValueError(
+                raise PublicValidationError(
                     "nonoperating_rate_source_type is required when the "
                     "nonoperating override is enabled"
                 )
             if not (self.nonoperating_rate_source or "").strip():
-                raise ValueError(
+                raise PublicValidationError(
                     "nonoperating_rate_source is required when the "
                     "nonoperating override is enabled"
                 )
@@ -2182,7 +2207,7 @@ class PredictionBlock(BaseModel):
     def require_enabled_failure_rate_override(self):
         if (self.failure_rate_override_enabled
                 and self.failure_rate_override_fpmh is None):
-            raise ValueError(
+            raise PublicValidationError(
                 "failure_rate_override_fpmh is required when the block override is enabled"
             )
         return self
@@ -2296,14 +2321,14 @@ class RBDComponentData(BaseModel):
     def validate_probability_source(self):
         if self.distribution is None:
             if self.dist_params is not None:
-                raise ValueError("dist_params requires a distribution")
+                raise PublicValidationError("dist_params requires a distribution")
             if self.reliability is None:
-                raise ValueError(
+                raise PublicValidationError(
                     "component data requires reliability or a distribution model"
                 )
             return self
         if self.dist_params is None:
-            raise ValueError("distribution requires dist_params")
+            raise PublicValidationError("distribution requires dist_params")
         self.dist_params = validate_distribution_params(
             self.distribution, self.dist_params)
         return self
@@ -2327,12 +2352,12 @@ class RBDNode(BaseModel):
     def validate_component_data(self):
         if self.type == "component":
             if self.data is None:
-                raise ValueError("component node requires data")
+                raise PublicValidationError("component node requires data")
             self.data = RBDComponentData.model_validate(self.data).model_dump(
                 by_alias=True, exclude_none=True)
         elif self.type == "kofn":
             if self.data is None:
-                raise ValueError("k-out-of-n voting node requires data")
+                raise PublicValidationError("k-out-of-n voting node requires data")
             self.data = RBDVotingData.model_validate(self.data).model_dump(
                 by_alias=True, exclude_none=True)
         return self
@@ -2359,10 +2384,10 @@ class RBDRequest(BaseModel):
             and (node.data or {}).get("mission_time") is None
         ]
         if missing and self.mission_time is None:
-            raise ValueError(
+            raise PublicValidationError(
                 "distribution life models require a positive system mission_time "
-                "or an explicit component mission_time override; missing for "
-                + ", ".join(missing)
+                "or an explicit component mission_time override; missing for {nodes}",
+                nodes=", ".join(missing),
             )
         return self
 
@@ -2402,14 +2427,14 @@ class FTBasicEventData(BaseModel):
     def validate_probability_source(self):
         if self.distribution is None:
             if self.dist_params is not None:
-                raise ValueError("dist_params requires a distribution")
+                raise PublicValidationError("dist_params requires a distribution")
             if self.probability is None:
-                raise ValueError(
+                raise PublicValidationError(
                     "basic-event data requires probability or a distribution model"
                 )
             return self
         if self.dist_params is None:
-            raise ValueError("distribution requires dist_params")
+            raise PublicValidationError("distribution requires dist_params")
         self.dist_params = validate_distribution_params(
             self.distribution, self.dist_params)
         return self
@@ -2435,7 +2460,7 @@ class FTNode(BaseModel):
         elif self.type == "house":
             state = self.data.get("state", self.data.get("value", False))
             if not isinstance(state, bool):
-                raise ValueError("house event state must be true or false")
+                raise PublicValidationError("house event state must be true or false")
             self.data = {**self.data, "state": state}
         return self
 
@@ -2487,13 +2512,13 @@ class FaultTreeRequest(BaseModel):
     def validate_time_grid(self):
         if self.time_grid is not None:
             if len(self.time_grid) < 2:
-                raise ValueError("time_grid requires at least two values")
+                raise PublicValidationError("time_grid requires at least two values")
             if any(not math.isfinite(value) or value < 0
                    for value in self.time_grid):
-                raise ValueError("time_grid values must be finite and non-negative")
+                raise PublicValidationError("time_grid values must be finite and non-negative")
             if any(right < left for left, right in zip(
                     self.time_grid, self.time_grid[1:])):
-                raise ValueError("time_grid must be sorted in ascending order")
+                raise PublicValidationError("time_grid must be sorted in ascending order")
         return self
 
     @model_validator(mode="after")
@@ -2511,9 +2536,9 @@ class FaultTreeRequest(BaseModel):
         ]
         if missing:
             joined = ", ".join(missing)
-            raise ValueError(
+            raise PublicValidationError(
                 "distribution-based events require exposure_time on the "
-                f"event or request; missing for: {joined}"
+                "event or request; missing for: {nodes}", nodes=joined,
             )
         return self
 
@@ -2541,9 +2566,9 @@ class FTAToRBDConversionRequest(BaseModel):
                 and self.exposure_time is None)
         ]
         if missing:
-            raise ValueError(
+            raise PublicValidationError(
                 "distribution-based events require exposure_time on the "
-                f"event or request; missing for: {', '.join(missing)}"
+                "event or request; missing for: {nodes}", nodes=', '.join(missing),
             )
         return self
 
@@ -2784,9 +2809,24 @@ class MarkovRequest(BaseModel):
     transitions: list[MarkovTransitionSchema]
     times: Optional[list[float]] = None
     initial_state: Optional[str] = None
+    initial_probabilities: Optional[dict[str, float]] = None
     uncertainty_samples: int = Field(500, ge=0, le=5000)
     uncertainty_ci: float = Field(0.90, gt=0, lt=1)
     uncertainty_seed: Optional[int] = None
+
+    @model_validator(mode="after")
+    def validate_initial_probabilities(self):
+        import math
+        if self.initial_probabilities is not None:
+            probabilities = self.initial_probabilities
+            ids = {state.id for state in self.states}
+            if (not probabilities or set(probabilities) - ids
+                    or any(not math.isfinite(v) or v < 0 for v in probabilities.values())
+                    or not math.isclose(sum(probabilities.values()), 1.0, abs_tol=1e-10, rel_tol=0)):
+                raise PublicValidationError("Initial probabilities must reference known states, be finite/nonnegative and sum to one.")
+            if self.initial_state is not None:
+                raise PublicValidationError("Choose either initial_state or initial_probabilities.")
+        return self
 
 
 # --- Mission Profile ---
@@ -2822,25 +2862,25 @@ class MissionProfilePredictionRequest(BaseModel):
         if not mixed:
             return self
         if self.standard != "MIL-HDBK-217F":
-            raise ValueError(
+            raise PublicValidationError(
                 "Nonoperating mission exposure is available only through the "
                 "RADC-TR-85-91 extension to MIL-HDBK-217F."
             )
         for phase in mixed:
             if phase.nonoperating_environment is None:
-                raise ValueError(
-                    f"Phase '{phase.name}' requires a nonoperating_environment "
-                    "when operating_fraction is below 1."
+                raise PublicValidationError(
+                    "Phase '{phase}' requires a nonoperating_environment "
+                    "when operating_fraction is below 1.", phase=phase.name,
                 )
             if phase.nonoperating_temperature_c is None:
-                raise ValueError(
-                    f"Phase '{phase.name}' requires a nonoperating_temperature_c "
-                    "when operating_fraction is below 1."
+                raise PublicValidationError(
+                    "Phase '{phase}' requires a nonoperating_temperature_c "
+                    "when operating_fraction is below 1.", phase=phase.name,
                 )
             if phase.power_cycles_per_1000_nonoperating_hours is None:
-                raise ValueError(
-                    f"Phase '{phase.name}' requires an explicit power-cycle rate "
-                    "when operating_fraction is below 1 (enter 0 when none occur)."
+                raise PublicValidationError(
+                    "Phase '{phase}' requires an explicit power-cycle rate "
+                    "when operating_fraction is below 1 (enter 0 when none occur).", phase=phase.name,
                 )
         return self
 

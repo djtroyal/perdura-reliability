@@ -14,7 +14,7 @@
  */
 import { convert } from './units'
 
-export type FieldMode = 'mul' | 'inv' | 'mcf_wide' | 'distribution' | 'transition'
+export type FieldMode = 'mul' | 'inv' | 'mcf_wide' | 'distribution' | 'transition' | 'time_list' | 'exposure_rows' | 'repair_model' | 'system_lifecycle'
 export interface FieldRule { path: string; mode: FieldMode }
 
 export const UNIT_RULES: Record<string, FieldRule[]> = {
@@ -31,6 +31,11 @@ export const UNIT_RULES: Record<string, FieldRule[]> = {
     { path: 'T', mode: 'mul' },
     { path: 'predictionHorizon', mode: 'mul' },
     { path: 'mcf.text', mode: 'mcf_wide' },
+    ...['currentTime', 'currentMtbf', 'targetMtbf', 'plannedAdditionalTime'].map(field => ({ path: `planning.${field}`, mode: 'mul' as const })),
+    { path: 'planning.phaseDurations', mode: 'time_list' },
+    { path: 'planning.unaddressedRate', mode: 'inv' },
+    { path: 'planning.actions[].time', mode: 'mul' },
+    { path: 'planning.actions[].rate', mode: 'inv' },
   ],
   ram: [
     { path: 'avail.mtbf', mode: 'mul' }, { path: 'avail.mttr', mode: 'mul' },
@@ -38,14 +43,34 @@ export const UNIT_RULES: Record<string, FieldRule[]> = {
     { path: 'avail.adminDelay', mode: 'mul' }, { path: 'avail.logiDelay', mode: 'mul' },
     { path: 'spares.opHours', mode: 'mul' }, { path: 'spares.mtbf', mode: 'mul' },
     { path: 'spares.rate', mode: 'inv' },
+    ...['weibullAlpha', 'leadMean', 'leadStd'].map(field => ({ path: `spares.${field}`, mode: 'mul' as const })),
+    { path: 'spares.shockRate', mode: 'inv' },
+    { path: 'maint', mode: 'repair_model' },
+  ],
+  reliabilityTestingTools: [
+    { path: 'aggregateMTBF.totalExposure', mode: 'mul' }, { path: 'aggregateMTBF.exposureText', mode: 'exposure_rows' },
+    { path: 'normalSummary.mean', mode: 'mul' }, { path: 'normalSummary.sd', mode: 'mul' },
+    ...['goodMtbf', 'badMtbf', 'exposureHorizon', 'observedExposure'].map(field => ({ path: `sequentialSampling.${field}`, mode: 'mul' as const })),
+    { path: 'sequentialSampling.failureTimes', mode: 'time_list' },
+  ],
+  lifeTools: [
+    ...['eta', 'percentileLife', 'interval', 'cmDowntime', 'pmDowntime', 'firstAge', 'secondAge'].map(field => ({ path: field, mode: 'mul' as const })),
+    { path: 'ages', mode: 'time_list' }, { path: 'durations', mode: 'time_list' },
+  ],
+  maintInventory: [
+    { path: 'horizon', mode: 'mul' },
+    ...['eta', 'lead', 'leadSd', 'age', 'entry', 'exit'].map(field => ({ path: `rows[].${field}`, mode: 'mul' as const })),
+    { path: 'rows[].rate', mode: 'inv' }, { path: 'rows[].storageRate', mode: 'inv' },
   ],
   faultTree: [
     { path: 'exposureTime', mode: 'mul' }, { path: 'nodes[].data.exposure_time', mode: 'mul' },
     { path: 'nodes[].data', mode: 'distribution' },
+    { path: 'lifecycle', mode: 'system_lifecycle' },
   ],
   system: [
     { path: 'missionTime', mode: 'mul' }, { path: 'nodes[].data.mission_time', mode: 'mul' },
     { path: 'nodes[].data', mode: 'distribution' },
+    { path: 'lifecycle', mode: 'system_lifecycle' },
   ],
   markov: [{ path: 'tMax', mode: 'mul' }, { path: 'transitions[]', mode: 'transition' },
     { path: 'canvasEdges[].data', mode: 'transition' }],
@@ -56,6 +81,8 @@ export const UNIT_RULES: Record<string, FieldRule[]> = {
   maintCostForecast: [
     { path: 'alpha', mode: 'mul' }, { path: 'horizon', mode: 'mul' }, { path: 'interval', mode: 'mul' },
   ],
+  maintFleet: [{ path: 'alpha', mode: 'mul' }, { path: 'horizon', mode: 'mul' },
+    { path: 'cohorts[].age', mode: 'mul' }, { path: 'cohorts[].entry', mode: 'mul' }, { path: 'cohorts[].exit', mode: 'mul' }],
   maintAvailability: [
     { path: 'mtbf', mode: 'mul' }, { path: 'mttr', mode: 'mul' },
     { path: 'admin', mode: 'mul' }, { path: 'logistics', mode: 'mul' },
@@ -70,6 +97,46 @@ type Transform = (v: unknown) => unknown
 function makeTransform(from: string, to: string, mode: FieldMode): Transform {
   return (v: unknown) => {
     if (v == null || v === '') return v
+    if (mode === 'system_lifecycle') {
+      if (!v || typeof v !== 'object' || Array.isArray(v)) return v
+      const data = v as Record<string, unknown>
+      const settings = { ...(data.settings as Record<string, unknown> ?? {}) }
+      const mul = makeTransform(from, to, 'mul')
+      for (const field of ['interval', 'downtime', 'horizon', 'warmup']) settings[field] = mul(settings[field])
+      const duration = (value: unknown) => {
+        const d = value as { distribution: string; params: Record<string, unknown> } | undefined
+        if (!d?.params) return value
+        const params = { ...d.params }
+        for (const field of d.distribution === 'exponential' ? ['mean'] : d.distribution === 'deterministic' ? ['value'] : d.distribution === 'weibull' ? ['alpha'] : d.distribution === 'gamma' ? ['beta'] : d.distribution === 'normal' ? ['mu', 'sigma'] : []) params[field] = mul(params[field])
+        if (d.distribution === 'lognormal' && Number.isFinite(Number(params.mu))) params.mu = Number(params.mu) + Math.log(convert(1, from, to))
+        return { ...d, params }
+      }
+      settings.policies = Object.fromEntries(Object.entries(settings.policies as Record<string, Record<string, unknown>> ?? {}).map(([key, p]) => [key, { ...p,
+        pm_interval: mul(p.pm_interval), supply_lead_time: mul(p.supply_lead_time), repair: duration(p.repair), pm_duration: duration(p.pm_duration) }]))
+      return { ...data, settings, modelSignature: undefined }
+    }
+    if (mode === 'time_list') {
+      if (typeof v !== 'string') return v
+      return v.split(/([\s,:;]+)/).map(token => /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(token)
+        ? String(convert(Number(token), from, to)) : token).join('')
+    }
+    if (mode === 'exposure_rows') {
+      if (typeof v !== 'string') return v
+      const rows = v.split(/\r?\n/).map(row => row.trim().split(/[\s,]+/))
+      if (rows.some(row => row[0] && (row.length !== 3 || row.some(x => !Number.isFinite(Number(x)))))) return v
+      return rows.map(row => row[0] ? [row[0], convert(Number(row[1]), from, to), row[2]].join(', ') : '').join('\n')
+    }
+    if (mode === 'repair_model') {
+      if (!v || typeof v !== 'object' || Array.isArray(v)) return v
+      const data = { ...v as Record<string, unknown> }
+      const mu = data.mu
+      if (typeof mu === 'string' && mu.trim() && Number.isFinite(Number(mu))) data.mu = String(Number(mu) + Math.log(convert(1, from, to)))
+      data.mttr = makeTransform(from, to, 'mul')(data.mttr)
+      if (typeof data.samples === 'string') data.samples = data.mode === 'frequency'
+        ? data.samples.split(/\r?\n/).map(row => { const parts = row.trim().split(/[\s,]+/); return parts.length === 2 && Number.isFinite(Number(parts[0])) ? `${convert(Number(parts[0]), from, to)}, ${parts[1]}` : row }).join('\n')
+        : makeTransform(from, to, 'time_list')(data.samples)
+      return data
+    }
     if (mode === 'transition') {
       if (!v || typeof v !== 'object' || Array.isArray(v)) return v
       const data = v as Record<string, unknown>
@@ -112,9 +179,11 @@ function makeTransform(from: string, to: string, mode: FieldMode): Transform {
         const eventText = parts[0].trim()
         const events = eventText ? eventText.split(/[\s,]+/).filter(Boolean) : []
         const end = parts[1].trim()
-        if (!events.every(token => numberToken.test(token)) || !numberToken.test(end)) return v
+        const observations = events.map(token => token.split(':'))
+        if (!observations.every(parts => parts.length <= 2 && parts.every(token => numberToken.test(token)))
+          || !numberToken.test(end)) return v
         const scale = (token: string) => String(convert(Number(token), from, to))
-        converted.push(`${events.map(scale).join(', ')} | ${scale(end)}`)
+        converted.push(`${observations.map(([time,cost]) => cost === undefined ? scale(time) : `${scale(time)}:${cost}`).join(', ')} | ${scale(end)}`)
       }
       return converted.join('\n')
     }

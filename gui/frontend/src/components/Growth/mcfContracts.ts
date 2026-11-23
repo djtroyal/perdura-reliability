@@ -3,6 +3,7 @@ import type { MCFResponse } from '../../api/client'
 export type MCFIntervalMethod = 'log_transformed' | 'cluster_bootstrap'
 
 export interface MCFState {
+  measure?: 'events' | 'cost'
   text: string
   ciText: string
   parametric: boolean
@@ -107,4 +108,29 @@ export function isMCFRequestTokenCurrent(
   return token.requestId === requestId
     && token.folioId === folioId
     && token.inputSignature === mcfInputSignature(state)
+}
+
+/** Monetary marks retain one subject cluster per input line. */
+export function parseMCFCostText(text: string): import('../../api/lifecycle').CostMCFRecord[] {
+  const records: import('../../api/lifecycle').CostMCFRecord[] = []
+  for (const [rowIndex, raw] of text.split(/\r?\n/).entries()) {
+    if (!raw.trim()) continue
+    const fields = raw.split('|')
+    if (fields.length !== 2) throw new Error(`Row ${rowIndex+1}: use time:cost entries followed by | observation end.`)
+    const end = parseStrictFiniteNumber(fields[1], `Row ${rowIndex+1} observation end`)
+    if (end < 0) throw new Error('Observation end cannot be negative.')
+    const system_id = String(rowIndex+1)
+    let previous = -1
+    for (const entry of fields[0].trim().split(/[\s,]+/).filter(Boolean)) {
+      const pair = entry.split(':')
+      if (pair.length !== 2) throw new Error(`Row ${rowIndex+1}: every event requires time:cost.`)
+      const time = parseStrictFiniteNumber(pair[0], 'Event time'), cost = parseStrictFiniteNumber(pair[1], 'Event cost')
+      if (time < 0 || time > end || time < previous) throw new Error('Event times must be nonnegative, ordered, and no later than observation end.')
+      if (cost < 0) throw new Error('Event costs cannot be negative.')
+      records.push({ system_id, time, status: 'event', cost })
+      previous = time
+    }
+    records.push({ system_id, time: end, status: 'censor' })
+  }
+  return records
 }

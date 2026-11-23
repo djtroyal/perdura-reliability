@@ -37,7 +37,7 @@ export function resolveMcRun(owner:MonteCarloOwner,folios:readonly LifeDataModel
  if(spec.mcMode==='equation'&&!equation)throw new Error('Equation is empty.')
  const suspensionRate=spec.includeSuspensions?Number(spec.suspensionRate):0
  if(!Number.isFinite(suspensionRate)||suspensionRate<0||suspensionRate>100)throw new Error('Suspension rate must be between 0 and 100 percent.')
- const contents={variables,outputQuantity,equation,n,seed,genMode:spec.genMode,suspensionRate,mcId:spec.mcId,engineRevision:options.engineRevision ?? 2}
+ const contents={variables,outputQuantity,equation,n,seed,genMode:spec.genMode,suspensionRate,mcId:spec.mcId,engineRevision:options.engineRevision ?? 3}
  return {fingerprint:distributionFingerprint(contents),variables,outputQuantity,equation,n,seed}
 }
 /** Destination edits must not be overwritten by an older generation request. */

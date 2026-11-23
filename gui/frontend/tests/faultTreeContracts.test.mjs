@@ -65,10 +65,11 @@ try {
   }
 
   const library = await vite.ssrLoadModule('/src/components/FaultTree/libraryModel.ts')
+  const { CURRENT_ENGINE_REVISIONS } = await vite.ssrLoadModule('/src/version.ts')
   const recorded = project.getProjectState().modules.faultTree
   recorded.nodes = [{ id: 'A', type: 'basic', data: { probability: 0.1 } }]
   recorded.edges = []
-  recorded.resultProvenance = library.createFtaResultProvenance(library.normalizeFtaLibrary(recorded).folios, 'f0')
+  recorded.resultProvenance = library.createFtaResultProvenance(library.normalizeFtaLibrary(recorded).folios, 'f0', CURRENT_ENGINE_REVISIONS.faultTree)
   const assets = extractors.enumerateAssets().filter(asset => asset.module === 'faultTree')
   const labels = new Set(assets.map(asset => asset.label))
   for (const label of [

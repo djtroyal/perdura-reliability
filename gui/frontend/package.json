@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "test:specification-tails": "node --experimental-strip-types tests/specificationTails.test.mjs",
     "test:plot-markup": "node tests/plotMarkup.test.mjs",
     "test:plotly-interop": "node tests/plotlyFactoryInterop.test.mjs",
     "test:hypothesis-overview": "node tests/hypothesisDistributionOverview.test.mjs",
@@ -117,7 +118,24 @@
     "assurance:process-transfer-authoring": "node tests/processTransferAuthoringBrowser.mjs",
     "assurance:canonical-fmea-workflow": "node tests/canonicalFmeaWorkflowBrowser.mjs",
     "test:fmea-draft-integrity": "node tests/fmeaDraftIntegrity.test.mjs",
-    "assurance:fmea-readiness": "node tests/fmeaReadinessBrowser.mjs"
+    "assurance:fmea-readiness": "node tests/fmeaReadinessBrowser.mjs",
+    "test:standard-life-methods": "node tests/standardLifeData.test.mjs",
+    "assurance:standard-life-methods": "node tests/standardLifeMethodsBrowser.mjs",
+    "test:lifecycle-contracts": "node tests/lifecycleContracts.test.mjs",
+    "assurance:lifecycle": "node tests/lifecycleBrowser.mjs",
+    "test:repair-time-input": "node --experimental-strip-types tests/repairTimeInput.test.mjs",
+    "test:inference-tools": "node tests/inferenceToolsContracts.test.mjs",
+    "test:lifetime-tools": "node tests/lifetimeToolsContracts.test.mjs",
+    "test:prediction-comparison": "node tests/predictionComparison.test.mjs",
+    "assurance:inference-tools": "node tests/inferenceToolsBrowser.mjs",
+    "assurance:lifetime-tools": "node tests/lifetimeToolsBrowser.mjs",
+    "assurance:reference-library": "node tests/referenceLibraryBrowser.mjs",
+    "assurance:system-lifecycle": "node tests/systemLifecycleBrowser.mjs",
+    "assurance:prediction-comparison": "node tests/predictionComparisonBrowser.mjs",
+    "assurance:inventory-ram": "node tests/inventoryRamBrowser.mjs",
+    "test:toolkit-integration": "node tests/toolkitIntegration.test.mjs",
+    "test:toolkit-freshness": "node tests/toolkitFreshness.test.mjs",
+    "test:system-lifecycle": "node tests/systemLifecycleContracts.test.mjs"
   },
   "dependencies": {
     "@xyflow/react": "^12.12.1",

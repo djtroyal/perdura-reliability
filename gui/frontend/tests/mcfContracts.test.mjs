@@ -65,6 +65,17 @@ try {
   const contracts = await vite.ssrLoadModule(
     '/src/components/Growth/mcfContracts.ts')
 
+  assert.deepEqual(contracts.parseMCFCostText('1:12.75, 2:0 | 2\n| 3'), [
+    { system_id: '1', time: 1, status: 'event', cost: 12.75 },
+    { system_id: '1', time: 2, status: 'event', cost: 0 },
+    { system_id: '1', time: 2, status: 'censor' },
+    { system_id: '2', time: 3, status: 'censor' },
+  ])
+  assert.throws(() => contracts.parseMCFCostText('1:-4 | 2'), /negative/)
+  assert.throws(() => contracts.parseMCFCostText('3:12 | 2'), /observation end/)
+  assert.throws(() => contracts.parseMCFCostText('1:12USD | 2'), /not a valid number/)
+  assert.throws(() => contracts.parseMCFCostText('1 | 2'), /time:cost/)
+
   assert.deepEqual(
     contracts.parseMCFWideText('1, 2e0 | 3\n| 4'),
     { data: [[1, 2], []], observation_ends: [3, 4] },

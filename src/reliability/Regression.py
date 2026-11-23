@@ -14,6 +14,10 @@ import scipy
 from scipy import stats
 
 
+class _RankDeficientError(ValueError):
+    """Coefficients are not identifiable from the supplied design matrix."""
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -170,7 +174,7 @@ def linear_regression(X, y, feature_names: list[str], fit_intercept: bool = True
         from scipy.linalg import qr
         _, _, pivots = qr(Xd, mode="economic", pivoting=True)
         aliased = [term_names[i] for i in pivots[rank:]]
-        raise ValueError(
+        raise _RankDeficientError(
             f"Rank-deficient design matrix (rank {rank} of {n_params}); "
             f"coefficient inference is not identifiable. Aliased term(s): "
             f"{', '.join(aliased)}. Remove duplicate/constant predictors or "
@@ -1609,7 +1613,7 @@ def logistic_regression(
         _, _, pivots = qr(Xd, mode="economic", pivoting=True)
         term_names = (["Intercept"] if fit_intercept else []) + list(feature_names)
         aliased = [term_names[i] for i in pivots[rank:]]
-        raise ValueError(
+        raise _RankDeficientError(
             f"Rank-deficient logistic design matrix (rank {rank} of {n_params}); "
             f"coefficient inference is not identifiable. Aliased term(s): {', '.join(aliased)}."
         )
