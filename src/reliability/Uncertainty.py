@@ -773,6 +773,7 @@ def parametric_bootstrap_intervals(fit, target_specs, CI=None,
                         failures=simulated_failures,
                         right_censored=simulated_rc,
                         method=getattr(fit, "method", "MLE"),
+                        rank_method=getattr(fit, "rank_method", "benard"),
                         CI=CI,
                         show_probability_plot=False,
                     )
@@ -853,6 +854,8 @@ def parametric_bootstrap_intervals(fit, target_specs, CI=None,
         failure_reasons["nonfinite_target"] = target_failure_reasons[key]
         result = {
             "method": "parametric_bootstrap_percentile",
+            "estimator": getattr(fit, "method", "MLE"),
+            "rank_method": getattr(fit, "rank_method", "benard"),
             "target": spec["target"],
             "target_value": spec["value"],
             "estimate": estimates[key],
@@ -926,7 +929,7 @@ def _derived_seed(fit, CI, n_bootstrap, xvals):
     digest.update(np.asarray(xvals, dtype=np.float64).tobytes())
     digest.update(
         f"{fit.__class__.__name__}|{getattr(fit, 'method', 'MLE')}|"
-        f"{CI:.17g}|{n_bootstrap}".encode()
+        f"{getattr(fit, 'rank_method', 'benard')}|{CI:.17g}|{n_bootstrap}".encode()
     )
     return int.from_bytes(digest.digest()[:8], "big") % (2 ** 32)
 
@@ -1124,6 +1127,7 @@ def parametric_bootstrap_package(
                         failures=simulated_failures,
                         right_censored=simulated_rc,
                         method=estimator,
+                        rank_method=getattr(fit, "rank_method", "benard"),
                         CI=CI,
                         show_probability_plot=False,
                     )
@@ -1187,6 +1191,7 @@ def parametric_bootstrap_package(
         "sample_design": censoring_plan.model,
         "confidence_level": CI,
         "estimator": estimator,
+        "rank_method": getattr(fit, "rank_method", "benard"),
         "exact": False,
         "band_scope": "pointwise",
         "parameter_methods": {

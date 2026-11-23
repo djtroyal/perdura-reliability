@@ -1,3 +1,4 @@
+import { useSystemLifecycleNavigation } from '../shared/useSystemLifecycleNavigation'
 import DropdownDetails from '../shared/DropdownDetails'
 import { distributionLabel } from '../shared/distributionLabels'
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
@@ -49,6 +50,8 @@ import LibraryPanel, { LibraryItem } from '../shared/LibraryPanel'
 import { CanvasErrorBoundary, sanitizeNodeChanges, sanitizeNodes } from '../shared/CanvasErrorBoundary'
 import { useReliabilitySources } from '../shared/ldaFolios'
 import { resolveLinkedNodes, analysisSourceFingerprint, nodeSourceRef, sourceId, resolveReliabilitySource } from '../shared/reliabilitySources'
+import SystemLifecycle from '../SystemReliability/SystemLifecycle'
+import type { LifecycleState } from '../../api/systemTools'
 import ExportDiagramButton from '../shared/ExportDiagramButton'
 import CanvasAssetControls from '../shared/CanvasAssetControls'
 import DiagramLayoutMenu from '../shared/DiagramLayoutMenu'
@@ -927,6 +930,7 @@ const METHOD_LABELS: Record<string, string> = {
 }
 
 export interface CanvasState {
+  lifecycle?: LifecycleState
   schemaVersion?: number
   nodes: Node[]
   edges: Edge[]
@@ -1116,6 +1120,9 @@ export function FaultTreeEditor({ onNavigate, onLibrary }: {
   const [propertiesHost, setPropertiesHost] = useState<HTMLDivElement | null>(null)
   const [clipboard, setClipboard] = useState<NodeClipboard | null>(null)
   const [globalExposure, setGlobalExposure] = useState<string>(persisted.exposureTime ?? '1000')
+  const [lifecycle, setLifecycle] = useState(persisted.lifecycle)
+  const [lifecycleOpen, setLifecycleOpen] = useState(false)
+  useSystemLifecycleNavigation('faultTree', folios.activeId, () => setLifecycleOpen(true))
   const [engine, setEngine] = useState<'auto' | 'exact' | 'simulation'>(persisted.engine ?? 'auto')
   const [nSimulations, setNSimulations] = useState<string>(persisted.nSimulations ?? '20000')
   const [simSeed, setSimSeed] = useState<string>(persisted.simSeed ?? '')
@@ -1557,14 +1564,14 @@ export function FaultTreeEditor({ onNavigate, onLibrary }: {
   const persistedAnnotations = persistedCanvasNodes(annotations)
   const latest = useRef<CanvasState>({
     ...persisted, schemaVersion: 2, nodes: persistedNodes, edges: modelEdges, annotations: persistedAnnotations,
-    exposureTime: globalExposure, result, engine, nSimulations, simSeed, confidenceLevel,
+    exposureTime: globalExposure, result, engine, nSimulations, simSeed, confidenceLevel, lifecycle,
     density, layoutOptions, connectorStyle, snapToGrid, showNodeIds,
     conversionProvenance: persisted.conversionProvenance,
     pendingSystemStarter: persisted.pendingSystemStarter,
   })
   latest.current = {
     ...persisted, schemaVersion: 2, nodes: persistedNodes, edges: modelEdges, annotations: persistedAnnotations,
-    exposureTime: globalExposure, result, engine, nSimulations, simSeed, confidenceLevel,
+    exposureTime: globalExposure, result, engine, nSimulations, simSeed, confidenceLevel, lifecycle,
     density, layoutOptions, connectorStyle, snapToGrid, showNodeIds,
     conversionProvenance: persisted.conversionProvenance,
     pendingSystemStarter: persisted.pendingSystemStarter,
@@ -1586,7 +1593,7 @@ export function FaultTreeEditor({ onNavigate, onLibrary }: {
     if (layoutPending.current) return
     if (persistTimer.current) clearTimeout(persistTimer.current)
     persistTimer.current = setTimeout(persistLatest, 250)
-  }, [nodes, modelEdges, annotations, globalExposure, engine, nSimulations, simSeed, confidenceLevel, density, layoutOptions, connectorStyle, snapToGrid, showNodeIds]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [nodes, modelEdges, annotations, globalExposure, engine, nSimulations, simSeed, confidenceLevel, density, layoutOptions, connectorStyle, snapToGrid, showNodeIds, lifecycle]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => {
     if (persistTimer.current) clearTimeout(persistTimer.current)
     persistLatest()
@@ -1618,6 +1625,7 @@ export function FaultTreeEditor({ onNavigate, onLibrary }: {
         persisted.nodes ?? [],
       ))
       setGlobalExposure(persisted.exposureTime ?? '1000')
+      setLifecycle(persisted.lifecycle); setLifecycleOpen(false)
       setEngine(persisted.engine ?? 'auto')
       setNSimulations(persisted.nSimulations ?? '20000')
       setSimSeed(persisted.simSeed ?? '')
@@ -2802,6 +2810,15 @@ export function FaultTreeEditor({ onNavigate, onLibrary }: {
   return (
     <>
     <div className="flex flex-col flex-1 min-h-0">
+      {lifecycleOpen && <SystemLifecycle key={folios.activeId} analysisId={folios.activeId} value={lifecycle} onClose={() => setLifecycleOpen(false)}
+        diagram={{ kind: 'fta', nodes: nodes.map(node => {
+          let resolved = node
+          try { resolved = resolveLinkedNodes(getProjectState(), [node])[0] } catch (cause) { resolved = { ...node, data: { ...node.data, sourceError: (cause as Error).message } } }
+          return { id: resolved.id, type: resolved.type ?? 'basic', data: resolved.data }
+        }), edges: modelEdges.map(e => ({ id: e.id, source: e.source, target: e.target,
+          role: e.data?.role as string | undefined, order: e.data?.order as number | undefined })), mission_time: Number(globalExposure) }}
+        onChange={next => { setLifecycle(next); latest.current = { ...latest.current, lifecycle: next }; persistLatest() }} />}
+      <div className="border-b bg-white px-3 py-1"><button onClick={() => setLifecycleOpen(true)} className="rounded border border-blue-300 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-900">Lifecycle: renewal, state table and repairable simulation</button></div>
       {result && resultFreshness.status !== 'current' && <div role="status" className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
         Historical results · {resultFreshness.reason} Diagram probability overlays are hidden until recalculation.
       </div>}

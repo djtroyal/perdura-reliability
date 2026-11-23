@@ -3,6 +3,45 @@
 All notable Perdura changes are documented here. Releases use stable semantic
 versions in the `0.x` series as defined in [VERSIONING.md](VERSIONING.md).
 
+## Unreleased
+
+### Added
+
+- Guided active/standby redundancy, RBD/FTA whole-system renewal and state-table
+  tools, and repairable-system event simulation with explicit maintenance policies.
+- Exposure-ledger MTBF inference, normal summary inference, binomial/finite-lot
+  acceptance, executable sequential testing, and integrated growth phase tables.
+- BOM inventory and lifetime procurement, cost-constrained stock allocation,
+  conditional-survival matrices, mechanical life conversion, and inspection-based
+  posterior predictive counts with prior and shape sensitivity.
+- Paired Prediction scenario comparisons, searchable local reference pages, and
+  saved report assets for the new analysis workflows.
+- Mixed exact, right-censored, left-censored and interval-censored lifetime
+  likelihoods; selectable plotting positions; conditional remaining-life
+  calculations; and specification-tail PPM from adopted dataset distributions.
+- Standard partial competing-risk and bathtub Weibull composites (W5B/W7),
+  monetary mean cumulative functions, perfect-renewal block replacement, and
+  cohort-based fleet event and cost forecasts with numerical error bounds.
+
+### Fixed
+
+- Match operational availability to its maintenance basis; reject invalid repair
+  observations; prevent overlapping sequential decision boundaries; bound spares
+  display grids without changing sizing; preserve tiny age-replacement tails.
+- Preserve fitted parameters and generated observations at full API precision.
+  Improve rare stress–strength tails, fixed-shape Weibayes exposure sums,
+  unit-invariant mixture identifiability and likelihood-ratio contour scaling.
+- Distinguish unbounded boundary hazards from zero, reject invalid estimators
+  and all-censored ordinary fits, and keep plot/adoption provenance aligned
+  with the selected fitting settings.
+
+### Analytical notes
+
+- These additions use public statistical methods; proprietary WinSmith methods
+  are excluded. New composite-model confidence intervals remain unavailable
+  pending calibration. Renewal error bounds describe numerical approximation,
+  not statistical confidence. Affected stored results require recalculation.
+
 ## 0.8.4
 
 This alpha release adds shared system modeling, requirements traceability, and

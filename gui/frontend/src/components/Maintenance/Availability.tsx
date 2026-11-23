@@ -9,7 +9,7 @@ import { RamState, AvailState, INITIAL, pf } from './ram'
 export default function Availability() {
   const [s, setS] = useModuleState<RamState>('ram', INITIAL)
   const av = s.avail
-  const patch = (p: Partial<AvailState>) => setS(prev => ({ ...prev, avail: { ...prev.avail, ...p } }))
+  const patch = (p: Partial<AvailState>) => setS(prev => ({ ...prev, avail: { ...prev.avail, result: null, ...p } }))
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [units] = useUnits()
@@ -33,9 +33,9 @@ export default function Availability() {
       <Field label="MTBF" tip="Mean time between failures (uptime)." value={av.mtbf} onChange={v => patch({ mtbf: v })} />
       <Field label="MTTR" tip="Mean corrective time to repair." value={av.mttr} onChange={v => patch({ mttr: v })} />
       <Field label="MTBM (optional)" tip="Mean time between maintenance, including preventive. Used for achieved/operational availability." value={av.mtbm} onChange={v => patch({ mtbm: v })} />
-      <Field label="Mean active maint. time (optional)" tip="M̄ — mean active corrective + preventive maintenance time. Used for achieved availability." value={av.meanMaint} onChange={v => patch({ meanMaint: v })} />
-      <Field label="Admin delay" tip="Mean administrative delay before maintenance starts." value={av.adminDelay} onChange={v => patch({ adminDelay: v })} />
-      <Field label="Logistics delay" tip="Mean logistics / supply delay (e.g. waiting for spares)." value={av.logiDelay} onChange={v => patch({ logiDelay: v })} />
+      <Field label="Mean active maintenance time" tip="Corrective + preventive time per maintenance event. With MTBM, used for both achieved and operational availability." value={av.meanMaint} onChange={v => patch({ meanMaint: v })} />
+      <Field label="Admin delay" tip="Mean delay per event using the same maintenance mix as the selected uptime. Exclude time already counted as active maintenance." value={av.adminDelay} onChange={v => patch({ adminDelay: v })} />
+      <Field label="Logistics delay" tip="Mean supply delay per event using the same maintenance mix; exclude overlap with other downtime." value={av.logiDelay} onChange={v => patch({ logiDelay: v })} />
     </>
   )
 
@@ -48,13 +48,14 @@ export default function Availability() {
       </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Card label="Mean down time (MDT)" value={fmtNum(r.mean_down_time)} />
-        <Card label="Repair (MTTR)" value={fmtNum(r.downtime_breakdown.repair)} />
+        <Card label={r.active_maintenance_label ?? 'Active maintenance'} value={fmtNum(r.downtime_breakdown.repair)} />
         <Card label="Admin delay" value={fmtNum(r.downtime_breakdown.admin_delay)} />
         <Card label="Logistics delay" value={fmtNum(r.downtime_breakdown.logistics_delay)} />
       </div>
+      <p className="text-xs text-gray-600">{r.operational_unavailable_reason ?? (r.operational_basis === 'all_maintenance' ? 'Operational basis: corrective and preventive maintenance.' : 'Operational basis: corrective maintenance only.')}</p>
       {(() => {
         // Where availability is lost: uptime vs the components of downtime.
-        const uptime = pf(av.mtbm) ?? pf(av.mtbf)
+        const uptime = r.mean_uptime
         const d = r.downtime_breakdown
         const admin = d.admin_delay ?? 0
         const logi = d.logistics_delay ?? 0
@@ -71,7 +72,7 @@ export default function Availability() {
             <Plot
               data={[
                 seg('Uptime', uptime, '#10b981'),
-                seg('Repair', d.repair, '#ef4444'),
+                seg(r.active_maintenance_label ?? 'Active maintenance', d.repair, '#ef4444'),
                 seg('Admin delay', admin, '#f59e0b'),
                 seg('Logistics delay', logi, '#3b82f6'),
               ]}
@@ -84,10 +85,15 @@ export default function Availability() {
           </div>
         )
       })()}
-      <p className="text-[11px] text-gray-500 leading-snug">
-        Ai = MTBF/(MTBF+MTTR) ignores delays. Ao = uptime/(uptime+MDT) where MDT = MTTR + admin + logistics
-        delay. For state-based (degraded-mode) availability, use the Markov tab under System Modeling.
-      </p>
+      {r.mean_uptime != null && r.mean_down_time != null && (() => {
+        const up = r.mean_uptime!, down = r.mean_down_time!
+        const xs = Array.from({ length: 45 }, (_, i) => up * 10 ** (-1 + i / 22))
+        const ys = Array.from({ length: 45 }, (_, i) => down * 10 ** (-1 + i / 22))
+        return <details><summary className="cursor-pointer text-xs font-semibold">Uptime / downtime trade space</summary><Plot plotId="availability-trade-space"
+          data={[{ type: 'contour', x: xs, y: ys, z: ys.map(d => xs.map(u => u / (u + d))), contours: { showlabels: true }, colorscale: 'Viridis', colorbar: { title: { text: 'Availability' } }, name: 'Availability' },
+            { x: [up], y: [down], mode: 'markers', name: 'Selected model', marker: { size: 10, color: '#b91c1c', symbol: 'x' } }] as Plotly.Data[]}
+          layout={{ ...plotBase, height: 360, xaxis: { type: 'log', title: { text: `Mean uptime (${units})` } }, yaxis: { type: 'log', title: { text: `Mean downtime (${units})` } } }} config={PLOT_CFG} style={{ width: '100%' }} /></details>
+      })()}
     </div>
   )
 

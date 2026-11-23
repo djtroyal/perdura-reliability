@@ -210,7 +210,7 @@ function Planner() {
       results={res && (
         <>
           <div className="grid grid-cols-3 gap-3">
-            <Card label="MTBF" value={res.MTBF.toFixed(2)} accent={solveFor === 'MTBF'} />
+            <Card label="MTBF lower confidence bound" value={res.MTBF.toFixed(2)} accent={solveFor === 'MTBF'} />
             <Card label="Test duration" value={res.test_duration.toFixed(1)} accent={solveFor === 'test_duration'} />
             <Card label="Allowable failures" value={String(res.number_of_failures)} accent={solveFor === 'number_of_failures'} />
           </div>

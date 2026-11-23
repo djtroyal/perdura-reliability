@@ -17,11 +17,15 @@ else:
 
 # --- Life Data ---
 
+RankMethod = Literal['benard', 'exact_median', 'mean', 'hazen', 'blom', 'kaplan_meier']
+
 class LifeDataFitRequest(BaseModel):
+    model_config = ConfigDict(allow_inf_nan=False)
     failures: list[float] = Field(min_length=1)
     right_censored: Optional[list[float]] = None
     distributions_to_fit: Optional[list[str]] = None
-    method: str = "MLE"
+    method: Literal['MLE', 'RRX', 'RRY'] = "MLE"
+    rank_method: RankMethod = 'benard'
     CI: float = Field(0.95, gt=0, lt=1)
 
 
@@ -32,7 +36,8 @@ class SingleDistPlotRequest(BaseModel):
     failures: list[float] = Field(min_length=1)
     right_censored: Optional[list[float]] = None
     distribution: str
-    method: str = "MLE"
+    method: Literal['MLE', 'RRX', 'RRY'] = "MLE"
+    rank_method: RankMethod = 'benard'
     CI: float = Field(0.95, gt=0, lt=1)
 
 
@@ -50,11 +55,22 @@ class IntervalLifeObservation(BaseModel):
     count: int = Field(ge=1)
 
 
+class MixedLifeObservationRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid', allow_inf_nan=False)
+    id: str = ''
+    kind: Literal['failure', 'right_censored', 'left_censored', 'interval_censored']
+    time: Optional[float] = None
+    lower: Optional[float] = None
+    upper: Optional[float] = None
+    count: int = Field(1, ge=1)
+
+
 class GroupedLifeFitRequest(BaseModel):
     """Weighted exact-frequency or interval-censored life observations."""
-    observation_model: Literal["frequency_exact", "interval_censored"]
+    observation_model: Literal["frequency_exact", "interval_censored", "mixed"]
     frequency_observations: list[FrequencyLifeObservation] = Field(default_factory=list)
     interval_observations: list[IntervalLifeObservation] = Field(default_factory=list)
+    mixed_observations: list[MixedLifeObservationRequest] = Field(default_factory=list)
     distributions_to_fit: Optional[list[str]] = None
     CI: float = Field(0.95, gt=0, lt=1)
 
@@ -120,12 +136,13 @@ class EvaluateRequest(BaseModel):
 
 class CalculatorRequest(BaseModel):
     """Comprehensive life-metrics calculator for a specified distribution."""
+    model_config = ConfigDict(allow_inf_nan=False)
     distribution: str
     params: dict[str, float]
-    mission_end: Optional[float] = None       # R(t), F(t), f(t), h(t)
-    elapsed: Optional[float] = None           # conditional R/F start time
-    reliability_target: Optional[float] = None  # for reliable life
-    bx_percent: Optional[float] = None        # for BX% life
+    mission_end: Optional[float] = Field(None, ge=0)
+    elapsed: Optional[float] = Field(None, ge=0)
+    reliability_target: Optional[float] = Field(None, gt=0, lt=1)
+    bx_percent: Optional[float] = Field(None, gt=0, lt=100)
 
 
 class CompareFolio(BaseModel):
@@ -230,6 +247,7 @@ class UncertaintyRequest(BaseModel):
     failures: list[float] = Field(min_length=2)
     right_censored: Optional[list[float]] = None
     estimator: Literal["MLE", "RRX", "RRY"] = "MLE"
+    rank_method: RankMethod = 'benard'
     target: Literal["reliability", "quantile", "median", "mean"] = "reliability"
     target_value: Optional[float] = None
     method: Literal["profile_likelihood", "parametric_bootstrap"] = "profile_likelihood"
@@ -271,6 +289,7 @@ class UncertaintyPackageRequest(BaseModel):
     failures: list[float] = Field(min_length=2)
     right_censored: Optional[list[float]] = None
     estimator: Literal["MLE", "RRX", "RRY"] = "MLE"
+    rank_method: RankMethod = 'benard'
     curve_x: list[float] = Field(min_length=2, max_length=500)
     CI: float = Field(0.95, gt=0, lt=1)
     n_bootstrap: int = Field(499, ge=20, le=2000)
@@ -2018,6 +2037,7 @@ class MCFRecord(BaseModel):
     time: float = Field(ge=0)
     status: str                  # event | censor
     count: int = Field(1, ge=1)
+    cost: Optional[float] = Field(None, ge=0)
 
 
 class MCFRequest(BaseModel):
@@ -2027,6 +2047,7 @@ class MCFRequest(BaseModel):
     observation_ends: Optional[list[float]] = None
     # Long-form alternative with explicit event/censor records.
     records: Optional[list[MCFRecord]] = None
+    measure: Literal['events', 'cost'] = 'events'
     CI: float = Field(0.95, gt=0, lt=1)
     parametric: bool = False     # also fit the power-law parametric MCF
     interval_method: Literal[
@@ -2784,9 +2805,24 @@ class MarkovRequest(BaseModel):
     transitions: list[MarkovTransitionSchema]
     times: Optional[list[float]] = None
     initial_state: Optional[str] = None
+    initial_probabilities: Optional[dict[str, float]] = None
     uncertainty_samples: int = Field(500, ge=0, le=5000)
     uncertainty_ci: float = Field(0.90, gt=0, lt=1)
     uncertainty_seed: Optional[int] = None
+
+    @model_validator(mode="after")
+    def validate_initial_probabilities(self):
+        import math
+        if self.initial_probabilities is not None:
+            probabilities = self.initial_probabilities
+            ids = {state.id for state in self.states}
+            if (not probabilities or set(probabilities) - ids
+                    or any(not math.isfinite(v) or v < 0 for v in probabilities.values())
+                    or not math.isclose(sum(probabilities.values()), 1.0, abs_tol=1e-10, rel_tol=0)):
+                raise ValueError("Initial probabilities must reference known states, be finite/nonnegative and sum to one.")
+            if self.initial_state is not None:
+                raise ValueError("Choose either initial_state or initial_probabilities.")
+        return self
 
 
 # --- Mission Profile ---

@@ -15,7 +15,7 @@ try {
     '/src/components/ALT/reliabilityTestingState.ts')
 
   const expectedKeys = [...contracts.RELIABILITY_TESTING_TOOL_KEYS].sort()
-  assert.equal(expectedKeys.length, 18)
+  assert.equal(expectedKeys.length, 21)
   assert.equal(new Set(expectedKeys).size, expectedKeys.length)
 
   const stepInitial = {
@@ -87,11 +87,12 @@ try {
     'src/components/ALT/RDTTools.tsx',
     'src/components/ALT/TestDesignTools.tsx',
     'src/components/ALT/ReliabilityTestingTools.tsx',
+    'src/components/ALT/InferenceTools.tsx',
   ]
   const usedKeys = new Set()
   for (const relative of sourceFiles) {
     const source = await readFile(new URL(`../${relative}`, import.meta.url), 'utf8')
-    for (const match of source.matchAll(/useTestingToolState\(\s*['"]([^'"]+)['"]/g)) {
+    for (const match of source.matchAll(/(?:useTestingToolState|useInferenceState)\(\s*['"]([^'"]+)['"]/g)) {
       usedKeys.add(match[1])
     }
   }

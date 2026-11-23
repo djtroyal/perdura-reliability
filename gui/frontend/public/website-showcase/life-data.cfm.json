@@ -4,36 +4,38 @@
   "website": "https://perdurareliability.com",
   "schemaVersion": 12,
   "createdWith": {
-    "version": "0.8.1",
+    "version": "0.8.4",
     "commit": "dev",
-    "builtAt": "2026-09-14T06:18:42.932Z"
+    "builtAt": "2026-11-20T18:37:39.032Z"
   },
   "engineRevisions": {
-    "lifeData": 2,
+    "lifeData": 3,
     "alt": 1,
     "degradation": 1,
+    "systemDefinition": 4,
     "system": 1,
     "faultTree": 1,
     "markov": 2,
+    "prediction": 2,
     "pof": 1,
-    "growth": 1,
+    "growth": 2,
     "softwareReliability": 1,
-    "reliabilityProgram": 1,
-    "warranty": 2,
+    "reliabilityProgram": 3,
+    "warranty": 3,
     "hypothesis": 1,
     "dataAnalysisData": 1,
     "descriptive": 1,
     "dataModeling": 1,
     "dataAnalysisFolios": 1,
-    "sixSigma.capability": 1,
+    "sixSigma.capability": 2,
     "sixSigma.spc": 1,
     "msa": 1,
     "doe": 1,
     "reliabilityAllocation": 1,
     "ram": 1,
-    "maintReplacement": 1,
+    "maintReplacement": 2,
     "maintPMInterval": 1,
-    "maintCostForecast": 1,
+    "maintCostForecast": 2,
     "maintAvailability": 1,
     "hraTherp": 1,
     "hraHeart": 1,
@@ -52,13 +54,15 @@
     "hraCreamExt": 1,
     "library": 1,
     "reportBuilder": 1,
-    "fmea": 2,
+    "fmea": 4,
     "fmeaFailureFlow": 1,
-    "maintTaskAnalysis": 1
+    "maintTaskAnalysis": 1,
+    "faultTreeCatalog": 1,
+    "maintFleet": 1
   },
   "project": "Perdura Demo Project",
   "units": "hours",
-  "exported": "2026-09-14T06:25:35.588Z",
+  "exported": "2026-11-20T18:41:18.414Z",
   "identity": {
     "projectId": "prj-demo-project"
   },
@@ -68,28 +72,28 @@
       "projectId": "prj-demo-project",
       "moduleKey": "lifeData",
       "analysisId": "folio1",
-      "engineRevision": 2,
-      "completedAt": "2026-09-14T06:25:35.088Z",
-      "inputSha256": "4043a2fa27c030afab61356b731172a83975d562d8fa4370def6ea1e2a0603cb",
+      "engineRevision": 3,
+      "completedAt": "2026-11-20T18:41:17.527Z",
+      "inputSha256": "d8ee4baae2448434bbafb527bff83a259eae998b3c374040015310e86cd346b6",
       "resultSha256": "28f6555c3049fe2d6af473ca156b1ecbd95b9a0107f5732dce2a2cd42292aa38",
       "software": {
         "product": "Perdura",
-        "version": "0.8.1",
+        "version": "0.8.4",
         "commit": "dev",
-        "builtAt": "2026-09-14T06:18:42.932Z",
+        "builtAt": "2026-11-20T18:37:39.032Z",
         "repository": "djtroyal/perdura-reliability",
         "commitUrl": null,
-        "releaseUrl": "https://github.com/djtroyal/perdura-reliability/releases/tag/v0.8.1",
+        "releaseUrl": "https://github.com/djtroyal/perdura-reliability/releases/tag/v0.8.4",
         "verificationReportSha256": null,
         "verificationRunUrl": null,
         "runtimeExecutableSha256": null,
         "buildStatus": "development"
       },
-      "runId": "run-86b46321-ce32-4079-b64f-21a875f31a30",
+      "runId": "run-9614419d-f35b-4765-8cef-1c13f7be5c69",
       "moduleLabel": "Life Data Analysis",
-      "analysisName": "Airplane Glass \u2014 Complete Lifetimes",
+      "analysisName": "Airplane Glass — Complete Lifetimes",
       "method": "MLE",
-      "fingerprintSha256": "2e22d75e4301bb92b7878a649768cd71d89d5a5aabc3e748c06baf357da68b15"
+      "fingerprintSha256": "622d4860572f2c95086027dd19307a671d5568e50d506cf1558627feaf77ec74"
     }
   ],
   "exportLedger": [],
@@ -98,7 +102,7 @@
       "folios": [
         {
           "id": "folio1",
-          "name": "Airplane Glass \u2014 Complete Lifetimes",
+          "name": "Airplane Glass — Complete Lifetimes",
           "rows": [
             {
               "key": "fuller2-1",
@@ -367,7 +371,7 @@
                 "mode": "1",
                 "n_failures": 1,
                 "n_suspensions": 30,
-                "error": "Mode '1' has fewer than 2 failures \u2014 cannot fit.",
+                "error": "Mode '1' has fewer than 2 failures — cannot fit.",
                 "params": {},
                 "gof": {},
                 "probability_plot": null,
@@ -377,7 +381,7 @@
                 "mode": "10",
                 "n_failures": 1,
                 "n_suspensions": 30,
-                "error": "Mode '10' has fewer than 2 failures \u2014 cannot fit.",
+                "error": "Mode '10' has fewer than 2 failures — cannot fit.",
                 "params": {},
                 "gof": {},
                 "probability_plot": null,
@@ -387,7 +391,7 @@
                 "mode": "11",
                 "n_failures": 1,
                 "n_suspensions": 30,
-                "error": "Mode '11' has fewer than 2 failures \u2014 cannot fit.",
+                "error": "Mode '11' has fewer than 2 failures — cannot fit.",
                 "params": {},
                 "gof": {},
                 "probability_plot": null,
@@ -397,7 +401,7 @@
                 "mode": "12",
                 "n_failures": 1,
                 "n_suspensions": 30,
-                "error": "Mode '12' has fewer than 2 failures \u2014 cannot fit.",
+                "error": "Mode '12' has fewer than 2 failures — cannot fit.",
                 "params": {},
                 "gof": {},
                 "probability_plot": null,
@@ -407,7 +411,7 @@
                 "mode": "13",
                 "n_failures": 1,
                 "n_suspensions": 30,
-                "error": "Mode '13' has fewer than 2 failures \u2014 cannot fit.",
+                "error": "Mode '13' has fewer than 2 failures — cannot fit.",
                 "params": {},
                 "gof": {},
                 "probability_plot": null,
@@ -417,7 +421,7 @@
                 "mode": "14",
                 "n_failures": 1,
                 "n_suspensions": 30,
-                "error": "Mode '14' has fewer than 2 failures \u2014 cannot fit.",
+                "error": "Mode '14' has fewer than 2 failures — cannot fit.",
                 "params": {},
                 "gof": {},
                 "probability_plot": null,
@@ -427,7 +431,7 @@
                 "mode": "15",
                 "n_failures": 1,
                 "n_suspensions": 30,
-                "error": "Mode '15' has fewer than 2 failures \u2014 cannot fit.",
+                "error": "Mode '15' has fewer than 2 failures — cannot fit.",
                 "params": {},
                 "gof": {},
                 "probability_plot": null,
@@ -437,7 +441,7 @@
                 "mode": "16",
                 "n_failures": 1,
                 "n_suspensions": 30,
-                "error": "Mode '16' has fewer than 2 failures \u2014 cannot fit.",
+                "error": "Mode '16' has fewer than 2 failures — cannot fit.",
                 "params": {},
                 "gof": {},
                 "probability_plot": null,
@@ -447,7 +451,7 @@
                 "mode": "17",
                 "n_failures": 1,
                 "n_suspensions": 30,
-                "error": "Mode '17' has fewer than 2 failures \u2014 cannot fit.",
+                "error": "Mode '17' has fewer than 2 failures — cannot fit.",
                 "params": {},
                 "gof": {},
                 "probability_plot": null,
@@ -457,7 +461,7 @@
                 "mode": "18",
                 "n_failures": 1,
                 "n_suspensions": 30,
-                "error": "Mode '18' has fewer than 2 failures \u2014 cannot fit.",
+                "error": "Mode '18' has fewer than 2 failures — cannot fit.",
                 "params": {},
                 "gof": {},
                 "probability_plot": null,
@@ -467,7 +471,7 @@
                 "mode": "19",
                 "n_failures": 1,
                 "n_suspensions": 30,
-                "error": "Mode '19' has fewer than 2 failures \u2014 cannot fit.",
+                "error": "Mode '19' has fewer than 2 failures — cannot fit.",
                 "params": {},
                 "gof": {},
                 "probability_plot": null,
@@ -477,7 +481,7 @@
                 "mode": "2",
                 "n_failures": 1,
                 "n_suspensions": 30,
-                "error": "Mode '2' has fewer than 2 failures \u2014 cannot fit.",
+                "error": "Mode '2' has fewer than 2 failures — cannot fit.",
                 "params": {},
                 "gof": {},
                 "probability_plot": null,
@@ -487,7 +491,7 @@
                 "mode": "20",
                 "n_failures": 1,
                 "n_suspensions": 30,
-                "error": "Mode '20' has fewer than 2 failures \u2014 cannot fit.",
+                "error": "Mode '20' has fewer than 2 failures — cannot fit.",
                 "params": {},
                 "gof": {},
                 "probability_plot": null,
@@ -497,7 +501,7 @@
                 "mode": "21",
                 "n_failures": 1,
                 "n_suspensions": 30,
-                "error": "Mode '21' has fewer than 2 failures \u2014 cannot fit.",
+                "error": "Mode '21' has fewer than 2 failures — cannot fit.",
                 "params": {},
                 "gof": {},
                 "probability_plot": null,
@@ -507,7 +511,7 @@
                 "mode": "22",
                 "n_failures": 1,
                 "n_suspensions": 30,
-                "error": "Mode '22' has fewer than 2 failures \u2014 cannot fit.",
+                "error": "Mode '22' has fewer than 2 failures — cannot fit.",
                 "params": {},
                 "gof": {},
                 "probability_plot": null,
@@ -517,7 +521,7 @@
                 "mode": "23",
                 "n_failures": 1,
                 "n_suspensions": 30,
-                "error": "Mode '23' has fewer than 2 failures \u2014 cannot fit.",
+                "error": "Mode '23' has fewer than 2 failures — cannot fit.",
                 "params": {},
                 "gof": {},
                 "probability_plot": null,
@@ -527,7 +531,7 @@
                 "mode": "24",
                 "n_failures": 1,
                 "n_suspensions": 30,
-                "error": "Mode '24' has fewer than 2 failures \u2014 cannot fit.",
+                "error": "Mode '24' has fewer than 2 failures — cannot fit.",
                 "params": {},
                 "gof": {},
                 "probability_plot": null,
@@ -537,7 +541,7 @@
                 "mode": "25",
                 "n_failures": 1,
                 "n_suspensions": 30,
-                "error": "Mode '25' has fewer than 2 failures \u2014 cannot fit.",
+                "error": "Mode '25' has fewer than 2 failures — cannot fit.",
                 "params": {},
                 "gof": {},
                 "probability_plot": null,
@@ -547,7 +551,7 @@
                 "mode": "26",
                 "n_failures": 1,
                 "n_suspensions": 30,
-                "error": "Mode '26' has fewer than 2 failures \u2014 cannot fit.",
+                "error": "Mode '26' has fewer than 2 failures — cannot fit.",
                 "params": {},
                 "gof": {},
                 "probability_plot": null,
@@ -557,7 +561,7 @@
                 "mode": "27",
                 "n_failures": 1,
                 "n_suspensions": 30,
-                "error": "Mode '27' has fewer than 2 failures \u2014 cannot fit.",
+                "error": "Mode '27' has fewer than 2 failures — cannot fit.",
                 "params": {},
                 "gof": {},
                 "probability_plot": null,
@@ -567,7 +571,7 @@
                 "mode": "28",
                 "n_failures": 1,
                 "n_suspensions": 30,
-                "error": "Mode '28' has fewer than 2 failures \u2014 cannot fit.",
+                "error": "Mode '28' has fewer than 2 failures — cannot fit.",
                 "params": {},
                 "gof": {},
                 "probability_plot": null,
@@ -577,7 +581,7 @@
                 "mode": "29",
                 "n_failures": 1,
                 "n_suspensions": 30,
-                "error": "Mode '29' has fewer than 2 failures \u2014 cannot fit.",
+                "error": "Mode '29' has fewer than 2 failures — cannot fit.",
                 "params": {},
                 "gof": {},
                 "probability_plot": null,
@@ -587,7 +591,7 @@
                 "mode": "3",
                 "n_failures": 1,
                 "n_suspensions": 30,
-                "error": "Mode '3' has fewer than 2 failures \u2014 cannot fit.",
+                "error": "Mode '3' has fewer than 2 failures — cannot fit.",
                 "params": {},
                 "gof": {},
                 "probability_plot": null,
@@ -597,7 +601,7 @@
                 "mode": "30",
                 "n_failures": 1,
                 "n_suspensions": 30,
-                "error": "Mode '30' has fewer than 2 failures \u2014 cannot fit.",
+                "error": "Mode '30' has fewer than 2 failures — cannot fit.",
                 "params": {},
                 "gof": {},
                 "probability_plot": null,
@@ -607,7 +611,7 @@
                 "mode": "31",
                 "n_failures": 1,
                 "n_suspensions": 30,
-                "error": "Mode '31' has fewer than 2 failures \u2014 cannot fit.",
+                "error": "Mode '31' has fewer than 2 failures — cannot fit.",
                 "params": {},
                 "gof": {},
                 "probability_plot": null,
@@ -617,7 +621,7 @@
                 "mode": "4",
                 "n_failures": 1,
                 "n_suspensions": 30,
-                "error": "Mode '4' has fewer than 2 failures \u2014 cannot fit.",
+                "error": "Mode '4' has fewer than 2 failures — cannot fit.",
                 "params": {},
                 "gof": {},
                 "probability_plot": null,
@@ -627,7 +631,7 @@
                 "mode": "5",
                 "n_failures": 1,
                 "n_suspensions": 30,
-                "error": "Mode '5' has fewer than 2 failures \u2014 cannot fit.",
+                "error": "Mode '5' has fewer than 2 failures — cannot fit.",
                 "params": {},
                 "gof": {},
                 "probability_plot": null,
@@ -637,7 +641,7 @@
                 "mode": "6",
                 "n_failures": 1,
                 "n_suspensions": 30,
-                "error": "Mode '6' has fewer than 2 failures \u2014 cannot fit.",
+                "error": "Mode '6' has fewer than 2 failures — cannot fit.",
                 "params": {},
                 "gof": {},
                 "probability_plot": null,
@@ -647,7 +651,7 @@
                 "mode": "7",
                 "n_failures": 1,
                 "n_suspensions": 30,
-                "error": "Mode '7' has fewer than 2 failures \u2014 cannot fit.",
+                "error": "Mode '7' has fewer than 2 failures — cannot fit.",
                 "params": {},
                 "gof": {},
                 "probability_plot": null,
@@ -657,7 +661,7 @@
                 "mode": "8",
                 "n_failures": 1,
                 "n_suspensions": 30,
-                "error": "Mode '8' has fewer than 2 failures \u2014 cannot fit.",
+                "error": "Mode '8' has fewer than 2 failures — cannot fit.",
                 "params": {},
                 "gof": {},
                 "probability_plot": null,
@@ -667,7 +671,7 @@
                 "mode": "9",
                 "n_failures": 1,
                 "n_suspensions": 30,
-                "error": "Mode '9' has fewer than 2 failures \u2014 cannot fit.",
+                "error": "Mode '9' has fewer than 2 failures — cannot fit.",
                 "params": {},
                 "gof": {},
                 "probability_plot": null,
@@ -677,7 +681,7 @@
             "system_curves": null,
             "system_reliability_at_t": null
           },
-          "dataSig": "{\"format\":\"individual\",\"observations\":[{\"t\":\"18.830\",\"s\":\"F\"},{\"t\":\"20.800\",\"s\":\"F\"},{\"t\":\"21.657\",\"s\":\"F\"},{\"t\":\"23.030\",\"s\":\"F\"},{\"t\":\"23.230\",\"s\":\"F\"},{\"t\":\"24.050\",\"s\":\"F\"},{\"t\":\"24.321\",\"s\":\"F\"},{\"t\":\"25.500\",\"s\":\"F\"},{\"t\":\"25.520\",\"s\":\"F\"},{\"t\":\"25.800\",\"s\":\"F\"},{\"t\":\"26.690\",\"s\":\"F\"},{\"t\":\"26.770\",\"s\":\"F\"},{\"t\":\"26.780\",\"s\":\"F\"},{\"t\":\"27.050\",\"s\":\"F\"},{\"t\":\"27.670\",\"s\":\"F\"},{\"t\":\"29.900\",\"s\":\"F\"},{\"t\":\"31.110\",\"s\":\"F\"},{\"t\":\"33.200\",\"s\":\"F\"},{\"t\":\"33.730\",\"s\":\"F\"},{\"t\":\"33.760\",\"s\":\"F\"},{\"t\":\"33.890\",\"s\":\"F\"},{\"t\":\"34.760\",\"s\":\"F\"},{\"t\":\"35.750\",\"s\":\"F\"},{\"t\":\"35.910\",\"s\":\"F\"},{\"t\":\"36.980\",\"s\":\"F\"},{\"t\":\"37.080\",\"s\":\"F\"},{\"t\":\"37.090\",\"s\":\"F\"},{\"t\":\"39.580\",\"s\":\"F\"},{\"t\":\"44.045\",\"s\":\"F\"},{\"t\":\"45.290\",\"s\":\"F\"},{\"t\":\"45.381\",\"s\":\"F\"}]}"
+          "dataSig": "e9691dabde548a434a45b74145da0202e1c2ab35a96fbaaa299d781cde39aadf"
         }
       ],
       "activeId": "folio1",
@@ -690,6 +694,647 @@
         "ciText": "0.95",
         "ci": 0.95
       }
+    },
+    "faultTree": {
+      "_folioWrap": true,
+      "activeId": "f0",
+      "folios": [
+        {
+          "id": "f0",
+          "name": "Aircraft Hydraulics — Loss of Pressure",
+          "state": {
+            "schemaVersion": 2,
+            "exposureTime": "1000",
+            "engine": "auto",
+            "confidenceLevel": "95",
+            "nSimulations": "20000",
+            "simSeed": "42",
+            "density": "comfortable",
+            "connectorStyle": "smoothstep",
+            "snapToGrid": false,
+            "annotations": [],
+            "showNodeIds": true,
+            "nodes": [
+              {
+                "id": "g1",
+                "type": "or",
+                "position": {
+                  "x": 320,
+                  "y": 40
+                },
+                "data": {
+                  "label": "Loss of Hydraulic Pressure",
+                  "description": "Illustrative loss of required hydraulic supply through both pump paths, controller failure, or electrical power loss. Basic-event probabilities are separate teaching inputs, not calibrated aircraft failure probabilities.",
+                  "gateId": "OR-1"
+                }
+              },
+              {
+                "id": "g2",
+                "type": "and",
+                "position": {
+                  "x": 150,
+                  "y": 210
+                },
+                "data": {
+                  "label": "Both Pumps Fail",
+                  "gateId": "AND-1"
+                }
+              },
+              {
+                "id": "b1",
+                "type": "basic",
+                "position": {
+                  "x": 30,
+                  "y": 400
+                },
+                "data": {
+                  "label": "Pump A Fails",
+                  "eventKey": "b1",
+                  "probability": 0.05,
+                  "description": ""
+                }
+              },
+              {
+                "id": "b2",
+                "type": "basic",
+                "position": {
+                  "x": 250,
+                  "y": 400
+                },
+                "data": {
+                  "label": "Pump B Fails",
+                  "eventKey": "b2",
+                  "probability": 0.05,
+                  "description": ""
+                }
+              },
+              {
+                "id": "b3",
+                "type": "basic",
+                "position": {
+                  "x": 430,
+                  "y": 210
+                },
+                "data": {
+                  "label": "Controller Fails",
+                  "eventKey": "b3",
+                  "probability": 0.02,
+                  "description": ""
+                }
+              },
+              {
+                "id": "b4",
+                "type": "basic",
+                "position": {
+                  "x": 640,
+                  "y": 210
+                },
+                "data": {
+                  "label": "Power Loss",
+                  "eventKey": "b4",
+                  "probability": 0.01,
+                  "description": ""
+                }
+              }
+            ],
+            "edges": [
+              {
+                "id": "e-g1-g2",
+                "source": "g1",
+                "target": "g2",
+                "data": {
+                  "role": "input",
+                  "order": 0
+                }
+              },
+              {
+                "id": "e-g1-b3",
+                "source": "g1",
+                "target": "b3",
+                "data": {
+                  "role": "input",
+                  "order": 1
+                }
+              },
+              {
+                "id": "e-g1-b4",
+                "source": "g1",
+                "target": "b4",
+                "data": {
+                  "role": "input",
+                  "order": 2
+                }
+              },
+              {
+                "id": "e-g2-b1",
+                "source": "g2",
+                "target": "b1",
+                "data": {
+                  "role": "input",
+                  "order": 0
+                }
+              },
+              {
+                "id": "e-g2-b2",
+                "source": "g2",
+                "target": "b2",
+                "data": {
+                  "role": "input",
+                  "order": 1
+                }
+              }
+            ],
+            "result": null
+          },
+          "dirty": false
+        },
+        {
+          "id": "fta-simple-or",
+          "name": "Example — Simple OR",
+          "state": {
+            "schemaVersion": 2,
+            "exposureTime": "1000",
+            "engine": "auto",
+            "confidenceLevel": "95",
+            "nSimulations": "20000",
+            "simSeed": "42",
+            "density": "comfortable",
+            "connectorStyle": "smoothstep",
+            "snapToGrid": false,
+            "annotations": [],
+            "showNodeIds": true,
+            "nodes": [
+              {
+                "id": "TOP",
+                "type": "or",
+                "position": {
+                  "x": 360,
+                  "y": 50
+                },
+                "data": {
+                  "label": "Loss of Function",
+                  "description": "Either failure mode causes the top event",
+                  "gateId": "OR-1"
+                }
+              },
+              {
+                "id": "A",
+                "type": "basic",
+                "position": {
+                  "x": 210,
+                  "y": 250
+                },
+                "data": {
+                  "label": "Failure Mode A",
+                  "eventKey": "A",
+                  "probability": 0.01,
+                  "description": ""
+                }
+              },
+              {
+                "id": "B",
+                "type": "basic",
+                "position": {
+                  "x": 510,
+                  "y": 250
+                },
+                "data": {
+                  "label": "Failure Mode B",
+                  "eventKey": "B",
+                  "probability": 0.02,
+                  "description": ""
+                }
+              }
+            ],
+            "edges": [
+              {
+                "id": "e-TOP-A",
+                "source": "TOP",
+                "target": "A",
+                "data": {
+                  "role": "input",
+                  "order": 0
+                }
+              },
+              {
+                "id": "e-TOP-B",
+                "source": "TOP",
+                "target": "B",
+                "data": {
+                  "role": "input",
+                  "order": 1
+                }
+              }
+            ],
+            "result": null
+          },
+          "dirty": false
+        },
+        {
+          "id": "fta-vote",
+          "name": "Example — 2-of-3 Voting",
+          "state": {
+            "schemaVersion": 2,
+            "exposureTime": "1000",
+            "engine": "auto",
+            "confidenceLevel": "95",
+            "nSimulations": "20000",
+            "simSeed": "42",
+            "density": "comfortable",
+            "connectorStyle": "smoothstep",
+            "snapToGrid": false,
+            "annotations": [],
+            "showNodeIds": true,
+            "nodes": [
+              {
+                "id": "TOP",
+                "type": "vote",
+                "position": {
+                  "x": 360,
+                  "y": 40
+                },
+                "data": {
+                  "label": "Two Channels Unavailable",
+                  "k": 2,
+                  "gateId": "VOTE-1"
+                }
+              },
+              {
+                "id": "A",
+                "type": "basic",
+                "position": {
+                  "x": 80,
+                  "y": 250
+                },
+                "data": {
+                  "label": "Channel A Fails",
+                  "eventKey": "A",
+                  "probability": 0.01,
+                  "description": ""
+                }
+              },
+              {
+                "id": "B",
+                "type": "basic",
+                "position": {
+                  "x": 360,
+                  "y": 250
+                },
+                "data": {
+                  "label": "Channel B Fails",
+                  "eventKey": "B",
+                  "probability": 0.01,
+                  "description": ""
+                }
+              },
+              {
+                "id": "C",
+                "type": "basic",
+                "position": {
+                  "x": 640,
+                  "y": 250
+                },
+                "data": {
+                  "label": "Channel C Fails",
+                  "eventKey": "C",
+                  "probability": 0.01,
+                  "description": ""
+                }
+              }
+            ],
+            "edges": [
+              {
+                "id": "e-TOP-A",
+                "source": "TOP",
+                "target": "A",
+                "data": {
+                  "role": "input",
+                  "order": 0
+                }
+              },
+              {
+                "id": "e-TOP-B",
+                "source": "TOP",
+                "target": "B",
+                "data": {
+                  "role": "input",
+                  "order": 1
+                }
+              },
+              {
+                "id": "e-TOP-C",
+                "source": "TOP",
+                "target": "C",
+                "data": {
+                  "role": "input",
+                  "order": 2
+                }
+              }
+            ],
+            "result": null
+          },
+          "dirty": false
+        },
+        {
+          "id": "fta-pand",
+          "name": "Example — PAND Sequence",
+          "state": {
+            "schemaVersion": 2,
+            "exposureTime": "1000",
+            "engine": "auto",
+            "confidenceLevel": "95",
+            "nSimulations": "20000",
+            "simSeed": "42",
+            "density": "comfortable",
+            "connectorStyle": "smoothstep",
+            "snapToGrid": false,
+            "annotations": [],
+            "showNodeIds": true,
+            "nodes": [
+              {
+                "id": "TOP",
+                "type": "pand",
+                "position": {
+                  "x": 360,
+                  "y": 40
+                },
+                "data": {
+                  "label": "Unsafe Ordered Failure",
+                  "tie_policy": "inclusive",
+                  "description": "Protection must fail before the demand occurs",
+                  "gateId": "PAND-1"
+                }
+              },
+              {
+                "id": "A",
+                "type": "basic",
+                "position": {
+                  "x": 210,
+                  "y": 260
+                },
+                "data": {
+                  "label": "Protection Fails First",
+                  "eventKey": "A",
+                  "probability": 0.6321205588285577,
+                  "description": "",
+                  "distribution": "exponential",
+                  "dist_params": {
+                    "lambda": 0.001,
+                    "gamma": 0
+                  }
+                }
+              },
+              {
+                "id": "B",
+                "type": "basic",
+                "position": {
+                  "x": 510,
+                  "y": 260
+                },
+                "data": {
+                  "label": "Demand Occurs Second",
+                  "eventKey": "B",
+                  "probability": 0.6321205588285577,
+                  "description": "",
+                  "distribution": "exponential",
+                  "dist_params": {
+                    "lambda": 0.001,
+                    "gamma": 0
+                  }
+                }
+              }
+            ],
+            "edges": [
+              {
+                "id": "e-TOP-A",
+                "source": "TOP",
+                "target": "A",
+                "data": {
+                  "role": "input",
+                  "order": 0
+                }
+              },
+              {
+                "id": "e-TOP-B",
+                "source": "TOP",
+                "target": "B",
+                "data": {
+                  "role": "input",
+                  "order": 1
+                }
+              }
+            ],
+            "result": null
+          },
+          "dirty": false
+        },
+        {
+          "id": "fta-spare",
+          "name": "Example — Cold Standby",
+          "state": {
+            "schemaVersion": 2,
+            "exposureTime": "1000",
+            "engine": "auto",
+            "confidenceLevel": "95",
+            "nSimulations": "20000",
+            "simSeed": "42",
+            "density": "comfortable",
+            "connectorStyle": "smoothstep",
+            "snapToGrid": false,
+            "annotations": [],
+            "showNodeIds": true,
+            "nodes": [
+              {
+                "id": "TOP",
+                "type": "spare",
+                "position": {
+                  "x": 360,
+                  "y": 40
+                },
+                "data": {
+                  "label": "Primary and Standby Unavailable",
+                  "spare_mode": "cold",
+                  "dormancy_factor": 0,
+                  "coverage": 1,
+                  "gateId": "SPR-1"
+                }
+              },
+              {
+                "id": "A",
+                "type": "basic",
+                "position": {
+                  "x": 210,
+                  "y": 260
+                },
+                "data": {
+                  "label": "Primary Unit",
+                  "eventKey": "A",
+                  "probability": 0.6321205588285577,
+                  "description": "",
+                  "distribution": "exponential",
+                  "dist_params": {
+                    "lambda": 0.001,
+                    "gamma": 0
+                  }
+                }
+              },
+              {
+                "id": "B",
+                "type": "basic",
+                "position": {
+                  "x": 510,
+                  "y": 260
+                },
+                "data": {
+                  "label": "Standby Unit",
+                  "eventKey": "B",
+                  "probability": 0.6321205588285577,
+                  "description": "",
+                  "distribution": "exponential",
+                  "dist_params": {
+                    "lambda": 0.001,
+                    "gamma": 0
+                  }
+                }
+              }
+            ],
+            "edges": [
+              {
+                "id": "e-TOP-A",
+                "source": "TOP",
+                "target": "A",
+                "data": {
+                  "role": "primary",
+                  "order": 0
+                }
+              },
+              {
+                "id": "e-TOP-B",
+                "source": "TOP",
+                "target": "B",
+                "data": {
+                  "role": "spare",
+                  "order": 1
+                }
+              }
+            ],
+            "result": null
+          },
+          "dirty": false
+        },
+        {
+          "id": "fta-fdep",
+          "name": "Example — Functional Dependency",
+          "state": {
+            "schemaVersion": 2,
+            "exposureTime": "1000",
+            "engine": "auto",
+            "confidenceLevel": "95",
+            "nSimulations": "20000",
+            "simSeed": "42",
+            "density": "comfortable",
+            "connectorStyle": "smoothstep",
+            "snapToGrid": false,
+            "annotations": [],
+            "showNodeIds": true,
+            "nodes": [
+              {
+                "id": "TOP",
+                "type": "or",
+                "position": {
+                  "x": 250,
+                  "y": 40
+                },
+                "data": {
+                  "label": "Dependent Function Unavailable",
+                  "gateId": "OR-1"
+                }
+              },
+              {
+                "id": "DEP",
+                "type": "fdep",
+                "position": {
+                  "x": 570,
+                  "y": 190
+                },
+                "data": {
+                  "label": "Shared Support Dependency",
+                  "gateId": "FDEP-1"
+                }
+              },
+              {
+                "id": "A",
+                "type": "basic",
+                "position": {
+                  "x": 570,
+                  "y": 390
+                },
+                "data": {
+                  "label": "Support Failure Trigger",
+                  "eventKey": "A",
+                  "probability": 0.6321205588285577,
+                  "description": "",
+                  "distribution": "exponential",
+                  "dist_params": {
+                    "lambda": 0.001,
+                    "gamma": 0
+                  }
+                }
+              },
+              {
+                "id": "B",
+                "type": "basic",
+                "position": {
+                  "x": 250,
+                  "y": 250
+                },
+                "data": {
+                  "label": "Dependent Function",
+                  "eventKey": "B",
+                  "probability": 0.6321205588285577,
+                  "description": "",
+                  "distribution": "exponential",
+                  "dist_params": {
+                    "lambda": 0.001,
+                    "gamma": 0
+                  }
+                }
+              }
+            ],
+            "edges": [
+              {
+                "id": "e-TOP-B",
+                "source": "TOP",
+                "target": "B",
+                "data": {
+                  "role": "input",
+                  "order": 0
+                }
+              },
+              {
+                "id": "e-DEP-A",
+                "source": "DEP",
+                "target": "A",
+                "data": {
+                  "role": "trigger",
+                  "order": 0
+                }
+              },
+              {
+                "id": "e-DEP-B",
+                "source": "DEP",
+                "target": "B",
+                "data": {
+                  "role": "dependent",
+                  "order": 1
+                }
+              }
+            ],
+            "result": null
+          },
+          "dirty": false
+        }
+      ]
     }
   }
 }

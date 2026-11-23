@@ -4,12 +4,18 @@ import type { BibliographyEntry } from './types'
  * readable when Perdura is offline. Controlled/proprietary works deliberately do
  * not point at local or redistributed copies. */
 export const HELP_BIBLIOGRAPHY: BibliographyEntry[] = [
+  { id: 'nist-weibull-lifetime', author: 'NIST/SEMATECH', title: 'Weibull distribution', publicAccess: true,
+    url: 'https://www.itl.nist.gov/div898/handbook/apr/section1/apr162.htm' },
+  { id: 'scipy-beta-binomial', author: 'SciPy contributors', title: 'Beta-binomial distribution', publicAccess: true,
+    url: 'https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.betabinom.html',
+    note: 'Reference benchmark when the two inspection ages have equal increments in Weibull cumulative hazard.' },
   {
     id: 'mil-hdbk-338b',
     author: 'U.S. Department of Defense',
     title: 'Electronic Reliability Design Handbook',
     year: '1998',
     edition: 'MIL-HDBK-338B',
+    url: 'https://quicksearch.dla.mil/qsDocDetails.aspx?ident_number=54022',
     note: 'Public handbook guidance. Section 9 surveys software reliability prediction, estimation, testing, allocation, and failure-growth models; compare historical methods with current practice.',
     publicAccess: true,
   },

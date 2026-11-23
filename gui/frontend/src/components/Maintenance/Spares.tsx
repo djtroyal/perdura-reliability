@@ -2,7 +2,7 @@ import { useState } from 'react'
 import Plot from '../shared/ExportablePlot'
 import { ToolLayout, Card, Field, Select, detail, fmtNum, PLOT_CFG, plotBase } from '../ALT/toolkit'
 import { computeSpares } from '../../api/client'
-import { useModuleState } from '../../store/project'
+import { useModuleState, useUnits } from '../../store/project'
 import { RamState, SparesState, INITIAL, pf } from './ram'
 
 /** Analytic and simulated spare-parts provisioning. */
@@ -14,10 +14,11 @@ export default function Spares() {
   const sp: SparesState = { ...INITIAL.spares, ...(s.spares ?? {}) }
   const patch = (p: Partial<SparesState>) => setS(prev => ({
     ...prev,
-    spares: { ...INITIAL.spares, ...(prev.spares ?? {}), ...p },
+    spares: { ...INITIAL.spares, ...(prev.spares ?? {}), result: null, ...p },
   }))
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [units] = useUnits()
 
   const run = async () => {
     setErr(null); setLoading(true)
@@ -39,6 +40,7 @@ export default function Spares() {
         common_shock_size: parseInt(sp.shockSize) || 1,
         n_simulations: parseInt(sp.simulations) || 5000,
         seed: sp.seed?.trim() ? parseInt(sp.seed) : null,
+        max_spares: Number(sp.maxStock),
       })
       patch({ result: r })
     } catch (e) { setErr(detail(e, 'Analysis failed')) } finally { setLoading(false) }
@@ -49,8 +51,8 @@ export default function Spares() {
   const controls = (
     <>
       <Field label="Installed quantity" tip="Number of units in service." value={sp.quantity} onChange={v => patch({ quantity: v })} />
-      <Field label="Operating hours" tip="Operating hours over the provisioning period." value={sp.opHours} onChange={v => patch({ opHours: v })} />
-      <Field label="Duty cycle" tip="Fraction of operating hours the unit actually runs (0-1)." value={sp.dutyCycle} onChange={v => patch({ dutyCycle: v })} />
+      <Field label={`Provisioning period (${units})`} tip="Calendar exposure; duty cycle converts this to operating exposure." value={sp.opHours} onChange={v => patch({ opHours: v })} />
+      <Field label="Duty cycle" tip="Fraction of the provisioning period the unit runs (0-1)." value={sp.dutyCycle} onChange={v => patch({ dutyCycle: v })} />
       <Select label="Demand model" value={sp.model ?? 'poisson'} onChange={v => patch({ model: v as SparesState['model'] })}
         options={[
           { value: 'poisson', label: 'Poisson (constant-rate analytic)' },
@@ -64,7 +66,7 @@ export default function Spares() {
         ]} />
       {sp.basis === 'mtbf'
         ? <Field label="MTBF (per unit)" tip="Mean time between failures of one unit." value={sp.mtbf} onChange={v => patch({ mtbf: v })} />
-        : <Field label="Failure rate (per hour)" tip="Failures per hour of one unit." value={sp.rate} onChange={v => patch({ rate: v })} />}
+        : <Field label={`Failure rate (per ${units})`} tip="Failures per operating time unit, for one installed unit." value={sp.rate} onChange={v => patch({ rate: v })} />}
       {sp.model === 'negative_binomial' && (
         <Field label="Dispersion (size)" tip="Smaller values add more demand variance: Var = mean + mean²/size." value={sp.dispersion} onChange={v => patch({ dispersion: v })} />
       )}
@@ -82,7 +84,8 @@ export default function Spares() {
         <Field label="Simulation replicates" tip="Finite-horizon inventory simulations (200–50,000)." value={sp.simulations} onChange={v => patch({ simulations: v })} />
         <Field label="Random seed" tip="Blank for a non-deterministic run." value={sp.seed ?? ''} onChange={v => patch({ seed: v })} />
       </>}
-      <Field label="Target confidence" tip="Desired probability of no stockout over the period (e.g. 0.95)." value={sp.confidence} onChange={v => patch({ confidence: v })} />
+      <Field label="Target service probability" tip="Probability of no stockout under the selected demand model; not confidence in an estimated failure rate." value={sp.confidence} onChange={v => patch({ confidence: v })} />
+      <Field label="Maximum plotted stock" tip="Bounds the chart only. Required spares are calculated independently at full precision." value={sp.maxStock} onChange={v => patch({ maxStock: v })} min={1} />
     </>
   )
 
@@ -109,11 +112,12 @@ export default function Spares() {
               { x: r.curve.stock_level, y: r.curve.protection_upper, mode: 'lines', line: { width: 0 }, showlegend: false } as Plotly.Data,
               { x: r.curve.stock_level, y: r.curve.protection_lower, mode: 'lines', name: '95% simulation band', fill: 'tonexty', fillcolor: 'rgba(16,185,129,0.14)', line: { width: 0 } } as Plotly.Data,
             ] : []),
-            { x: r.curve.stock_level, y: r.curve.protection, type: 'bar', marker: { color: '#10b981' }, name: 'P(no stockout)' },
-            { x: [r.required_spares, r.required_spares], y: [0, 1], mode: 'lines', line: { color: '#ef4444', width: 2, dash: 'dot' }, name: `required = ${r.required_spares}` },
+            { x: r.curve.stock_level, y: r.curve.protection, type: 'scatter', mode: 'lines+markers', marker: { color: '#047857', size: 3 }, line: { shape: 'hv' }, name: 'Sampled P(no stockout)' },
+            ...(r.required_spares <= r.curve.stock_level[r.curve.stock_level.length - 1] ? [{ x: [r.required_spares, r.required_spares], y: [0, 1], mode: 'lines', line: { color: '#b91c1c', width: 2, dash: 'dot' }, name: `required = ${r.required_spares}` }] : []),
           ] as Plotly.Data[]}
           layout={{ ...plotBase, height: 320, xaxis: { title: { text: 'Spares stocked' } }, yaxis: { title: { text: 'P(no stockout)' }, range: [0, 1] } } as Plotly.Layout}
           config={PLOT_CFG} style={{ width: '100%' }} useResizeHandler />
+        {r.required_spares > r.curve.stock_level[r.curve.stock_level.length - 1] && <p className="text-xs text-gray-600">Required stock ({r.required_spares}) exceeds the plotted range. Increase “Maximum plotted stock” to view it.</p>}
       </div>
     </div>
   )

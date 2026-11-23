@@ -29,7 +29,25 @@ export const captures = [
     ['life-data.special', 'lda-special-models.png', 'Special lifetime models', ['special']],
     ['life-data.weibayes', 'lda-weibayes.png', 'Weibayes fixed-shape analysis', ['weibayes']],
     ['life-data.cfm', 'lda-competing-failure-modes.png', 'Competing failure modes', ['cfm']],
-    ['life-data.stress-strength', 'lda-s-s.png', 'Stress–strength interference', ['stressstrength']],
+    ['life-data.stress-strength', 'lda-s-s.png', 'Stress–strength interference', ['stressstrength'], {
+      // The input-only demo lifetime folio has no adopted stress/strength
+      // pair. Author this independent pressure example through normal controls.
+      seedActions: [
+        { select: '[aria-label="Stress source"]', value: 'manual' },
+        { select: '[aria-label="Stress distribution"]', value: 'Normal_2P' },
+        { select: '[aria-label="Stress quantity"]', value: 'pressure' },
+        { select: '[aria-label="Stress unit"]', value: 'MPa' },
+        { fill: '[aria-label="Stress mu"]', value: '100' },
+        { fill: '[aria-label="Stress sigma"]', value: '10' },
+        { select: '[aria-label="Strength source"]', value: 'manual' },
+        { select: '[aria-label="Strength distribution"]', value: 'Normal_2P' },
+        { select: '[aria-label="Strength quantity"]', value: 'pressure' },
+        { select: '[aria-label="Strength unit"]', value: 'MPa' },
+        { fill: '[aria-label="Strength mu"]', value: '150' },
+        { fill: '[aria-label="Strength sigma"]', value: '15' },
+      ],
+      readiness: { minPlots: 1 },
+    }],
     ['life-data.compare', 'lda-compare-analyses.png', 'Compare life-data analyses', ['compare'], { resultRequired: false }],
   ]),
 
@@ -54,6 +72,9 @@ export const captures = [
     ['test.difference', 'reliability-testing-test-design-and-planning-difference-detection-matrix.png', 'Difference-detection matrix', ['difference']],
     ['test.simulation', 'reliability-testing-test-design-and-planning-simulation.png', 'Reliability-test simulation', ['simulation']],
     ['test.exponential', 'reliability-testing-test-design-and-planning-exponential.png', 'Exponential test planner', ['exp-planner']],
+    ['test.field-mtbf', 'reliability-testing-field-mtbf.png', 'Field MTBF confidence intervals', ['field-mtbf']],
+    ['test.normal-summary', 'reliability-testing-normal-summary.png', 'Normal lifetime mean intervals', ['normal-summary']],
+    ['test.discrete-probability', 'reliability-testing-discrete-acceptance.png', 'Discrete acceptance probability', ['discrete-probability']],
     ['test.duration', 'reliability-testing-test-design-and-planning-duration.png', 'Test-duration planning', ['duration']],
     ['test.zero-failure', 'reliability-testing-test-design-and-planning-zero-failure.png', 'Zero-failure sample size', ['no-failures']],
     ['test.sequential', 'reliability-testing-test-design-and-planning-sequential-sampling.png', 'Sequential sampling', ['sequential']],
@@ -127,6 +148,10 @@ export const captures = [
     ['maintenance.availability', 'maintenance-availability.png', 'Availability modeling', ['availability'], { primary: true }],
     ['maintenance.maintainability', 'maintenance-maintainability.png', 'Maintainability analysis', ['maintainability']],
     ['maintenance.spares', 'maintenance-spares.png', 'Spare-parts provisioning', ['spares']],
+    ['maintenance.inventory', 'maintenance-inventory.png', 'BOM and lifetime inventory planning', ['inventory'], {
+      seedActions: [{ click: 'button:has-text("Load procurement example")' }],
+    }],
+    ['maintenance.lifetime-tools', 'maintenance-lifetime-tools.png', 'Conditional survival and lifetime tools', ['lifetime-tools']],
     ['maintenance.replacement', 'maintenance-replacement-policy.png', 'Replacement-policy optimization', ['replacement']],
     ['maintenance.pm', 'maintenance-pm-interval.png', 'Preventive-maintenance interval', ['pm-interval']],
     ['maintenance.cost', 'maintenance-cost-forecast.png', 'Maintenance cost forecast', ['cost-forecast']],

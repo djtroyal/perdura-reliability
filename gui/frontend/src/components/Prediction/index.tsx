@@ -62,6 +62,8 @@ import {
   type ContributionHierarchyNode,
 } from './contributionChart'
 import { matchesSearchQuery } from '../../searchMatch'
+import ScenarioComparison from './ScenarioComparison'
+import { predictionScenarioFingerprint } from './scenarioComparisonModel'
 
 const ENVIRONMENTS = [
   { code: 'GB', label: 'GB — Ground, Benign' },
@@ -80,7 +82,7 @@ const ENVIRONMENTS = [
   { code: 'CL', label: 'CL — Cannon, Launch' },
 ]
 
-const PREDICTION_VIEWS = ['analysis', 'parts'] as const
+const PREDICTION_VIEWS = ['analysis', 'parts', 'comparison'] as const
 type PredictionView = typeof PREDICTION_VIEWS[number]
 
 type PartsSortKey =
@@ -2826,7 +2828,8 @@ export default function Prediction({
       const wrapper = getProjectState().modules.prediction as { folios?: { id: string; state: PredictionScenario }[] } | undefined
       const scenario = wrapper?.folios?.find(item => item.id === folios.activeId)?.state ?? emptyPredictionScenario(state)
       const res = await predictSharedSystem(model, scenario, systemInputFingerprint(model))
-      if (!request.commit(current => ({ ...current, result: res }))) return
+      if (!request.commit(current => ({ ...current, result: { ...res,
+        scenario_input_fingerprint: predictionScenarioFingerprint(scenario) } }))) return
       window.requestAnimationFrame(() => {
         mainContentRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
       })
@@ -3825,6 +3828,13 @@ export default function Prediction({
             workspaceView === 'parts' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'
           }`}>{parts.length}</span>
         </button>
+        <button type="button" onClick={() => setWorkspaceView('comparison')}
+          id="prediction-comparison-tab" aria-controls="prediction-comparison-panel"
+          aria-selected={workspaceView === 'comparison'} role="tab"
+          className={`rounded-t-md border-b-2 px-4 py-2 text-xs font-semibold ${workspaceView === 'comparison'
+            ? 'border-blue-600 bg-blue-50/60 text-blue-700' : 'border-transparent text-gray-500 hover:bg-gray-50'}`}>
+          Compare Scenarios
+        </button>
       </nav>
       <BomImportWizard
         open={bomImportOpen}
@@ -3847,7 +3857,7 @@ export default function Prediction({
         }}
         onClose={() => setBomImportOpen(false)}
       />
-      <div id={`prediction-${workspaceView}-panel`} role="tabpanel"
+      {workspaceView === 'comparison' ? <ScenarioComparison model={currentProjectSystem().model} folios={folios.folios}/> : <div id={`prediction-${workspaceView}-panel`} role="tabpanel"
         aria-labelledby={`prediction-${workspaceView}-tab`} className="flex flex-1 min-h-0">
       {/* Left panel */}
       <aside className="w-80 shrink-0 bg-white border-r border-gray-200 flex flex-col min-h-0">
@@ -6417,6 +6427,7 @@ export default function Prediction({
     </div>
     </div>
 
+    }
     {/* Custom Derating Rules editor (modal) */}
     {deratingEnabled && customRulesOpen && deratingStandard === 'Custom' && (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"

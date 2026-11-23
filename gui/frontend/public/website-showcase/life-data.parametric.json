@@ -4,36 +4,38 @@
   "website": "https://perdurareliability.com",
   "schemaVersion": 12,
   "createdWith": {
-    "version": "0.8.1",
+    "version": "0.8.4",
     "commit": "dev",
-    "builtAt": "2026-09-14T06:18:42.932Z"
+    "builtAt": "2026-11-20T18:37:39.032Z"
   },
   "engineRevisions": {
-    "lifeData": 2,
+    "lifeData": 3,
     "alt": 1,
     "degradation": 1,
+    "systemDefinition": 4,
     "system": 1,
     "faultTree": 1,
     "markov": 2,
+    "prediction": 2,
     "pof": 1,
-    "growth": 1,
+    "growth": 2,
     "softwareReliability": 1,
-    "reliabilityProgram": 1,
-    "warranty": 2,
+    "reliabilityProgram": 3,
+    "warranty": 3,
     "hypothesis": 1,
     "dataAnalysisData": 1,
     "descriptive": 1,
     "dataModeling": 1,
     "dataAnalysisFolios": 1,
-    "sixSigma.capability": 1,
+    "sixSigma.capability": 2,
     "sixSigma.spc": 1,
     "msa": 1,
     "doe": 1,
     "reliabilityAllocation": 1,
     "ram": 1,
-    "maintReplacement": 1,
+    "maintReplacement": 2,
     "maintPMInterval": 1,
-    "maintCostForecast": 1,
+    "maintCostForecast": 2,
     "maintAvailability": 1,
     "hraTherp": 1,
     "hraHeart": 1,
@@ -52,13 +54,15 @@
     "hraCreamExt": 1,
     "library": 1,
     "reportBuilder": 1,
-    "fmea": 2,
+    "fmea": 4,
     "fmeaFailureFlow": 1,
-    "maintTaskAnalysis": 1
+    "maintTaskAnalysis": 1,
+    "faultTreeCatalog": 1,
+    "maintFleet": 1
   },
   "project": "Perdura Demo Project",
   "units": "hours",
-  "exported": "2026-09-14T06:25:23.919Z",
+  "exported": "2026-11-20T18:40:08.851Z",
   "identity": {
     "projectId": "prj-demo-project"
   },
@@ -68,28 +72,28 @@
       "projectId": "prj-demo-project",
       "moduleKey": "lifeData",
       "analysisId": "folio1",
-      "engineRevision": 2,
-      "completedAt": "2026-09-14T06:25:23.428Z",
-      "inputSha256": "547c4e9af7768be03d5b889d327463145ff826d0dfd288d308ef7da4d1ab2243",
-      "resultSha256": "37983b3a0aa210c7571b9d2ff6f97a25909be9f65ca8e53e7d10e079a9264100",
+      "engineRevision": 3,
+      "completedAt": "2026-11-20T18:40:06.639Z",
+      "inputSha256": "f06c6804b59c17c1bd744116163ee115fb1f83d0636a39fd5bba04d9a16d03b8",
+      "resultSha256": "e7dc622f0d0d367958f2b3d14a2aa7c9a3a406f99d49279c8d43a3ed23345510",
       "software": {
         "product": "Perdura",
-        "version": "0.8.1",
+        "version": "0.8.4",
         "commit": "dev",
-        "builtAt": "2026-09-14T06:18:42.932Z",
+        "builtAt": "2026-11-20T18:37:39.032Z",
         "repository": "djtroyal/perdura-reliability",
         "commitUrl": null,
-        "releaseUrl": "https://github.com/djtroyal/perdura-reliability/releases/tag/v0.8.1",
+        "releaseUrl": "https://github.com/djtroyal/perdura-reliability/releases/tag/v0.8.4",
         "verificationReportSha256": null,
         "verificationRunUrl": null,
         "runtimeExecutableSha256": null,
         "buildStatus": "development"
       },
-      "runId": "run-3a967527-cdfb-41ac-af88-62a91094b6dd",
+      "runId": "run-dade7228-f2da-45f1-aab2-acda96a66b28",
       "moduleLabel": "Life Data Analysis",
-      "analysisName": "Airplane Glass \u2014 Complete Lifetimes",
+      "analysisName": "Airplane Glass — Complete Lifetimes",
       "method": "MLE",
-      "fingerprintSha256": "8f827cb3a2a819024a9bc1ca2aaeee8e33d82734c61da6e94e07d005e09a893a"
+      "fingerprintSha256": "39097ce0dfe6aab115c75ccaa21b7a0f12d3d5323062dc93b701852255aca335"
     }
   ],
   "exportLedger": [],
@@ -98,7 +102,7 @@
       "folios": [
         {
           "id": "folio1",
-          "name": "Airplane Glass \u2014 Complete Lifetimes",
+          "name": "Airplane Glass — Complete Lifetimes",
           "rows": [
             {
               "key": "fuller2-1",
@@ -362,11 +366,12 @@
             "results": [
               {
                 "Distribution": "Lognormal_2P",
-                "AICc": 212.4511,
-                "BIC": 214.8905,
-                "AD": 0.4136,
-                "LogLik": -104.0112,
+                "AICc": 212.45106152852094,
+                "BIC": 214.89046450891982,
+                "AD": 0.4135708357875991,
+                "LogLik": -104.01124504997476,
                 "method": "MLE",
+                "rank_method": "benard",
                 "converged": true,
                 "fit_eligible": true,
                 "aicc_eligible": true,
@@ -381,10 +386,10 @@
                   "finite_parameters": true,
                   "finite_objective": true,
                   "gradient_finite": true,
-                  "gradient_norm": 4.160324449438303e-08,
+                  "gradient_norm": 4.160324449438303e-8,
                   "gradient_tolerance": 0.0001,
-                  "projected_gradient_raw_norm": 4.327205257979287e-06,
-                  "raw_gradient_norm": 4.327205257979287e-06,
+                  "projected_gradient_raw_norm": 0.000004327205257979287,
+                  "raw_gradient_norm": 0.000004327205257979287,
                   "boundary_parameters": [],
                   "parameter_values": [
                     3.4012419735247543,
@@ -402,10 +407,10 @@
                       "finite_parameters": true,
                       "finite_objective": true,
                       "gradient_finite": true,
-                      "gradient_norm": 2.3636654522774943e-07,
+                      "gradient_norm": 2.3636654522774943e-7,
                       "gradient_tolerance": 0.0001,
-                      "projected_gradient_raw_norm": 2.4584778657299466e-05,
-                      "raw_gradient_norm": 2.4584778657299466e-05,
+                      "projected_gradient_raw_norm": 0.000024584778657299466,
+                      "raw_gradient_norm": 0.000024584778657299466,
                       "boundary_parameters": [],
                       "parameter_values": [
                         3.401241960940614,
@@ -423,10 +428,10 @@
                       "finite_parameters": true,
                       "finite_objective": true,
                       "gradient_finite": true,
-                      "gradient_norm": 4.160324449438303e-08,
+                      "gradient_norm": 4.160324449438303e-8,
                       "gradient_tolerance": 0.0001,
-                      "projected_gradient_raw_norm": 4.327205257979287e-06,
-                      "raw_gradient_norm": 4.327205257979287e-06,
+                      "projected_gradient_raw_norm": 0.000004327205257979287,
+                      "raw_gradient_norm": 0.000004327205257979287,
                       "boundary_parameters": [],
                       "parameter_values": [
                         3.4012419735247543,
@@ -438,13 +443,13 @@
                 },
                 "status": "Eligible",
                 "params": {
-                  "mu": 3.401242,
-                  "mu_lower": 3.315079,
-                  "mu_upper": 3.487405,
+                  "mu": 3.4012419735247543,
+                  "mu_lower": 3.3150789866003,
+                  "mu_upper": 3.4874049560479667,
                   "mu_se": null,
-                  "sigma": 0.231083,
-                  "sigma_lower": 0.187714,
-                  "sigma_upper": 0.313988,
+                  "sigma": 0.23108283182981956,
+                  "sigma_lower": 0.18771350764968717,
+                  "sigma_upper": 0.3139881031463875,
                   "sigma_se": null
                 },
                 "parameter_ci_method": "exact_student_t_and_chi_square",
@@ -470,16 +475,18 @@
                   ],
                   "warnings": [],
                   "validation_status": "analytic_finite_sample",
-                  "primary": true
+                  "primary": true,
+                  "rank_method": "benard"
                 }
               },
               {
                 "Distribution": "Gamma_2P",
-                "AICc": 212.6598,
-                "BIC": 215.0992,
-                "AD": 0.4387,
-                "LogLik": -104.1156,
+                "AICc": 212.65978817772543,
+                "BIC": 215.0991911581243,
+                "AD": 0.438686444920652,
+                "LogLik": -104.11560837457701,
                 "method": "MLE",
+                "rank_method": "benard",
                 "converged": true,
                 "fit_eligible": true,
                 "aicc_eligible": true,
@@ -494,10 +501,10 @@
                   "finite_parameters": true,
                   "finite_objective": true,
                   "gradient_finite": true,
-                  "gradient_norm": 3.535119689255019e-08,
+                  "gradient_norm": 3.535119689255019e-8,
                   "gradient_tolerance": 0.0001,
-                  "projected_gradient_raw_norm": 3.680611371237319e-06,
-                  "raw_gradient_norm": 3.680611371237319e-06,
+                  "projected_gradient_raw_norm": 0.000003680611371237319,
+                  "raw_gradient_norm": 0.000003680611371237319,
                   "boundary_parameters": [],
                   "parameter_values": [
                     18.931534714929736,
@@ -515,10 +522,10 @@
                       "finite_parameters": true,
                       "finite_objective": true,
                       "gradient_finite": true,
-                      "gradient_norm": 1.6548128488144098e-07,
+                      "gradient_norm": 1.6548128488144098e-7,
                       "gradient_tolerance": 0.0001,
-                      "projected_gradient_raw_norm": 1.7229184650042588e-05,
-                      "raw_gradient_norm": 1.7229184650042588e-05,
+                      "projected_gradient_raw_norm": 0.000017229184650042588,
+                      "raw_gradient_norm": 0.000017229184650042588,
                       "boundary_parameters": [],
                       "parameter_values": [
                         18.931498838772146,
@@ -536,10 +543,10 @@
                       "finite_parameters": true,
                       "finite_objective": true,
                       "gradient_finite": true,
-                      "gradient_norm": 3.535119689255019e-08,
+                      "gradient_norm": 3.535119689255019e-8,
                       "gradient_tolerance": 0.0001,
-                      "projected_gradient_raw_norm": 3.680611371237319e-06,
-                      "raw_gradient_norm": 3.680611371237319e-06,
+                      "projected_gradient_raw_norm": 0.000003680611371237319,
+                      "raw_gradient_norm": 0.000003680611371237319,
                       "boundary_parameters": [],
                       "parameter_values": [
                         18.931534714929736,
@@ -551,14 +558,14 @@
                 },
                 "status": "Eligible",
                 "params": {
-                  "alpha": 18.931535,
-                  "alpha_lower": 11.557343,
-                  "alpha_upper": 31.010848,
-                  "alpha_se": 4.766855,
-                  "beta": 1.627518,
-                  "beta_lower": 0.987045,
-                  "beta_upper": 2.683581,
-                  "beta_se": 0.41527
+                  "alpha": 18.931534714929736,
+                  "alpha_lower": 11.5573429329069,
+                  "alpha_upper": 31.01084814591067,
+                  "alpha_se": 4.766855321538246,
+                  "beta": 1.6275183182389865,
+                  "beta_lower": 0.9870452080287144,
+                  "beta_upper": 2.6835811112376136,
+                  "beta_se": 0.41527041395922665
                 },
                 "parameter_ci_method": "quick_observed_fisher_wald",
                 "function_ci_method": "quick_transformed_pointwise_delta",
@@ -587,16 +594,18 @@
                     "asymptotic_wald_delta_approximation"
                   ],
                   "validation_status": "quick_asymptotic_opt_in",
-                  "primary": false
+                  "primary": false,
+                  "rank_method": "benard"
                 }
               },
               {
                 "Distribution": "Normal_2P",
-                "AICc": 214.2373,
-                "BIC": 216.6767,
-                "AD": 0.5559,
-                "LogLik": -104.9044,
+                "AICc": 214.23727478137516,
+                "BIC": 216.67667776177404,
+                "AD": 0.5559197674281435,
+                "LogLik": -104.90435167640187,
                 "method": "MLE",
+                "rank_method": "benard",
                 "converged": true,
                 "fit_eligible": true,
                 "aicc_eligible": true,
@@ -611,10 +620,10 @@
                   "finite_parameters": true,
                   "finite_objective": true,
                   "gradient_finite": true,
-                  "gradient_norm": 2.3774085275425e-08,
+                  "gradient_norm": 2.3774085275425e-8,
                   "gradient_tolerance": 0.0001,
-                  "projected_gradient_raw_norm": 2.4940050025179517e-06,
-                  "raw_gradient_norm": 2.4940050025179517e-06,
+                  "projected_gradient_raw_norm": 0.0000024940050025179517,
+                  "raw_gradient_norm": 0.0000024940050025179517,
                   "boundary_parameters": [],
                   "parameter_values": [
                     30.811419222032047,
@@ -632,10 +641,10 @@
                       "finite_parameters": true,
                       "finite_objective": true,
                       "gradient_finite": true,
-                      "gradient_norm": 7.978203716782719e-07,
+                      "gradient_norm": 7.978203716782719e-7,
                       "gradient_tolerance": 0.0001,
-                      "projected_gradient_raw_norm": 8.36948288451822e-05,
-                      "raw_gradient_norm": 8.36948288451822e-05,
+                      "projected_gradient_raw_norm": 0.0000836948288451822,
+                      "raw_gradient_norm": 0.0000836948288451822,
                       "boundary_parameters": [],
                       "parameter_values": [
                         30.811415581944285,
@@ -653,10 +662,10 @@
                       "finite_parameters": true,
                       "finite_objective": true,
                       "gradient_finite": true,
-                      "gradient_norm": 2.3774085275425e-08,
+                      "gradient_norm": 2.3774085275425e-8,
                       "gradient_tolerance": 0.0001,
-                      "projected_gradient_raw_norm": 2.4940050025179517e-06,
-                      "raw_gradient_norm": 2.4940050025179517e-06,
+                      "projected_gradient_raw_norm": 0.0000024940050025179517,
+                      "raw_gradient_norm": 0.0000024940050025179517,
                       "boundary_parameters": [],
                       "parameter_values": [
                         30.811419222032047,
@@ -668,13 +677,13 @@
                 },
                 "status": "Eligible",
                 "params": {
-                  "mu": 30.811419,
-                  "mu_lower": 28.150858,
-                  "mu_upper": 33.471981,
+                  "mu": 30.811419222032047,
+                  "mu_lower": 28.150857677475173,
+                  "mu_upper": 33.471981032202244,
                   "mu_se": null,
-                  "sigma": 7.135432,
-                  "sigma_lower": 5.796264,
-                  "sigma_upper": 9.695401,
+                  "sigma": 7.135432146069397,
+                  "sigma_lower": 5.796263515905099,
+                  "sigma_upper": 9.69540130320337,
                   "sigma_se": null
                 },
                 "parameter_ci_method": "exact_student_t_and_chi_square",
@@ -700,16 +709,18 @@
                   ],
                   "warnings": [],
                   "validation_status": "analytic_finite_sample",
-                  "primary": true
+                  "primary": true,
+                  "rank_method": "benard"
                 }
               },
               {
                 "Distribution": "Loglogistic_2P",
-                "AICc": 214.6617,
-                "BIC": 217.1011,
-                "AD": 0.4811,
-                "LogLik": -105.1165,
+                "AICc": 214.6616702491724,
+                "BIC": 217.10107322957128,
+                "AD": 0.4811146222394136,
+                "LogLik": -105.1165494103005,
                 "method": "MLE",
+                "rank_method": "benard",
                 "converged": true,
                 "fit_eligible": true,
                 "aicc_eligible": true,
@@ -724,10 +735,10 @@
                   "finite_parameters": true,
                   "finite_objective": true,
                   "gradient_finite": true,
-                  "gradient_norm": 2.7722940743348902e-08,
+                  "gradient_norm": 2.7722940743348902e-8,
                   "gradient_tolerance": 0.0001,
-                  "projected_gradient_raw_norm": 2.9141398704470676e-06,
-                  "raw_gradient_norm": 2.9141398704470676e-06,
+                  "projected_gradient_raw_norm": 0.0000029141398704470676,
+                  "raw_gradient_norm": 0.0000029141398704470676,
                   "boundary_parameters": [],
                   "parameter_values": [
                     29.963519301298067,
@@ -745,10 +756,10 @@
                       "finite_parameters": true,
                       "finite_objective": true,
                       "gradient_finite": true,
-                      "gradient_norm": 3.3323530831534485e-08,
+                      "gradient_norm": 3.3323530831534485e-8,
                       "gradient_tolerance": 0.0001,
-                      "projected_gradient_raw_norm": 3.5028545751787244e-06,
-                      "raw_gradient_norm": 3.5028545751787244e-06,
+                      "projected_gradient_raw_norm": 0.0000035028545751787244,
+                      "raw_gradient_norm": 0.0000035028545751787244,
                       "boundary_parameters": [],
                       "parameter_values": [
                         29.96351929182316,
@@ -766,10 +777,10 @@
                       "finite_parameters": true,
                       "finite_objective": true,
                       "gradient_finite": true,
-                      "gradient_norm": 2.7722940743348902e-08,
+                      "gradient_norm": 2.7722940743348902e-8,
                       "gradient_tolerance": 0.0001,
-                      "projected_gradient_raw_norm": 2.9141398704470676e-06,
-                      "raw_gradient_norm": 2.9141398704470676e-06,
+                      "projected_gradient_raw_norm": 0.0000029141398704470676,
+                      "raw_gradient_norm": 0.0000029141398704470676,
                       "boundary_parameters": [],
                       "parameter_values": [
                         29.963519301298067,
@@ -781,14 +792,14 @@
                 },
                 "status": "Eligible",
                 "params": {
-                  "alpha": 29.963519,
-                  "alpha_lower": 27.474257,
-                  "alpha_upper": 32.678318,
-                  "alpha_se": 1.325928,
-                  "beta": 7.229457,
-                  "beta_lower": 5.437157,
-                  "beta_upper": 9.612569,
-                  "beta_se": 1.0509
+                  "alpha": 29.963519301298067,
+                  "alpha_lower": 27.474256711638745,
+                  "alpha_upper": 32.67831768271013,
+                  "alpha_se": 1.3259280065162797,
+                  "beta": 7.229456953220177,
+                  "beta_lower": 5.437157225749659,
+                  "beta_upper": 9.612568787038786,
+                  "beta_se": 1.0509004309726317
                 },
                 "parameter_ci_method": "quick_observed_fisher_wald",
                 "function_ci_method": "quick_transformed_pointwise_delta",
@@ -817,16 +828,18 @@
                     "asymptotic_wald_delta_approximation"
                   ],
                   "validation_status": "quick_asymptotic_opt_in",
-                  "primary": false
+                  "primary": false,
+                  "rank_method": "benard"
                 }
               },
               {
                 "Distribution": "Weibull_2P",
-                "AICc": 215.4064,
-                "BIC": 217.8458,
-                "AD": 0.5973,
-                "LogLik": -105.4889,
+                "AICc": 215.40642075425615,
+                "BIC": 217.84582373465503,
+                "AD": 0.5973412673456266,
+                "LogLik": -105.48892466284236,
                 "method": "MLE",
+                "rank_method": "benard",
                 "converged": true,
                 "fit_eligible": true,
                 "aicc_eligible": true,
@@ -841,10 +854,10 @@
                   "finite_parameters": true,
                   "finite_objective": true,
                   "gradient_finite": true,
-                  "gradient_norm": 2.995253249670154e-08,
+                  "gradient_norm": 2.995253249670154e-8,
                   "gradient_tolerance": 0.0001,
-                  "projected_gradient_raw_norm": 3.159660444005887e-06,
-                  "raw_gradient_norm": 3.159660444005887e-06,
+                  "projected_gradient_raw_norm": 0.000003159660444005887,
+                  "raw_gradient_norm": 0.000003159660444005887,
                   "boundary_parameters": [],
                   "parameter_values": [
                     33.674237046229365,
@@ -862,10 +875,10 @@
                       "finite_parameters": true,
                       "finite_objective": true,
                       "gradient_finite": true,
-                      "gradient_norm": 6.181561840928698e-08,
+                      "gradient_norm": 6.181561840928698e-8,
                       "gradient_tolerance": 0.0001,
-                      "projected_gradient_raw_norm": 6.5208631133642886e-06,
-                      "raw_gradient_norm": 6.5208631133642886e-06,
+                      "projected_gradient_raw_norm": 0.0000065208631133642886,
+                      "raw_gradient_norm": 0.0000065208631133642886,
                       "boundary_parameters": [],
                       "parameter_values": [
                         33.674236538777656,
@@ -883,10 +896,10 @@
                       "finite_parameters": true,
                       "finite_objective": true,
                       "gradient_finite": true,
-                      "gradient_norm": 2.995253249670154e-08,
+                      "gradient_norm": 2.995253249670154e-8,
                       "gradient_tolerance": 0.0001,
-                      "projected_gradient_raw_norm": 3.159660444005887e-06,
-                      "raw_gradient_norm": 3.159660444005887e-06,
+                      "projected_gradient_raw_norm": 0.000003159660444005887,
+                      "raw_gradient_norm": 0.000003159660444005887,
                       "boundary_parameters": [],
                       "parameter_values": [
                         33.674237046229365,
@@ -898,14 +911,14 @@
                 },
                 "status": "Eligible",
                 "params": {
-                  "eta": 33.674237,
-                  "eta_lower": 31.070051,
-                  "eta_upper": 36.496697,
-                  "eta_se": 1.38288,
-                  "beta": 4.635383,
-                  "beta_lower": 3.552554,
-                  "beta_upper": 6.048263,
-                  "beta_se": 0.629223
+                  "eta": 33.674237046229365,
+                  "eta_lower": 31.07005126644757,
+                  "eta_upper": 36.49669680043943,
+                  "eta_se": 1.3828801563464999,
+                  "beta": 4.635383372945508,
+                  "beta_lower": 3.55255374243889,
+                  "beta_upper": 6.048262903808636,
+                  "beta_se": 0.6292227564191717
                 },
                 "parameter_ci_method": "quick_observed_fisher_wald",
                 "function_ci_method": "quick_transformed_pointwise_delta",
@@ -934,16 +947,18 @@
                     "asymptotic_wald_delta_approximation"
                   ],
                   "validation_status": "quick_asymptotic_opt_in",
-                  "primary": false
+                  "primary": false,
+                  "rank_method": "benard"
                 }
               },
               {
                 "Distribution": "Gumbel_2P",
-                "AICc": 220.936,
-                "BIC": 223.3754,
-                "AD": 0.9867,
-                "LogLik": -108.2537,
+                "AICc": 220.93603122771117,
+                "BIC": 223.37543420811005,
+                "AD": 0.9867376060461055,
+                "LogLik": -108.25372989956988,
                 "method": "MLE",
+                "rank_method": "benard",
                 "converged": true,
                 "fit_eligible": true,
                 "aicc_eligible": true,
@@ -958,10 +973,10 @@
                   "finite_parameters": true,
                   "finite_objective": true,
                   "gradient_finite": true,
-                  "gradient_norm": 1.641209856956441e-08,
+                  "gradient_norm": 1.641209856956441e-8,
                   "gradient_tolerance": 0.0001,
-                  "projected_gradient_raw_norm": 1.7766708856347428e-06,
-                  "raw_gradient_norm": 1.7766708856347428e-06,
+                  "projected_gradient_raw_norm": 0.0000017766708856347428,
+                  "raw_gradient_norm": 0.0000017766708856347428,
                   "boundary_parameters": [],
                   "parameter_values": [
                     34.50268986707029,
@@ -979,10 +994,10 @@
                       "finite_parameters": true,
                       "finite_objective": true,
                       "gradient_finite": true,
-                      "gradient_norm": 3.650669276593564e-07,
+                      "gradient_norm": 3.650669276593564e-7,
                       "gradient_tolerance": 0.0001,
-                      "projected_gradient_raw_norm": 3.9519856582106405e-05,
-                      "raw_gradient_norm": 3.9519856582106405e-05,
+                      "projected_gradient_raw_norm": 0.000039519856582106405,
+                      "raw_gradient_norm": 0.000039519856582106405,
                       "boundary_parameters": [],
                       "parameter_values": [
                         34.502691641497115,
@@ -1000,10 +1015,10 @@
                       "finite_parameters": true,
                       "finite_objective": true,
                       "gradient_finite": true,
-                      "gradient_norm": 1.641209856956441e-08,
+                      "gradient_norm": 1.641209856956441e-8,
                       "gradient_tolerance": 0.0001,
-                      "projected_gradient_raw_norm": 1.7766708856347428e-06,
-                      "raw_gradient_norm": 1.7766708856347428e-06,
+                      "projected_gradient_raw_norm": 0.0000017766708856347428,
+                      "raw_gradient_norm": 0.0000017766708856347428,
                       "boundary_parameters": [],
                       "parameter_values": [
                         34.50268986707029,
@@ -1015,14 +1030,14 @@
                 },
                 "status": "Eligible",
                 "params": {
-                  "mu": 34.50269,
-                  "mu_lower": 31.780123,
-                  "mu_upper": 37.225257,
-                  "mu_se": 1.38909,
-                  "sigma": 7.278261,
-                  "sigma_lower": 5.630283,
-                  "sigma_upper": 9.408601,
-                  "sigma_se": 0.953367
+                  "mu": 34.50268986707029,
+                  "mu_lower": 31.780122855484844,
+                  "mu_upper": 37.225256878655735,
+                  "mu_se": 1.3890903266900338,
+                  "sigma": 7.278261424377021,
+                  "sigma_lower": 5.630283272526113,
+                  "sigma_upper": 9.408601094738069,
+                  "sigma_se": 0.9533667650296083
                 },
                 "parameter_ci_method": "quick_observed_fisher_wald",
                 "function_ci_method": "quick_transformed_pointwise_delta",
@@ -1051,16 +1066,18 @@
                     "asymptotic_wald_delta_approximation"
                   ],
                   "validation_status": "quick_asymptotic_opt_in",
-                  "primary": false
+                  "primary": false,
+                  "rank_method": "benard"
                 }
               },
               {
                 "Distribution": "Exponential_1P",
-                "AICc": 276.6668,
-                "BIC": 277.9629,
-                "AD": 8.5272,
-                "LogLik": -137.2644,
+                "AICc": 276.6668245659409,
+                "BIC": 277.9628807359433,
+                "AD": 8.527236674556725,
+                "LogLik": -137.26444676572908,
                 "method": "MLE",
+                "rank_method": "benard",
                 "converged": true,
                 "fit_eligible": true,
                 "aicc_eligible": true,
@@ -1084,9 +1101,9 @@
                 },
                 "status": "Eligible",
                 "params": {
-                  "Lambda": 0.032455,
-                  "Lambda_lower": 0.022052,
-                  "Lambda_upper": 0.044838,
+                  "Lambda": 0.03245549932262232,
+                  "Lambda_lower": 0.022051937152691454,
+                  "Lambda_upper": 0.04483765486487798,
                   "Lambda_se": null
                 },
                 "parameter_ci_method": "exact_chi_square",
@@ -1111,7 +1128,8 @@
                   ],
                   "warnings": [],
                   "validation_status": "analytic_finite_sample",
-                  "primary": true
+                  "primary": true,
+                  "rank_method": "benard"
                 }
               }
             ],
@@ -1793,6 +1811,7 @@
                   ],
                   "x_label": "ln(t)",
                   "y_label": "Standard Normal Quantile",
+                  "rank_method": "benard",
                   "line_lower": [
                     -3.7457058553514546,
                     -3.6774898379766023,
@@ -2352,14 +2371,14 @@
                     68.0715
                   ],
                   "pdf": [
-                    6.33109724066961e-07,
-                    1.4553264347040462e-06,
-                    3.1431434932622487e-06,
-                    6.4153251066114625e-06,
-                    1.243772962738265e-05,
-                    2.3008334999006522e-05,
-                    4.077366422263222e-05,
-                    6.94641657641165e-05,
+                    6.33109724066961e-7,
+                    0.0000014553264347040462,
+                    0.0000031431434932622487,
+                    0.0000064153251066114625,
+                    0.00001243772962738265,
+                    0.000023008334999006522,
+                    0.00004077366422263222,
+                    0.0000694641657641165,
                     0.00011412962047294316,
                     0.00018135038029198886,
                     0.0002793972200817234,
@@ -2494,25 +2513,25 @@
                     0.00012100987865101477,
                     0.00011020453597252881,
                     0.00010035139209438664,
-                    9.13682063789316e-05,
-                    8.317962884747721e-05,
-                    7.57166493171357e-05,
-                    6.891608729354925e-05,
-                    6.272012001530097e-05,
-                    5.70758461586003e-05,
-                    5.193488282654393e-05,
-                    4.72529935643419e-05
+                    0.0000913682063789316,
+                    0.00008317962884747721,
+                    0.0000757166493171357,
+                    0.00006891608729354925,
+                    0.00006272012001530097,
+                    0.0000570758461586003,
+                    0.00005193488282654393,
+                    0.0000472529935643419
                   ],
                   "cdf": [
-                    2.648249112706086e-07,
-                    6.558068072315391e-07,
-                    1.5229520444287306e-06,
-                    3.3364841481432636e-06,
-                    6.932109029160697e-06,
-                    1.3722276612675011e-05,
-                    2.598675919116486e-05,
-                    4.725267904987145e-05,
-                    8.276792098019891e-05,
+                    2.648249112706086e-7,
+                    6.558068072315391e-7,
+                    0.0000015229520444287306,
+                    0.0000033364841481432636,
+                    0.000006932109029160697,
+                    0.000013722276612675011,
+                    0.00002598675919116486,
+                    0.00004725267904987145,
+                    0.00008276792098019891,
                     0.00014006331928977602,
                     0.00022958880108891463,
                     0.0003653978383983477,
@@ -2808,14 +2827,14 @@
                     0.00019589438057652554
                   ],
                   "hf": [
-                    6.331098917302315e-07,
-                    1.4553273891176552e-06,
-                    3.143148280126345e-06,
-                    6.415346511313397e-06,
-                    1.2437815847678182e-05,
-                    2.30086507300763e-05,
-                    4.077472382556136e-05,
-                    6.946744828715484e-05,
+                    6.331098917302315e-7,
+                    0.0000014553273891176552,
+                    0.000003143148280126345,
+                    0.000006415346511313397,
+                    0.000012437815847678182,
+                    0.0000230086507300763,
+                    0.00004077472382556136,
+                    0.00006946744828715484,
                     0.0001141390675262648,
                     0.00018137578438638877,
                     0.0002794613812852033,
@@ -3088,28 +3107,28 @@
                     0.000133058070673145,
                     0.00011607696007525992,
                     0.0001012338858587125,
-                    8.826489247849537e-05,
-                    7.693704742465749e-05,
-                    6.704580863266271e-05,
-                    5.841216140119513e-05,
-                    5.0878270708051403e-05,
-                    4.430618203108718e-05,
-                    3.857475858170399e-05,
-                    3.357774275331717e-05,
-                    2.922228669669399e-05,
-                    2.542694877445175e-05,
-                    2.2120585895595926e-05,
-                    1.9240783795961957e-05,
-                    1.6733146352044565e-05,
-                    1.4550016878797676e-05,
-                    1.2649845964952058e-05,
-                    1.0996228767061305e-05,
-                    9.557488594079766e-06,
-                    8.305911052207041e-06,
-                    7.217366778998974e-06,
-                    6.27073146139499e-06,
-                    5.4476693407412696e-06,
-                    4.732163911642778e-06
+                    0.00008826489247849537,
+                    0.00007693704742465749,
+                    0.00006704580863266271,
+                    0.00005841216140119513,
+                    0.000050878270708051403,
+                    0.00004430618203108718,
+                    0.00003857475858170399,
+                    0.00003357774275331717,
+                    0.00002922228669669399,
+                    0.00002542694877445175,
+                    0.000022120585895595926,
+                    0.000019240783795961957,
+                    0.000016733146352044565,
+                    0.000014550016878797676,
+                    0.000012649845964952058,
+                    0.000010996228767061305,
+                    0.000009557488594079766,
+                    0.000008305911052207041,
+                    0.000007217366778998974,
+                    0.00000627073146139499,
+                    0.0000054476693407412696,
+                    0.000004732163911642778
                   ],
                   "sf_upper": [
                     0.9999999997517138,
@@ -3266,19 +3285,19 @@
                   "cdf_lower": [
                     2.482861694019789e-10,
                     9.64936686109752e-10,
-                    3.4027526352176096e-09,
-                    1.098701551960346e-08,
-                    3.274103543837725e-08,
-                    9.068007433832292e-08,
-                    2.3487076306061283e-07,
-                    5.720539512088507e-07,
-                    1.3166590994151406e-06,
-                    2.8763983146440353e-06,
-                    5.9880223916009e-06,
-                    1.1921340995257879e-05,
-                    2.2770639030222917e-05,
-                    4.185086006847083e-05,
-                    7.421046453703894e-05,
+                    3.4027526352176096e-9,
+                    1.098701551960346e-8,
+                    3.274103543837725e-8,
+                    9.068007433832292e-8,
+                    2.3487076306061283e-7,
+                    5.720539512088507e-7,
+                    0.0000013166590994151406,
+                    0.0000028763983146440353,
+                    0.0000059880223916009,
+                    0.000011921340995257879,
+                    0.000022770639030222917,
+                    0.00004185086006847083,
+                    0.00007421046453703894,
                     0.00012726504964566399,
                     0.00021154267128009607,
                     0.0003415155808581538,
@@ -3588,41 +3607,42 @@
                   ],
                   "warnings": [],
                   "validation_status": "analytic_finite_sample",
-                  "primary": true
+                  "primary": true,
+                  "rank_method": "benard"
                 },
                 "qq": {
                   "theoretical": [
-                    18.861126,
-                    20.699916,
-                    21.880788,
-                    22.810135,
-                    23.604188,
-                    24.314174,
-                    24.967775,
-                    25.581957,
-                    26.168093,
-                    26.734361,
-                    27.287007,
-                    27.831065,
-                    28.37081,
-                    28.91006,
-                    29.452395,
-                    30.001338,
-                    30.560512,
-                    31.133808,
-                    31.725575,
-                    32.340849,
-                    32.985672,
-                    33.667543,
-                    34.396097,
-                    35.184184,
-                    36.049679,
-                    37.018748,
-                    38.132228,
-                    39.459665,
-                    41.135642,
-                    43.482316,
-                    47.72145
+                    18.861125756263505,
+                    20.699915506451184,
+                    21.88078824723452,
+                    22.81013459074948,
+                    23.604187939280234,
+                    24.31417383590861,
+                    24.967774519833405,
+                    25.581956702356067,
+                    26.168092909844013,
+                    26.734361475102027,
+                    27.28700705815593,
+                    27.831064738768656,
+                    28.370809850594963,
+                    28.910059909474295,
+                    29.452395339583056,
+                    30.001337785704926,
+                    30.56051158332401,
+                    31.133808499545697,
+                    31.725575465484663,
+                    32.340849240961845,
+                    32.98567215574994,
+                    33.66754316426145,
+                    34.39609726367834,
+                    35.184183891964366,
+                    36.04967948653086,
+                    37.018747789105404,
+                    38.13222768973651,
+                    39.45966497264724,
+                    41.135641859050764,
+                    43.48231608247163,
+                    47.72144995815336
                   ],
                   "sample": [
                     18.83,
@@ -3660,70 +3680,70 @@
                 },
                 "pp": {
                   "empirical": [
-                    0.02229299,
-                    0.05414013,
-                    0.08598726,
-                    0.11783439,
-                    0.14968153,
-                    0.18152866,
-                    0.2133758,
-                    0.24522293,
-                    0.27707006,
-                    0.3089172,
-                    0.34076433,
-                    0.37261146,
-                    0.4044586,
-                    0.43630573,
-                    0.46815287,
+                    0.022292993630573247,
+                    0.054140127388535034,
+                    0.08598726114649682,
+                    0.11783439490445861,
+                    0.1496815286624204,
+                    0.18152866242038218,
+                    0.21337579617834396,
+                    0.24522292993630576,
+                    0.2770700636942675,
+                    0.3089171974522293,
+                    0.34076433121019106,
+                    0.37261146496815284,
+                    0.40445859872611467,
+                    0.43630573248407645,
+                    0.4681528662420382,
                     0.5,
-                    0.53184713,
-                    0.56369427,
-                    0.5955414,
-                    0.62738854,
-                    0.65923567,
-                    0.6910828,
-                    0.72292994,
-                    0.75477707,
-                    0.7866242,
-                    0.81847134,
-                    0.85031847,
-                    0.88216561,
-                    0.91401274,
-                    0.94585987,
-                    0.97770701
+                    0.5318471337579618,
+                    0.5636942675159236,
+                    0.5955414012738853,
+                    0.6273885350318471,
+                    0.6592356687898089,
+                    0.6910828025477707,
+                    0.7229299363057325,
+                    0.7547770700636943,
+                    0.7866242038216561,
+                    0.8184713375796179,
+                    0.8503184713375797,
+                    0.8821656050955414,
+                    0.9140127388535032,
+                    0.945859872611465,
+                    0.9777070063694268
                   ],
                   "fitted": [
-                    0.02191636,
-                    0.05647201,
-                    0.07921462,
-                    0.12623511,
-                    0.13415751,
-                    0.16932654,
-                    0.18184929,
-                    0.24087649,
-                    0.24193456,
-                    0.25691944,
-                    0.3063902,
-                    0.31095083,
-                    0.31152201,
-                    0.32702997,
-                    0.36314631,
-                    0.49415893,
-                    0.56239008,
-                    0.66945369,
-                    0.69390237,
-                    0.69525079,
-                    0.70104948,
-                    0.73797361,
-                    0.77596553,
-                    0.78170451,
-                    0.81727337,
-                    0.82035249,
-                    0.82065814,
-                    0.88474751,
-                    0.95170464,
-                    0.96264467,
-                    0.96334717
+                    0.021916364531949138,
+                    0.0564720092855311,
+                    0.07921462143275637,
+                    0.12623511263525822,
+                    0.1341575056470582,
+                    0.16932654355869126,
+                    0.18184928546291024,
+                    0.24087648535781803,
+                    0.2419345567167545,
+                    0.25691944115918325,
+                    0.30639020436233266,
+                    0.3109508292803017,
+                    0.31152201161999216,
+                    0.32702997198997563,
+                    0.3631463091529108,
+                    0.49415893329295296,
+                    0.5623900802075981,
+                    0.6694536912679292,
+                    0.6939023678986568,
+                    0.6952507871379014,
+                    0.7010494791728011,
+                    0.7379736051288708,
+                    0.775965534017706,
+                    0.7817045124936179,
+                    0.8172733697733281,
+                    0.8203524885827835,
+                    0.8206581430811855,
+                    0.8847475121569834,
+                    0.951704640786584,
+                    0.962644672922336,
+                    0.9633471680758617
                   ]
                 }
               }
@@ -3748,7 +3768,21 @@
           "selectedDist": "Lognormal_2P",
           "specResult": null,
           "specialResult": null,
-          "dataSig": "{\"format\":\"individual\",\"observations\":[{\"t\":\"18.830\",\"s\":\"F\"},{\"t\":\"20.800\",\"s\":\"F\"},{\"t\":\"21.657\",\"s\":\"F\"},{\"t\":\"23.030\",\"s\":\"F\"},{\"t\":\"23.230\",\"s\":\"F\"},{\"t\":\"24.050\",\"s\":\"F\"},{\"t\":\"24.321\",\"s\":\"F\"},{\"t\":\"25.500\",\"s\":\"F\"},{\"t\":\"25.520\",\"s\":\"F\"},{\"t\":\"25.800\",\"s\":\"F\"},{\"t\":\"26.690\",\"s\":\"F\"},{\"t\":\"26.770\",\"s\":\"F\"},{\"t\":\"26.780\",\"s\":\"F\"},{\"t\":\"27.050\",\"s\":\"F\"},{\"t\":\"27.670\",\"s\":\"F\"},{\"t\":\"29.900\",\"s\":\"F\"},{\"t\":\"31.110\",\"s\":\"F\"},{\"t\":\"33.200\",\"s\":\"F\"},{\"t\":\"33.730\",\"s\":\"F\"},{\"t\":\"33.760\",\"s\":\"F\"},{\"t\":\"33.890\",\"s\":\"F\"},{\"t\":\"34.760\",\"s\":\"F\"},{\"t\":\"35.750\",\"s\":\"F\"},{\"t\":\"35.910\",\"s\":\"F\"},{\"t\":\"36.980\",\"s\":\"F\"},{\"t\":\"37.080\",\"s\":\"F\"},{\"t\":\"37.090\",\"s\":\"F\"},{\"t\":\"39.580\",\"s\":\"F\"},{\"t\":\"44.045\",\"s\":\"F\"},{\"t\":\"45.290\",\"s\":\"F\"},{\"t\":\"45.381\",\"s\":\"F\"}]}"
+          "dataSig": "e9691dabde548a434a45b74145da0202e1c2ab35a96fbaaa299d781cde39aadf",
+          "fitProvenance": {
+            "schemaVersion": 1,
+            "observationFingerprint": "e9691dabde548a434a45b74145da0202e1c2ab35a96fbaaa299d781cde39aadf",
+            "fitFingerprint": "ac2e368bb586db2f642f8d215cd87546d6aaf5d82814d50e49ee4ccc6079fcb1",
+            "engineRevision": 3,
+            "quantity": {
+              "kind": "time",
+              "unit": "hours"
+            }
+          },
+          "quantity": {
+            "kind": "time",
+            "unit": "hours"
+          }
         }
       ],
       "activeId": "folio1",
@@ -3761,6 +3795,647 @@
         "ciText": "0.95",
         "ci": 0.95
       }
+    },
+    "faultTree": {
+      "_folioWrap": true,
+      "activeId": "f0",
+      "folios": [
+        {
+          "id": "f0",
+          "name": "Aircraft Hydraulics — Loss of Pressure",
+          "state": {
+            "schemaVersion": 2,
+            "exposureTime": "1000",
+            "engine": "auto",
+            "confidenceLevel": "95",
+            "nSimulations": "20000",
+            "simSeed": "42",
+            "density": "comfortable",
+            "connectorStyle": "smoothstep",
+            "snapToGrid": false,
+            "annotations": [],
+            "showNodeIds": true,
+            "nodes": [
+              {
+                "id": "g1",
+                "type": "or",
+                "position": {
+                  "x": 320,
+                  "y": 40
+                },
+                "data": {
+                  "label": "Loss of Hydraulic Pressure",
+                  "description": "Illustrative loss of required hydraulic supply through both pump paths, controller failure, or electrical power loss. Basic-event probabilities are separate teaching inputs, not calibrated aircraft failure probabilities.",
+                  "gateId": "OR-1"
+                }
+              },
+              {
+                "id": "g2",
+                "type": "and",
+                "position": {
+                  "x": 150,
+                  "y": 210
+                },
+                "data": {
+                  "label": "Both Pumps Fail",
+                  "gateId": "AND-1"
+                }
+              },
+              {
+                "id": "b1",
+                "type": "basic",
+                "position": {
+                  "x": 30,
+                  "y": 400
+                },
+                "data": {
+                  "label": "Pump A Fails",
+                  "eventKey": "b1",
+                  "probability": 0.05,
+                  "description": ""
+                }
+              },
+              {
+                "id": "b2",
+                "type": "basic",
+                "position": {
+                  "x": 250,
+                  "y": 400
+                },
+                "data": {
+                  "label": "Pump B Fails",
+                  "eventKey": "b2",
+                  "probability": 0.05,
+                  "description": ""
+                }
+              },
+              {
+                "id": "b3",
+                "type": "basic",
+                "position": {
+                  "x": 430,
+                  "y": 210
+                },
+                "data": {
+                  "label": "Controller Fails",
+                  "eventKey": "b3",
+                  "probability": 0.02,
+                  "description": ""
+                }
+              },
+              {
+                "id": "b4",
+                "type": "basic",
+                "position": {
+                  "x": 640,
+                  "y": 210
+                },
+                "data": {
+                  "label": "Power Loss",
+                  "eventKey": "b4",
+                  "probability": 0.01,
+                  "description": ""
+                }
+              }
+            ],
+            "edges": [
+              {
+                "id": "e-g1-g2",
+                "source": "g1",
+                "target": "g2",
+                "data": {
+                  "role": "input",
+                  "order": 0
+                }
+              },
+              {
+                "id": "e-g1-b3",
+                "source": "g1",
+                "target": "b3",
+                "data": {
+                  "role": "input",
+                  "order": 1
+                }
+              },
+              {
+                "id": "e-g1-b4",
+                "source": "g1",
+                "target": "b4",
+                "data": {
+                  "role": "input",
+                  "order": 2
+                }
+              },
+              {
+                "id": "e-g2-b1",
+                "source": "g2",
+                "target": "b1",
+                "data": {
+                  "role": "input",
+                  "order": 0
+                }
+              },
+              {
+                "id": "e-g2-b2",
+                "source": "g2",
+                "target": "b2",
+                "data": {
+                  "role": "input",
+                  "order": 1
+                }
+              }
+            ],
+            "result": null
+          },
+          "dirty": false
+        },
+        {
+          "id": "fta-simple-or",
+          "name": "Example — Simple OR",
+          "state": {
+            "schemaVersion": 2,
+            "exposureTime": "1000",
+            "engine": "auto",
+            "confidenceLevel": "95",
+            "nSimulations": "20000",
+            "simSeed": "42",
+            "density": "comfortable",
+            "connectorStyle": "smoothstep",
+            "snapToGrid": false,
+            "annotations": [],
+            "showNodeIds": true,
+            "nodes": [
+              {
+                "id": "TOP",
+                "type": "or",
+                "position": {
+                  "x": 360,
+                  "y": 50
+                },
+                "data": {
+                  "label": "Loss of Function",
+                  "description": "Either failure mode causes the top event",
+                  "gateId": "OR-1"
+                }
+              },
+              {
+                "id": "A",
+                "type": "basic",
+                "position": {
+                  "x": 210,
+                  "y": 250
+                },
+                "data": {
+                  "label": "Failure Mode A",
+                  "eventKey": "A",
+                  "probability": 0.01,
+                  "description": ""
+                }
+              },
+              {
+                "id": "B",
+                "type": "basic",
+                "position": {
+                  "x": 510,
+                  "y": 250
+                },
+                "data": {
+                  "label": "Failure Mode B",
+                  "eventKey": "B",
+                  "probability": 0.02,
+                  "description": ""
+                }
+              }
+            ],
+            "edges": [
+              {
+                "id": "e-TOP-A",
+                "source": "TOP",
+                "target": "A",
+                "data": {
+                  "role": "input",
+                  "order": 0
+                }
+              },
+              {
+                "id": "e-TOP-B",
+                "source": "TOP",
+                "target": "B",
+                "data": {
+                  "role": "input",
+                  "order": 1
+                }
+              }
+            ],
+            "result": null
+          },
+          "dirty": false
+        },
+        {
+          "id": "fta-vote",
+          "name": "Example — 2-of-3 Voting",
+          "state": {
+            "schemaVersion": 2,
+            "exposureTime": "1000",
+            "engine": "auto",
+            "confidenceLevel": "95",
+            "nSimulations": "20000",
+            "simSeed": "42",
+            "density": "comfortable",
+            "connectorStyle": "smoothstep",
+            "snapToGrid": false,
+            "annotations": [],
+            "showNodeIds": true,
+            "nodes": [
+              {
+                "id": "TOP",
+                "type": "vote",
+                "position": {
+                  "x": 360,
+                  "y": 40
+                },
+                "data": {
+                  "label": "Two Channels Unavailable",
+                  "k": 2,
+                  "gateId": "VOTE-1"
+                }
+              },
+              {
+                "id": "A",
+                "type": "basic",
+                "position": {
+                  "x": 80,
+                  "y": 250
+                },
+                "data": {
+                  "label": "Channel A Fails",
+                  "eventKey": "A",
+                  "probability": 0.01,
+                  "description": ""
+                }
+              },
+              {
+                "id": "B",
+                "type": "basic",
+                "position": {
+                  "x": 360,
+                  "y": 250
+                },
+                "data": {
+                  "label": "Channel B Fails",
+                  "eventKey": "B",
+                  "probability": 0.01,
+                  "description": ""
+                }
+              },
+              {
+                "id": "C",
+                "type": "basic",
+                "position": {
+                  "x": 640,
+                  "y": 250
+                },
+                "data": {
+                  "label": "Channel C Fails",
+                  "eventKey": "C",
+                  "probability": 0.01,
+                  "description": ""
+                }
+              }
+            ],
+            "edges": [
+              {
+                "id": "e-TOP-A",
+                "source": "TOP",
+                "target": "A",
+                "data": {
+                  "role": "input",
+                  "order": 0
+                }
+              },
+              {
+                "id": "e-TOP-B",
+                "source": "TOP",
+                "target": "B",
+                "data": {
+                  "role": "input",
+                  "order": 1
+                }
+              },
+              {
+                "id": "e-TOP-C",
+                "source": "TOP",
+                "target": "C",
+                "data": {
+                  "role": "input",
+                  "order": 2
+                }
+              }
+            ],
+            "result": null
+          },
+          "dirty": false
+        },
+        {
+          "id": "fta-pand",
+          "name": "Example — PAND Sequence",
+          "state": {
+            "schemaVersion": 2,
+            "exposureTime": "1000",
+            "engine": "auto",
+            "confidenceLevel": "95",
+            "nSimulations": "20000",
+            "simSeed": "42",
+            "density": "comfortable",
+            "connectorStyle": "smoothstep",
+            "snapToGrid": false,
+            "annotations": [],
+            "showNodeIds": true,
+            "nodes": [
+              {
+                "id": "TOP",
+                "type": "pand",
+                "position": {
+                  "x": 360,
+                  "y": 40
+                },
+                "data": {
+                  "label": "Unsafe Ordered Failure",
+                  "tie_policy": "inclusive",
+                  "description": "Protection must fail before the demand occurs",
+                  "gateId": "PAND-1"
+                }
+              },
+              {
+                "id": "A",
+                "type": "basic",
+                "position": {
+                  "x": 210,
+                  "y": 260
+                },
+                "data": {
+                  "label": "Protection Fails First",
+                  "eventKey": "A",
+                  "probability": 0.6321205588285577,
+                  "description": "",
+                  "distribution": "exponential",
+                  "dist_params": {
+                    "lambda": 0.001,
+                    "gamma": 0
+                  }
+                }
+              },
+              {
+                "id": "B",
+                "type": "basic",
+                "position": {
+                  "x": 510,
+                  "y": 260
+                },
+                "data": {
+                  "label": "Demand Occurs Second",
+                  "eventKey": "B",
+                  "probability": 0.6321205588285577,
+                  "description": "",
+                  "distribution": "exponential",
+                  "dist_params": {
+                    "lambda": 0.001,
+                    "gamma": 0
+                  }
+                }
+              }
+            ],
+            "edges": [
+              {
+                "id": "e-TOP-A",
+                "source": "TOP",
+                "target": "A",
+                "data": {
+                  "role": "input",
+                  "order": 0
+                }
+              },
+              {
+                "id": "e-TOP-B",
+                "source": "TOP",
+                "target": "B",
+                "data": {
+                  "role": "input",
+                  "order": 1
+                }
+              }
+            ],
+            "result": null
+          },
+          "dirty": false
+        },
+        {
+          "id": "fta-spare",
+          "name": "Example — Cold Standby",
+          "state": {
+            "schemaVersion": 2,
+            "exposureTime": "1000",
+            "engine": "auto",
+            "confidenceLevel": "95",
+            "nSimulations": "20000",
+            "simSeed": "42",
+            "density": "comfortable",
+            "connectorStyle": "smoothstep",
+            "snapToGrid": false,
+            "annotations": [],
+            "showNodeIds": true,
+            "nodes": [
+              {
+                "id": "TOP",
+                "type": "spare",
+                "position": {
+                  "x": 360,
+                  "y": 40
+                },
+                "data": {
+                  "label": "Primary and Standby Unavailable",
+                  "spare_mode": "cold",
+                  "dormancy_factor": 0,
+                  "coverage": 1,
+                  "gateId": "SPR-1"
+                }
+              },
+              {
+                "id": "A",
+                "type": "basic",
+                "position": {
+                  "x": 210,
+                  "y": 260
+                },
+                "data": {
+                  "label": "Primary Unit",
+                  "eventKey": "A",
+                  "probability": 0.6321205588285577,
+                  "description": "",
+                  "distribution": "exponential",
+                  "dist_params": {
+                    "lambda": 0.001,
+                    "gamma": 0
+                  }
+                }
+              },
+              {
+                "id": "B",
+                "type": "basic",
+                "position": {
+                  "x": 510,
+                  "y": 260
+                },
+                "data": {
+                  "label": "Standby Unit",
+                  "eventKey": "B",
+                  "probability": 0.6321205588285577,
+                  "description": "",
+                  "distribution": "exponential",
+                  "dist_params": {
+                    "lambda": 0.001,
+                    "gamma": 0
+                  }
+                }
+              }
+            ],
+            "edges": [
+              {
+                "id": "e-TOP-A",
+                "source": "TOP",
+                "target": "A",
+                "data": {
+                  "role": "primary",
+                  "order": 0
+                }
+              },
+              {
+                "id": "e-TOP-B",
+                "source": "TOP",
+                "target": "B",
+                "data": {
+                  "role": "spare",
+                  "order": 1
+                }
+              }
+            ],
+            "result": null
+          },
+          "dirty": false
+        },
+        {
+          "id": "fta-fdep",
+          "name": "Example — Functional Dependency",
+          "state": {
+            "schemaVersion": 2,
+            "exposureTime": "1000",
+            "engine": "auto",
+            "confidenceLevel": "95",
+            "nSimulations": "20000",
+            "simSeed": "42",
+            "density": "comfortable",
+            "connectorStyle": "smoothstep",
+            "snapToGrid": false,
+            "annotations": [],
+            "showNodeIds": true,
+            "nodes": [
+              {
+                "id": "TOP",
+                "type": "or",
+                "position": {
+                  "x": 250,
+                  "y": 40
+                },
+                "data": {
+                  "label": "Dependent Function Unavailable",
+                  "gateId": "OR-1"
+                }
+              },
+              {
+                "id": "DEP",
+                "type": "fdep",
+                "position": {
+                  "x": 570,
+                  "y": 190
+                },
+                "data": {
+                  "label": "Shared Support Dependency",
+                  "gateId": "FDEP-1"
+                }
+              },
+              {
+                "id": "A",
+                "type": "basic",
+                "position": {
+                  "x": 570,
+                  "y": 390
+                },
+                "data": {
+                  "label": "Support Failure Trigger",
+                  "eventKey": "A",
+                  "probability": 0.6321205588285577,
+                  "description": "",
+                  "distribution": "exponential",
+                  "dist_params": {
+                    "lambda": 0.001,
+                    "gamma": 0
+                  }
+                }
+              },
+              {
+                "id": "B",
+                "type": "basic",
+                "position": {
+                  "x": 250,
+                  "y": 250
+                },
+                "data": {
+                  "label": "Dependent Function",
+                  "eventKey": "B",
+                  "probability": 0.6321205588285577,
+                  "description": "",
+                  "distribution": "exponential",
+                  "dist_params": {
+                    "lambda": 0.001,
+                    "gamma": 0
+                  }
+                }
+              }
+            ],
+            "edges": [
+              {
+                "id": "e-TOP-B",
+                "source": "TOP",
+                "target": "B",
+                "data": {
+                  "role": "input",
+                  "order": 0
+                }
+              },
+              {
+                "id": "e-DEP-A",
+                "source": "DEP",
+                "target": "A",
+                "data": {
+                  "role": "trigger",
+                  "order": 0
+                }
+              },
+              {
+                "id": "e-DEP-B",
+                "source": "DEP",
+                "target": "B",
+                "data": {
+                  "role": "dependent",
+                  "order": 1
+                }
+              }
+            ],
+            "result": null
+          },
+          "dirty": false
+        }
+      ]
     }
   }
 }

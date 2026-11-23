@@ -20,6 +20,7 @@ ASSURANCE_JOBS = (
     "container",
     "browser-compatibility",
     "dynamic-and-performance",
+    "toolkit-workflows",
 )
 DOCUMENTATION_FILES = {
     "README.md", "CHANGELOG.md", "CONTRIBUTING.md", "CODE_OF_CONDUCT.md",

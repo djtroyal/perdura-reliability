@@ -9,6 +9,8 @@ interface EntryColumn {
   placeholder?: string
   inputMode?: 'text' | 'decimal' | 'numeric'
   kind?: 'state'
+  options?: { value: string; label: string }[]
+  disabledWhen?: (values: Record<string, string>) => boolean
   align?: 'right'
 }
 interface EntryRow { key: string; id: string }
@@ -40,12 +42,16 @@ const EditableRow = memo(function EditableRow({ row, index, placeholder, columns
     onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) onActivate(null) }}
     className={`group border-t border-slate-100 ${placeholder ? 'bg-blue-50/40' : ''}`}>
     {columns.map(column => <td key={column.key} className={`px-1 py-0.5 ${column.kind === 'state' ? 'w-20 text-center' : column.key === 'id' || column.key === 'count' ? 'w-20' : ''}`}>
-      {column.kind === 'state' ? <button type="button"
+      {column.options ? <select aria-label={`${column.label}, ${rowLabel}`} value={values[column.key] ?? column.options[0].value}
+        onChange={event => onUpdate(row.key, column.key, event.target.value)} className={inputClass}>
+        {column.options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+      </select> : column.kind === 'state' ? <button type="button"
         aria-label={`${placeholder ? 'New row' : `Row ${index + 1}`}: ${values[column.key] === 'F' ? 'Fail (failure); change to suspension' : 'Susp (right-censored); change to failure'}`}
         onClick={() => onUpdate(row.key, column.key, values[column.key] === 'F' ? 'S' : 'F')}
         className={`min-h-8 rounded px-2 py-1 text-xs font-semibold ${values[column.key] === 'F' ? 'bg-red-100 text-red-800 hover:bg-red-200' : 'bg-amber-100 text-amber-900 hover:bg-amber-200'}`}>
         {values[column.key] === 'F' ? 'Fail' : 'Susp'}
       </button> : <input type="text" value={values[column.key] ?? ''}
+        disabled={column.disabledWhen?.(values)}
         aria-label={`${column.inputLabel ?? column.label}, ${rowLabel}`}
         data-row={index} data-col={column.key} inputMode={column.inputMode ?? 'text'}
         onChange={event => onUpdate(row.key, column.key, event.target.value)}

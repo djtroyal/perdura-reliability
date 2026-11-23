@@ -49,6 +49,8 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 
 class ReplacementPolicyRequest(BaseModel):
+    model_config = ConfigDict(allow_inf_nan=False)
+    block_repair_model: Literal['minimal', 'perfect'] = 'minimal'
     cost_PM: float = Field(..., gt=0)      # preventive replacement cost
     cost_CM: float = Field(..., gt=0)      # corrective (post-failure) cost
     weibull_alpha: float = Field(..., gt=0)   # scale (characteristic life)
@@ -63,6 +65,8 @@ class PMIntervalRequest(BaseModel):
 
 
 class CostForecastRequest(BaseModel):
+    model_config = ConfigDict(allow_inf_nan=False)
+    block_repair_model: Literal['minimal', 'perfect'] = 'minimal'
     policy: str = "age"                    # corrective | age | block
     cost_PM: float = Field(..., gt=0)
     cost_CM: float = Field(..., gt=0)
@@ -70,6 +74,28 @@ class CostForecastRequest(BaseModel):
     weibull_beta: float = Field(..., gt=0)
     horizon: float = Field(..., gt=0)
     interval: Optional[float] = Field(None, gt=0)   # None = that policy's optimum
+
+
+class FleetCohort(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    id: str = Field(min_length=1, max_length=120)
+    count: int = Field(gt=0, le=1_000_000_000)
+    age: float = Field(0, ge=0)
+    entry_time: float = Field(0, ge=0)
+    exit_time: Optional[float] = Field(None, gt=0)
+
+
+class FleetForecastRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    dist: Literal['weibull', 'exponential', 'lognormal', 'gamma', 'loglogistic', 'beta']
+    dist_params: Dict[str, float]
+    cohorts: List[FleetCohort] = Field(min_length=1, max_length=200)
+    horizon: float = Field(gt=0)
+    model: Literal['first_failure', 'perfect_renewal', 'minimal_repair'] = 'first_failure'
+    cost_per_event: float = Field(0, ge=0)
+    n_points: int = Field(101, ge=2, le=1001)
+    relative_tolerance: float = Field(5e-4, gt=0, le=.01)
+    absolute_tolerance: float = Field(1e-5, gt=0, le=.01)
 
 
 class VirtualAgeSimulationRequest(BaseModel):
@@ -365,6 +391,17 @@ class _ScaledDistribution:
         self.distribution = distribution
         self.scale = scale
         self.mean = distribution.mean * scale
+        self.name = distribution.name
+
+    def _cdf(self, values):
+        return self.distribution._cdf(np.asarray(values) / self.scale)
+
+    def support(self):
+        lower, upper = self.distribution._scipy.support()
+        return lower * self.scale, upper * self.scale
+
+    def _logsf(self, values):
+        return self.distribution._logsf(np.asarray(values) / self.scale)
 
     def quantile(self, probability):
         return self.distribution.quantile(probability) * self.scale
@@ -423,10 +460,14 @@ def replacement_policy(req: ReplacementPolicyRequest):
         raise HTTPException(status_code=400,
                             detail="cost_PM must be less than cost_CM (otherwise "
                                    "preventive maintenance is never worthwhile).")
-    res = replacement_policy_comparison(
-        cost_PM=req.cost_PM, cost_CM=req.cost_CM,
-        weibull_alpha=req.weibull_alpha, weibull_beta=req.weibull_beta,
-    )
+    try:
+        res = replacement_policy_comparison(
+            cost_PM=req.cost_PM, cost_CM=req.cost_CM,
+            weibull_alpha=req.weibull_alpha, weibull_beta=req.weibull_beta,
+            block_repair_model=req.block_repair_model,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _safe(res)
 
 
@@ -479,12 +520,31 @@ def pm_interval(req: PMIntervalRequest):
 def cost_forecast(req: CostForecastRequest):
     """Expected PM/CM events and total maintenance cost over a planning horizon
     for a chosen policy (corrective / age / block), with a cumulative-cost curve."""
-    res = maintenance_cost_forecast(
-        policy=req.policy, cost_PM=req.cost_PM, cost_CM=req.cost_CM,
-        weibull_alpha=req.weibull_alpha, weibull_beta=req.weibull_beta,
-        horizon=req.horizon, interval=req.interval,
-    )
+    try:
+        res = maintenance_cost_forecast(
+            policy=req.policy, cost_PM=req.cost_PM, cost_CM=req.cost_CM,
+            weibull_alpha=req.weibull_alpha, weibull_beta=req.weibull_beta,
+            horizon=req.horizon, interval=req.interval,
+            block_repair_model=req.block_repair_model,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _safe(res)
+
+
+@router.post("/fleet-forecast")
+def fleet_forecast(req: FleetForecastRequest):
+    """Finite-horizon cohort events with explicit first-failure/repair semantics."""
+    from reliability.Renewal import fleet_forecast as calculate_fleet
+    try:
+        distribution = _build_dist(req.dist, req.dist_params)
+        result = calculate_fleet(distribution, [row.model_dump() for row in req.cohorts],
+                                 req.horizon, model=req.model, cost_per_event=req.cost_per_event,
+                                 n_points=req.n_points, rtol=req.relative_tolerance,
+                                 atol=req.absolute_tolerance)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return result
 
 
 @router.post("/virtual-age-simulation")

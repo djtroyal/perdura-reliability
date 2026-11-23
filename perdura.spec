@@ -34,7 +34,9 @@ hiddenimports = (
     + collect_submodules('uvicorn')
     + collect_submodules('fastapi')
     + collect_submodules('pydantic')
+    + collect_submodules('pypdf')
     + [
+        'perdura_app',
         'multiprocessing',
         'encodings',
         'encodings.idna',
@@ -47,6 +49,8 @@ datas = [
     (str(repo / 'src' / 'reliability'), os.path.join('src', 'reliability')),
     # FastAPI backend (routers, schemas, etc.)
     (str(repo / 'gui' / 'backend'), os.path.join('gui', 'backend')),
+    # Citation metadata only: user-supplied reference PDFs are never bundled.
+    (str(repo / 'src' / 'perdura_app' / 'data' / 'reference-catalog.json'), os.path.join('perdura_app', 'data')),
     # Built frontend — must run `npm run build` before packaging.
     (str(repo / 'gui' / 'frontend' / 'dist'), os.path.join('dist')),
 ]

@@ -12,7 +12,8 @@ export interface AvailState {
   adminDelay: string; logiDelay: string; result: AvailabilityResponse | null
 }
 export interface MaintState {
-  mode: 'lognormal' | 'data'; mu: string; sigma: string; samples: string
+  mode: 'lognormal' | 'data' | 'frequency' | 'exponential'; mu: string; sigma: string; samples: string
+  estimator: 'mle' | 'sample_log_sd'; mttr: string; curveView: 'completion' | 'exceedance'
   percentile: string; result: MaintainabilityResponse | null
 }
 export interface SparesState {
@@ -23,18 +24,19 @@ export interface SparesState {
   weibullAlpha: string; weibullBeta: string
   leadMean: string; leadStd: string; shockRate: string; shockSize: string
   simulations: string; seed: string
+  maxStock: string
   result: SparesResponse | null
 }
 export interface RamState { avail: AvailState; maint: MaintState; spares: SparesState }
 
 export const INITIAL: RamState = {
   avail: { mtbf: '', mttr: '', mtbm: '', meanMaint: '', adminDelay: '0', logiDelay: '0', result: null },
-  maint: { mode: 'lognormal', mu: '', sigma: '', samples: '', percentile: '0.95', result: null },
+  maint: { mode: 'lognormal', mu: '', sigma: '', samples: '', estimator: 'mle', mttr: '', curveView: 'completion', percentile: '0.95', result: null },
   spares: {
     quantity: '', opHours: '8760', dutyCycle: '1', basis: 'mtbf', mtbf: '', rate: '', confidence: '0.95',
     model: 'poisson', dispersion: '10', renewalBasis: 'exponential',
     weibullAlpha: '', weibullBeta: '', leadMean: '720', leadStd: '168',
-    shockRate: '0', shockSize: '2', simulations: '5000', seed: '42', result: null,
+    shockRate: '0', shockSize: '2', simulations: '5000', seed: '42', maxStock: '50', result: null,
   },
 }
 

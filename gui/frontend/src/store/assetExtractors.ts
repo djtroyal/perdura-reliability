@@ -1,3 +1,6 @@
+import { capabilityModelTailStatus, type CapabilityTailState } from '../components/ProcessCapability/modelTails'
+import type { FleetForecastResponse } from '../api/lifecycle'
+import { toolkitAssets } from './toolkitAssets'
 import { distributionLabel } from '../components/shared/distributionLabels'
 import { materializePrediction, systemInputFingerprint, type PredictionScenario } from './sharedSystemModel'
 import { canonicalFmeaBinding, collectFmeaProtectedEntityIds, fmeaSemanticFingerprint, inspectFmeaBinding, materializeFmeaAnalysis } from './sharedFmeaModel'
@@ -589,7 +592,7 @@ function appendMCFAssets(group: string, result: MCFResponse, out: AssetDescripto
       plotLayout: {
         ...BASE,
         xaxis: { title: { text: 'Time' }, gridcolor: '#e5e7eb' },
-        yaxis: { title: { text: 'Mean cumulative recurrences' }, gridcolor: '#e5e7eb', rangemode: 'tozero' },
+        yaxis: { title: { text: np.measure === 'cost' ? 'Mean cumulative cost per unit' : 'Mean cumulative recurrences' }, gridcolor: '#e5e7eb', rangemode: 'tozero' },
         title: { text: 'Mean Cumulative Function' },
       },
     }),
@@ -599,7 +602,7 @@ function appendMCFAssets(group: string, result: MCFResponse, out: AssetDescripto
     group, label: 'MCF Point Estimates and Interval Availability', type: 'table',
     getData: () => ({
       tableHeaders: [
-        'Time', 'MCF', 'Lower', 'Upper', 'Std. error', 'At risk', 'Events',
+        'Time', np.measure === 'cost' ? 'Mean cumulative cost' : 'MCF', 'Lower', 'Upper', 'Std. error', 'At risk', np.measure === 'cost' ? 'Cost at time' : 'Events',
         'Interval available', 'Sparse tail', 'Valid bootstrap replicates',
       ],
       tableRows: np.time.map((time, index) => [
@@ -617,6 +620,7 @@ function appendMCFAssets(group: string, result: MCFResponse, out: AssetDescripto
     group, label: 'MCF Summary', type: 'metrics',
     getData: () => ({
       metrics: [
+        { label: 'Measure', value: np.measure === 'cost' ? 'Cost per unit' : 'Events per unit' },
         { label: 'Systems', value: String(np.n_systems) },
         { label: 'Events', value: String(np.n_events) },
         { label: 'Confidence Level', value: fmt(np.CI) },
@@ -665,12 +669,18 @@ function extractGrowth(modules: Record<string, unknown>, out: AssetDescriptor[])
   const folio = extractFolioResult<{
     result?: GrowthResponse | null
     mcf?: { result?: MCFResponse | null }
-    planning?: { result?: GrowthPlanResponse | null }
+    planning?: { result?: (GrowthPlanResponse & Partial<import('../api/inferenceTools').PhaseGrowthResponse>) | null }
   }>(modules, 'growth')
   for (const { gp, st } of folio) {
     if (st.mcf?.result) appendMCFAssets(gp, st.mcf.result, out)
     if (st.planning?.result) {
       const plan = st.planning.result
+      if (plan.phase_table?.length) out.push({
+        id: mkId('grp'), module: 'growth', moduleLabel: 'Reliability Growth', group: gp,
+        label: 'Growth Phase Plan', type: 'table', targetView: 'planning',
+        getData: () => ({ tableHeaders: ['Phase', 'Start', 'End', 'Start MTBF', 'End MTBF', 'Integrated average MTBF', 'Expected failures', 'Cumulative failures', 'Basis'],
+          tableRows: plan.phase_table!.map(row => [row.phase, row.start_time, row.end_time, row.start_mtbf, row.end_mtbf, row.average_mtbf, row.expected_failures, row.cumulative_expected_failures, row.basis]) }),
+      })
       out.push({
         id: mkId('grp'), module: 'growth', moduleLabel: 'Reliability Growth',
         group: gp, label: 'Growth Planning Trajectory', type: 'plot',
@@ -2289,13 +2299,14 @@ function extractRAM(modules: Record<string, unknown>, out: AssetDescriptor[]) {
           { label: 'Achieved (Aa)', value: pct(r.achieved) },
           { label: 'Operational (Ao)', value: pct(r.operational) },
           { label: 'Mean down time (MDT)', value: fmt(r.mean_down_time) },
-          { label: 'Repair (MTTR)', value: fmt(r.downtime_breakdown?.repair) },
+          { label: r.active_maintenance_label ?? 'Active maintenance', value: fmt(r.downtime_breakdown?.repair) },
+          { label: 'Operational basis', value: r.operational_basis ?? 'Not recorded' },
           { label: 'Admin delay', value: fmt(r.downtime_breakdown?.admin_delay) },
           { label: 'Logistics delay', value: fmt(r.downtime_breakdown?.logistics_delay) },
         ],
       }),
     })
-    const uptime = parseFloat(av.mtbm || av.mtbf || '')
+    const uptime = r.mean_uptime ?? NaN
     const d = r.downtime_breakdown
     const admin = d?.admin_delay ?? 0
     const logi = d?.logistics_delay ?? 0
@@ -2336,6 +2347,12 @@ function extractRAM(modules: Record<string, unknown>, out: AssetDescriptor[]) {
     if (r.curve?.time?.length) {
       out.push({
         id: mkId('ram'), module: 'ram', moduleLabel: ML, group: 'Maintainability',
+        label: 'Repair Probabilities', type: 'table', targetView: 'maintainability',
+        getData: () => ({ tableHeaders: ['Repair time', 'Completed by time', 'Exceeds time'],
+          tableRows: r.curve.time.map((time: number, i: number) => [time, r.curve.cdf?.[i] ?? 1-r.curve.sf[i], r.curve.sf[i]]) }),
+      })
+      out.push({
+        id: mkId('ram'), module: 'ram', moduleLabel: ML, group: 'Maintainability',
         label: 'Repair-time Survival', type: 'plot',
         getData: () => ({
           plotData: [{ x: r.curve.time, y: r.curve.sf, mode: 'lines', name: 'P(T > t)', line: { color: '#8b5cf6', width: 2 } }],
@@ -2357,7 +2374,7 @@ function extractRAM(modules: Record<string, unknown>, out: AssetDescriptor[]) {
           { label: 'Required spares', value: String(r.required_spares) },
           { label: 'Expected demand', value: fmt(r.expected_demand) },
           { label: 'Achieved protection', value: `${(r.achieved_protection * 100).toFixed(2)}%` },
-          { label: 'Target confidence', value: `${(r.confidence * 100).toFixed(2)}%` },
+          { label: 'Target service probability', value: `${(r.confidence * 100).toFixed(2)}%` },
         ],
       }),
     })
@@ -2367,7 +2384,7 @@ function extractRAM(modules: Record<string, unknown>, out: AssetDescriptor[]) {
         label: 'Protection vs Stock', type: 'plot',
         getData: () => ({
           plotData: [
-            { x: r.curve.stock_level, y: r.curve.protection, type: 'bar', name: 'P(no stockout)', marker: { color: '#10b981' } },
+            { x: r.curve.stock_level, y: r.curve.protection, type: 'scatter', mode: 'lines+markers', name: 'Sampled P(no stockout)', line: { shape: 'hv', color: '#047857' } },
             { x: [r.required_spares, r.required_spares], y: [0, 1], mode: 'lines', name: `required = ${r.required_spares}`, line: { color: '#ef4444', width: 2, dash: 'dot' } },
           ],
           plotLayout: { ...BASE, xaxis: { title: { text: 'Spares stocked' }, gridcolor: '#e5e7eb' }, yaxis: { title: { text: 'P(no stockout)' }, range: [0, 1], gridcolor: '#e5e7eb' }, title: { text: 'Spares Protection Level' } },
@@ -3975,7 +3992,22 @@ function extractPoF(modules: Record<string, unknown>, out: AssetDescriptor[]) {
 // ---------------------------------------------------------------------------
 
 function extractSixSigma(modules: Record<string, unknown>, out: AssetDescriptor[]) {
-  const cap = modules['sixSigma.capability'] as { result?: Any } | null
+  const cap = modules['sixSigma.capability'] as (CapabilityTailState & { result?: Any }) | null
+  if (cap?.modelTailResult) {
+    const tail=cap.modelTailResult
+    const status=capabilityModelTailStatus({units:getProjectState().units,modules},cap,CURRENT_ENGINE_REVISIONS['sixSigma.capability'])!
+    out.push({id:mkId('tails'),module:'sixSigma',moduleLabel:'Six Sigma',group:'Process Capability',label:'Adopted-model Specification PPM',type:'metrics',
+      source:{module:'sixSigma.capability',tab:'six-sigma',sub:'capability',analysisName:'Process Capability',assetKey:'',
+        resultStatus:status.status,engineRevision:tail.provenance?.engineRevision,
+        resultFingerprint:sha256FtaText(JSON.stringify(tail))},
+      getData:()=>({metrics:[{label:'Dataset',value:tail.sourceName},{label:'Distribution',value:distributionLabel(tail.distribution)},
+        {label:'Status',value:status.status==='current'?'Current':`${status.status==='unverified'?'Unverified':'Historical'} — ${status.reason}`},
+        {label:'Units',value:tail.unit},{label:'Lower limit',value:fmt(tail.lsl)},{label:'Upper limit',value:fmt(tail.usl)},
+        {label:'Model parameters',value:Object.entries(tail.params).map(([name,value])=>`${name} = ${fmt(value)}`).join('; ')},
+        {label:'Source fingerprint',value:tail.sourceFingerprint},
+        {label:'Below LSL (PPM)',value:fmt(tail.below_lsl)},{label:'Above USL (PPM)',value:fmt(tail.above_usl)},
+        {label:'Total (PPM)',value:fmt(tail.total)},{label:'Parameter uncertainty',value:'Not included; fixed adopted model'}]})})
+  }
   if (cap?.result) {
     const r = cap.result
     out.push({
@@ -5067,12 +5099,18 @@ function extractMaintenance(modules: Record<string, unknown>, out: AssetDescript
       label: 'Age vs Block Policy', type: 'metrics',
       getData: () => ({
         metrics: [
-          { label: 'Recommended policy', value: rp.cheaper_policy === 'age' ? 'Age replacement' : rp.cheaper_policy === 'block' ? 'Block replacement' : 'Run to failure' },
+          { label: 'Recommended policy', value: rp.cheaper_policy === 'age' ? 'Age replacement' : rp.cheaper_policy === 'block' ? 'Block replacement' : rp.cheaper_policy === 'undetermined' ? 'Not established' : 'Run to failure' },
+          { label: 'Analysis basis', value: 'Long-run renewal/reward cost rates' },
+          { label: 'Repair between block replacements', value: rp.block_repair_model === 'perfect' ? 'Perfect renewal' : 'Minimal repair' },
           { label: 'Age optimal interval', value: rp.age.optimal_time == null ? 'Run to failure' : fmt(rp.age.optimal_time) },
           { label: 'Age cost/unit time', value: fmt(rp.age.min_cost) },
-          { label: 'Block optimal interval', value: rp.block.optimal_time == null ? 'Run to failure' : fmt(rp.block.optimal_time) },
+          { label: 'Block selected interval', value: rp.block.decision === 'withheld' ? 'Not established' : rp.block.optimal_time == null ? 'Run to failure' : fmt(rp.block.optimal_time) },
           { label: 'Block cost/unit time', value: fmt(rp.block.min_cost) },
           { label: 'Corrective-only cost rate', value: fmt(rp.corrective_only_cost) },
+          { label: 'Block decision', value: rp.block.decision_reason },
+          ...(rp.block.numerical?.interval_grid_step == null ? [] : [{ label: 'Numerical interval grid resolution', value: fmt(rp.block.numerical.interval_grid_step) }]),
+          ...(rp.block.candidate_cost_lower == null || rp.block.candidate_cost_upper == null ? [] : [{ label: 'Candidate cost/time discretization bounds', value: `${fmt(rp.block.candidate_cost_lower)}–${fmt(rp.block.candidate_cost_upper)}` }]),
+          ...Object.entries(rp.maintenance_assumptions ?? {}).map(([policy, assumption]) => ({ label: `${policy} assumption`, value: assumption })),
         ],
       }),
     })
@@ -5082,6 +5120,10 @@ function extractMaintenance(modules: Record<string, unknown>, out: AssetDescript
       getData: () => ({
         plotData: [
           { x: rp.age.time, y: rp.age.cost, mode: 'lines', name: 'Age', line: { color: COLORS[0], width: 2 } },
+          ...(rp.block.numerical ? [
+            { x: rp.block.time, y: rp.block.numerical.cost_upper, mode: 'lines', name: 'Numerical upper bound', line: { width: 0 }, showlegend: false },
+            { x: rp.block.time, y: rp.block.numerical.cost_lower, mode: 'lines', name: 'Block discretization bounds', line: { width: 0 }, fill: 'tonexty', fillcolor: 'rgba(245,158,11,0.16)' },
+          ] : []),
           { x: rp.block.time, y: rp.block.cost, mode: 'lines', name: 'Block', line: { color: '#f59e0b', width: 2 } },
           ...(rp.age.optimal_time == null ? [] : [{ x: [rp.age.optimal_time], y: [rp.age.min_cost], mode: 'markers', name: 'Age optimum', marker: { color: COLORS[0], size: 10, symbol: 'star' } }]),
           ...(rp.block.optimal_time == null ? [] : [{ x: [rp.block.optimal_time], y: [rp.block.min_cost], mode: 'markers', name: 'Block optimum', marker: { color: '#f59e0b', size: 10, symbol: 'star' } }]),
@@ -5126,9 +5168,15 @@ function extractMaintenance(modules: Record<string, unknown>, out: AssetDescript
       getData: () => ({
         metrics: [
           { label: 'Policy', value: cf.policy },
+          { label: 'Analysis basis', value: cf.finite_horizon_transients_modeled ? 'Finite-horizon renewal forecast' : 'Long-run rates projected over the horizon' },
+          ...(cf.block_repair_model ? [{ label: 'Repair between block replacements', value: cf.block_repair_model === 'perfect' ? 'Perfect renewal' : 'Minimal repair' }] : []),
           { label: 'Total cost', value: fmt(cf.total_cost) },
+          { label: cf.finite_horizon_transients_modeled ? 'Average cost/time over horizon' : 'Long-run cost/time', value: fmt(cf.cost_rate) },
           { label: 'Expected PM events', value: fmt(cf.expected_pm) },
           { label: 'Expected CM events', value: fmt(cf.expected_cm) },
+          ...(cf.expected_cm_lower == null || cf.expected_cm_upper == null ? [] : [{ label: 'CM count discretization bounds', value: `${fmt(cf.expected_cm_lower)}–${fmt(cf.expected_cm_upper)}` }]),
+          ...(cf.cumulative_cost_lower && cf.cumulative_cost_upper ? [{ label: 'Total cost discretization bounds', value: `${fmt(cf.cumulative_cost_lower[cf.cumulative_cost_lower.length - 1])}–${fmt(cf.cumulative_cost_upper[cf.cumulative_cost_upper.length - 1])}` }] : []),
+          ...(cf.assumption_note ? [{ label: 'Assumptions', value: cf.assumption_note }] : []),
         ],
       }),
     })
@@ -5137,11 +5185,33 @@ function extractMaintenance(modules: Record<string, unknown>, out: AssetDescript
       label: 'Cumulative Maintenance Cost', type: 'plot',
       getData: () => ({
         plotData: [
+          ...(cf.cumulative_cost_lower && cf.cumulative_cost_upper ? [
+            { x: cf.time, y: cf.cumulative_cost_upper, mode: 'lines', name: 'Numerical upper bound', line: { width: 0 }, showlegend: false },
+            { x: cf.time, y: cf.cumulative_cost_lower, mode: 'lines', name: 'Discretization bounds', line: { width: 0 }, fill: 'tonexty', fillcolor: 'rgba(99,102,241,0.16)' },
+          ] : []),
           { x: cf.time, y: cf.cumulative_cost, mode: 'lines', name: 'Cumulative cost', line: { color: '#6366f1', width: 2 } },
         ],
         plotLayout: { ...BASE, xaxis: { title: { text: 'Time' }, gridcolor: '#e5e7eb' }, yaxis: { title: { text: 'Cumulative cost' }, gridcolor: '#e5e7eb' }, title: { text: 'Cumulative Maintenance Cost over the Horizon' } },
       }),
     })
+  }
+
+  const fleet = (modules.maintFleet as {result?:FleetForecastResponse|null}|undefined)?.result
+  if (fleet) {
+    out.push({id:mkId('fleet'),module:'maintFleet',moduleLabel:ML,group:'Fleet Forecast',label:'Fleet Forecast Summary',type:'metrics',
+      getData:()=>({metrics:[{label:'Event model',value:fleet.model},
+        {label:'Expected events',value:fmt(fleet.total_expected_events)},{label:'Expected cost',value:fmt(fleet.total_expected_cost)},
+        {label:'Probability of no events',value:fmt(fleet.probability_no_events[fleet.probability_no_events.length-1])},
+        {label:'Numerical count half-width',value:fmt(fleet.numerical.maximum_count_half_width)},
+        {label:'Assumptions',value:fleet.assumptions.join(' | ')}]})})
+    out.push({id:mkId('fleet'),module:'maintFleet',moduleLabel:ML,group:'Fleet Forecast',label:'Fleet Cohorts',type:'table',
+      getData:()=>({tableHeaders:['Cohort','Units','Age at entry','Entry','Exit','Expected events','Expected cost'],
+        tableRows:fleet.cohorts.map(row=>[row.id,row.count,row.age,row.entry_time,row.exit_time ?? 'Horizon',fmt(row.expected_events),fmt(row.expected_cost)])})})
+    out.push({id:mkId('fleet'),module:'maintFleet',moduleLabel:ML,group:'Fleet Forecast',label:'Cumulative Fleet Events',type:'plot',
+      getData:()=>({plotData:[{x:fleet.time,y:fleet.expected_events,mode:'lines',name:'Expected events'},
+        {x:fleet.time,y:fleet.expected_events_lower,mode:'lines',name:'Numerical lower bound'},
+        {x:fleet.time,y:fleet.expected_events_upper,mode:'lines',name:'Numerical upper bound'}],
+        plotLayout:{...BASE,xaxis:{title:{text:'Time'}},yaxis:{title:{text:'Expected events'}},title:{text:'Cumulative Fleet Events'}}})})
   }
 
   const av = (modules['maintAvailability'] as { result?: AvailabilitySensitivityResponse | null } | null)?.result
@@ -5395,6 +5465,7 @@ export function enumerateAssets(): AssetDescriptor[] {
   const state = getProjectState()
   const m = state.modules
   const out: AssetDescriptor[] = []
+  out.push(...toolkitAssets(state))
   extractSystemRequirements(m, out)
   extractLifeData(m, out)
   extractALT(m, out)
@@ -5447,8 +5518,7 @@ export function enumerateAssets(): AssetDescriptor[] {
     if (existingIndex >= 0) {
       const existing = out[existingIndex]
       // A mounted chart cannot refresh a saved calculation whose inputs changed.
-      if ((runtime.module === 'fmea' || runtime.module === 'reliabilityProgram')
-          && existing.source?.resultStatus && existing.source.resultStatus !== 'current') continue
+      if (existing.source?.resultStatus && existing.source.resultStatus !== 'current') continue
       existing.getData = descriptor.getData
     }
     else out.push(descriptor)

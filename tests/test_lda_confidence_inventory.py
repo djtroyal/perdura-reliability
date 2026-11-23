@@ -69,3 +69,10 @@ def test_all_location_families_fail_closed_for_ordinary_automatic_inference():
         else:
             assert item["complete_mle"] == "withheld"
             assert item["censored_mle"] == "withheld"
+
+
+def test_composite_models_do_not_claim_unvalidated_confidence_intervals():
+    entries = {item['model']: item for item in _load()['special_and_nonparametric']}
+    for name in ('Weibull_Partial_CR', 'Weibull_Bathtub'):
+        assert entries[name]['status'] == 'withheld'
+        assert entries[name]['withheld_when'] == 'composite_model_uncertainty_not_calibrated'

@@ -381,6 +381,18 @@ jobs:
         run: >-
           npm run assurance:reliability-sources --prefix gui/frontend --
           --output-dir ../../evidence/dynamic/reliability-sources
+      - name: Verify standard lifetime fitting, mixed data, and remaining life
+        env:
+          PERDURA_PYTHON: ${{ github.workspace }}/.venv/bin/python
+        run: >-
+          npm run assurance:standard-life-methods --prefix gui/frontend --
+          --output-dir ../../evidence/dynamic/standard-life-methods
+      - name: Verify fleet renewal and monetary MCF workflows
+        env:
+          PERDURA_PYTHON: ${{ github.workspace }}/.venv/bin/python
+        run: >-
+          npm run assurance:lifecycle --prefix gui/frontend --
+          --output-dir ../../evidence/dynamic/lifecycle
       - name: Verify shared System Definition and Prediction scenarios
         run: >-
           npm run assurance:shared-system --prefix gui/frontend --
@@ -527,10 +539,54 @@ jobs:
           path: evidence/dynamic
           retention-days: 90
 
+  toolkit-workflows:
+    needs: scope
+    if: needs.scope.outputs.run_assurance == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: '0.11.29'
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: gui/frontend/package-lock.json
+      - name: Install locked toolkit and browser dependencies
+        run: |
+          uv sync --locked --python 3.13.14 --extra app --group dev
+          npm ci --prefix gui/frontend
+          npx --prefix gui/frontend playwright install --with-deps chromium
+      - name: Verify toolkit workflows against real calculation handlers
+        env:
+          PERDURA_PYTHON: ${{ github.workspace }}/.venv/bin/python
+        run: |
+          npm run assurance:inference-tools --prefix gui/frontend -- --output-dir ../../evidence/toolkit/inference
+          npm run assurance:lifetime-tools --prefix gui/frontend -- --output-dir ../../evidence/toolkit/lifetime
+          npm run assurance:inventory-ram --prefix gui/frontend -- --output-dir ../../evidence/toolkit/inventory-ram
+          npm run assurance:system-lifecycle --prefix gui/frontend -- --output-dir ../../evidence/toolkit/systems
+          npm run assurance:prediction-comparison --prefix gui/frontend -- --output-dir ../../evidence/toolkit/comparison
+          npm run assurance:reference-library --prefix gui/frontend -- --output-dir ../../evidence/toolkit/references
+      - name: Retain toolkit workflow evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: Perdura-toolkit-workflows-${{ github.sha }}
+          path: evidence/toolkit
+          retention-days: 90
+
   assurance-gate:
     name: Product assurance gate
     if: always()
-    needs: [scope, local-controls, dependency-review, osv, scorecard, candidate-scorecard, container, browser-compatibility, dynamic-and-performance]
+    needs: [scope, local-controls, dependency-review, osv, scorecard, candidate-scorecard, container, browser-compatibility, dynamic-and-performance, toolkit-workflows]
     runs-on: ubuntu-24.04
     permissions:
       contents: read

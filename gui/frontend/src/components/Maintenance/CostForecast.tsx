@@ -1,6 +1,7 @@
+import { forecastMaintenanceCost, type BlockRepairModel } from '../../api/lifecycle'
 import { useState, useRef } from 'react'
 import Plot from '../shared/ExportablePlot'
-import { computeCostForecast, CostForecastResponse } from '../../api/client'
+import { CostForecastResponse } from '../../api/client'
 import { useUnits, useModuleState, getProjectState, beginFolioRequest, readFolioState } from '../../store/project'
 import { useReliabilitySources } from '../shared/ldaFolios'
 import { resolveReliabilitySource, linkedSourcesFingerprint } from '../shared/reliabilitySources'
@@ -12,6 +13,7 @@ import { inputCls } from '../shared/styles'
 import { fmtNum } from '../shared/format'
 
 interface State {
+  blockRepairModel?: BlockRepairModel
   sourceId?: string; sourceStale?: boolean; sourceStaleReason?: string
   policy: string; costPM: string; costCM: string; alpha: string; beta: string
   horizon: string; interval: string
@@ -47,7 +49,8 @@ export default function CostForecast() {
       () => linkedSourcesFingerprint(getProjectState(), st))
     try {
       const source = sourceId ? resolveReliabilitySource(project, sourceId, 'weibull-2p') : null
-      const r = await computeCostForecast({
+      const r = await forecastMaintenanceCost({
+        block_repair_model: st.blockRepairModel ?? 'minimal',
         policy: st.policy, cost_PM: parseFloat(st.costPM), cost_CM: parseFloat(st.costCM),
         weibull_alpha: source?.dist_params.alpha ?? parseFloat(st.alpha), weibull_beta: source?.dist_params.beta ?? parseFloat(st.beta),
         horizon: parseFloat(st.horizon),
@@ -65,9 +68,17 @@ export default function CostForecast() {
       <div className="flex justify-end -mb-1">
         <ExampleButton hasData={res != null} onLoad={() => setSt(EXAMPLE)} />
       </div>
-      <Select label="Policy" tip="Corrective = run to failure. Age = replace on failure or at the interval. Block = replace every interval, minimally repair failures between."
+      <Select label="Policy" tip="Corrective = run to failure. Age = replace on failure or at the interval. Block = replace every interval, using the selected repair model between replacements."
         value={st.policy} onChange={v => patch({ policy: v })}
         options={[{ value: 'corrective', label: 'Corrective only (run to failure)' }, { value: 'age', label: 'Age replacement' }, { value: 'block', label: 'Block replacement' }]} />
+      {st.policy === 'block' && <div>
+        <InfoLabel tip="Minimal repair keeps the item's age after a failure. Perfect renewal replaces it with an independent new item; scheduled block replacements reset age in both models.">Repair between block replacements</InfoLabel>
+        <select aria-label="Repair between block replacements" className={inputCls} value={st.blockRepairModel ?? 'minimal'}
+          onChange={e => patch({ blockRepairModel: e.target.value as BlockRepairModel, result: null })}>
+          <option value="minimal">Minimal repair (same age)</option>
+          <option value="perfect">Perfect renewal (new item)</option>
+        </select>
+      </div>}
       <div>
         <InfoLabel tip="Cost of a planned preventive replacement.">Cost of preventive maintenance (PM)</InfoLabel>
         <input type="number" min="0" step="1" value={st.costPM} onChange={e => patch({ costPM: e.target.value })} className={inputCls} />
@@ -123,12 +134,23 @@ export default function CostForecast() {
         <Card label="Expected CM events" value={fmtNum(res.expected_cm)} />
         <Card label={res.interval != null ? `Interval used (${units})` : 'Policy'} value={res.interval != null ? fmtNum(res.interval) : 'Run to failure'} />
       </div>
+      <p className="mb-2 text-xs text-gray-600">
+        {res.finite_horizon_transients_modeled ? 'Finite-horizon renewal forecast' : 'Long-run rates projected over the horizon'}
+        {res.block_repair_model && ` · ${res.block_repair_model === 'perfect' ? 'Perfect renewal' : 'Minimal repair'} between block replacements`}
+      </p>
+      {res.cumulative_cost_lower && res.cumulative_cost_upper && (
+        <p className="mb-3 text-xs text-gray-600">Total cost discretization bounds: {fmtNum(res.cumulative_cost_lower[res.cumulative_cost_lower.length - 1])}–{fmtNum(res.cumulative_cost_upper[res.cumulative_cost_upper.length - 1])}.</p>
+      )}
       {res.assumption_note && (
         <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2 mb-4">{res.assumption_note}</p>
       )}
       <div className="bg-white border border-gray-200 rounded-lg" style={{ height: 420 }}>
         <Plot
           data={[
+            ...(res.cumulative_cost_lower && res.cumulative_cost_upper ? [
+              { x: res.time, y: res.cumulative_cost_upper, mode: 'lines', name: 'Numerical upper bound', line: { width: 0 }, showlegend: false } as Plotly.Data,
+              { x: res.time, y: res.cumulative_cost_lower, mode: 'lines', name: 'Discretization bounds', line: { width: 0 }, fill: 'tonexty', fillcolor: 'rgba(99,102,241,0.16)' } as Plotly.Data,
+            ] : []),
             { x: res.time, y: res.cumulative_cost, mode: 'lines', name: 'Cumulative cost', line: { color: '#6366f1', width: 2 }, fill: 'tozeroy', fillcolor: 'rgba(99,102,241,0.08)' } as Plotly.Data,
           ]}
           layout={{

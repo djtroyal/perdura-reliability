@@ -3,7 +3,7 @@ import { analysisSourceDependencies, linkedSourceDependencies, resolvedSourceDep
 
 type State = Record<string, any>
 const object = (value: unknown): State => value && typeof value === 'object' ? value as State : {}
-const keys=['faultTree','system','markov','maintReplacement','maintCostForecast','maintPMInterval']
+const keys=['faultTree','system','markov','maintReplacement','maintCostForecast','maintFleet','maintPMInterval']
 const stateCache=new WeakMap<object,{key:string;epoch:string;dependencies:SourceDependencies;value:State}>()
 let previous:{units:string;lifeData:unknown;prediction:unknown;systemDefinition:unknown;slices:unknown[]}|undefined
 const hasOutput=(state:State)=>state.result!=null || state.ssResult!=null

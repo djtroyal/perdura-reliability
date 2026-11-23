@@ -21,7 +21,7 @@ from reliability.Distributions import (
 )
 from reliability.Utils import (
     negative_log_likelihood, AICc, BIC, anderson_darling,
-    rank_adjustment, median_rank_approximation, xy_transform,
+    plotting_positions, validate_rank_method, xy_transform,
     fisher_information_covariance, parameter_confidence_intervals,
     distribution_confidence_bounds, generate_X_array,
     FitConvergenceError, optimizer_result_diagnostics,
@@ -38,6 +38,26 @@ from reliability.Normal_inference import (
     exact_normal_sf_bounds,
     normal_exact_inference,
 )
+
+
+def _validated_fit_inputs(failures, right_censored, method, CI, rank_method):
+    """Validate the public library contract before any optimizer or fallback."""
+    if method not in ('MLE', 'RRX', 'RRY', 'LS'):
+        raise ValueError("method must be MLE, RRX, or RRY (LS is an alias for RRY).")
+    validate_rank_method(rank_method)
+    if not np.isfinite(CI) or not 0 < CI < 1:
+        raise ValueError("CI must be finite and strictly between zero and one.")
+    failures = np.asarray(failures, dtype=float)
+    censored = (None if right_censored is None
+                else np.asarray(right_censored, dtype=float))
+    if failures.ndim != 1 or np.any(~np.isfinite(failures)):
+        raise ValueError("Failure observations must be a finite one-dimensional array.")
+    if not len(failures):
+        raise ValueError("At least one failure is required for an ordinary lifetime fit; "
+                         "use fixed-shape Weibayes bounds for all-censored data.")
+    if censored is not None and (censored.ndim != 1 or np.any(~np.isfinite(censored))):
+        raise ValueError("Censoring observations must be a finite one-dimensional array.")
+    return failures, censored, ('RRY' if method == 'LS' else method)
 
 
 def _mle_fit(dist_class, failures, right_censored, bounds, x0, num_params):
@@ -194,9 +214,13 @@ def _finalize_fit_status(fit):
     if not np.isfinite(fit.AICc):
         reasons.append('aicc_undefined_for_sample_size')
     fit.eligibility_reasons = reasons
+    if getattr(fit, 'distribution', None) is not None:
+        fit.distribution.rank_method = getattr(fit, 'rank_method', 'benard')
+    if hasattr(fit, 'confidence_metadata'):
+        fit.confidence_metadata['rank_method'] = getattr(fit, 'rank_method', 'benard')
 
 
-def _ls_fit(dist_name, failures, right_censored, method='RRY', force_origin=False):
+def _ls_fit(dist_name, failures, right_censored, method='RRY', force_origin=False, rank_method='benard'):
     """Rank Regression (Least Squares) fitting.
 
     Parameters
@@ -213,20 +237,21 @@ def _ls_fit(dist_name, failures, right_censored, method='RRY', force_origin=Fals
     Returns (slope, intercept) in the linearized space.
     """
     failures = np.sort(np.asarray(failures, dtype=float))
-    adj_ranks, n = rank_adjustment(failures, right_censored)
-    F = median_rank_approximation(adj_ranks, n)
-    F = np.clip(F, 1e-10, 1 - 1e-10)
+    if method not in ('RRX', 'RRY', 'LS'):
+        raise ValueError('Rank regression method must be RRX or RRY.')
+    F = plotting_positions(failures, right_censored, rank_method)
 
     x_transform, y_transform, _, _ = xy_transform(dist_name)
 
-    x = x_transform(failures)
-    y = y_transform(F)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        x = x_transform(failures)
+        y = y_transform(F)
 
     mask = np.isfinite(x) & np.isfinite(y)
     x, y = x[mask], y[mask]
 
-    if len(x) < 2:
-        return None, None
+    if len(x) < 2 or np.ptp(x) == 0 or np.ptp(y) == 0:
+        raise ValueError('Rank regression requires two distinct finite plotting points.')
 
     if force_origin:
         if method == 'RRX':
@@ -656,12 +681,15 @@ class Fit_Weibull_2P(_FitResultMixin):
         'MLE' (default), 'RRY' (rank regression on Y), or 'RRX' (rank regression on X).
     show_probability_plot : bool, optional
         Whether to show a probability plot (default False).
+    rank_method : str, optional
+        benard, exact_median, mean, hazen, blom, or kaplan_meier. See
+        ``Utils.plotting_positions`` for censoring and tie conventions.
     """
 
-    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False, CI=0.95):
-        failures = np.asarray(failures, dtype=float)
-        if right_censored is not None:
-            right_censored = np.asarray(right_censored, dtype=float)
+    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False, CI=0.95, rank_method='benard'):
+        failures, right_censored, method = _validated_fit_inputs(
+            failures, right_censored, method, CI, rank_method)
+        self.rank_method = rank_method
         self.method = method  # the method actually used (all branches honor it)
 
         if method == 'MLE':
@@ -672,7 +700,7 @@ class Fit_Weibull_2P(_FitResultMixin):
                 Weibull_Distribution, failures, right_censored, bounds, x0, 2)
             self.eta, self.beta = params
         else:
-            slope, intercept = _ls_fit('Weibull_2P', failures, right_censored, method)
+            slope, intercept = _ls_fit('Weibull_2P', failures, right_censored, method, rank_method=rank_method)
             self.beta = slope
             self.eta = np.exp(-intercept / slope)
             self.distribution = Weibull_Distribution(eta=self.eta, beta=self.beta)
@@ -704,17 +732,17 @@ class Fit_Weibull_2P(_FitResultMixin):
 class Fit_Weibull_3P(_FitResultMixin):
     """Fit a 3-parameter Weibull distribution using profile likelihood for gamma."""
 
-    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False, CI=0.95):
-        failures = np.asarray(failures, dtype=float)
-        if right_censored is not None:
-            right_censored = np.asarray(right_censored, dtype=float)
+    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False, CI=0.95, rank_method='benard'):
+        failures, right_censored, method = _validated_fit_inputs(
+            failures, right_censored, method, CI, rank_method)
+        self.rank_method = rank_method
         # The profile search may seed from an LS 2P fit, but the returned
         # parameters always come from the final full MLE below.
         self.method = 'MLE'
 
         min_fail = np.min(failures)
         best_gamma, fit2p = _profile_gamma(
-            lambda f, rc: Fit_Weibull_2P(f, rc, method=method, show_probability_plot=False),
+            lambda f, rc: Fit_Weibull_2P(f, rc, method=method, show_probability_plot=False, rank_method=rank_method),
             failures, right_censored, min_fail)
         best_eta = fit2p.eta if fit2p is not None else float(np.mean(failures))
         best_beta = fit2p.beta if fit2p is not None else 1.5
@@ -748,10 +776,10 @@ class Fit_Exponential_1P(_FitResultMixin):
     parameter intervals and simultaneous CDF/SF bands.
     """
 
-    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False, CI=0.95):
-        failures = np.asarray(failures, dtype=float)
-        if right_censored is not None:
-            right_censored = np.asarray(right_censored, dtype=float)
+    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False, CI=0.95, rank_method='benard'):
+        failures, right_censored, method = _validated_fit_inputs(
+            failures, right_censored, method, CI, rank_method)
+        self.rank_method = rank_method
 
         if method == 'MLE':
             self.Lambda, _, _ = exponential_1p_mle(failures, right_censored)
@@ -760,7 +788,7 @@ class Fit_Exponential_1P(_FitResultMixin):
             # The 1P paper -ln(1-F) = λt has no intercept term, so the
             # regression is forced through the origin.
             slope, _ = _ls_fit('Exponential_1P', failures, right_censored,
-                               method, force_origin=True)
+                               method, force_origin=True, rank_method=rank_method)
             if slope is not None and slope > 0:
                 self.Lambda = slope
                 self.method = method
@@ -806,10 +834,10 @@ class Fit_Exponential_2P(_FitResultMixin):
     and simultaneous CDF/SF bands.
     """
 
-    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False, CI=0.95):
-        failures = np.asarray(failures, dtype=float)
-        if right_censored is not None:
-            right_censored = np.asarray(right_censored, dtype=float)
+    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False, CI=0.95, rank_method='benard'):
+        failures, right_censored, method = _validated_fit_inputs(
+            failures, right_censored, method, CI, rank_method)
+        self.rank_method = rank_method
 
         min_fail = np.min(failures)
         self.Lambda = self.gamma = None
@@ -817,7 +845,7 @@ class Fit_Exponential_2P(_FitResultMixin):
 
         if method != 'MLE':
             # Paper: -ln(1-F) = λt - λγ  ->  Lambda = slope, gamma = -c/slope.
-            slope, intercept = _ls_fit('Exponential_2P', failures, right_censored, method)
+            slope, intercept = _ls_fit('Exponential_2P', failures, right_censored, method, rank_method=rank_method)
             if slope is not None and slope > 0:
                 self.Lambda = slope
                 self.gamma = float(np.clip(-intercept / slope, 0, min_fail))
@@ -876,10 +904,10 @@ class Fit_Exponential_2P(_FitResultMixin):
 class Fit_Normal_2P(_FitResultMixin):
     """Fit a Normal distribution."""
 
-    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False, CI=0.95):
-        failures = np.asarray(failures, dtype=float)
-        if right_censored is not None:
-            right_censored = np.asarray(right_censored, dtype=float)
+    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False, CI=0.95, rank_method='benard'):
+        failures, right_censored, method = _validated_fit_inputs(
+            failures, right_censored, method, CI, rank_method)
+        self.rank_method = rank_method
 
         if method == 'MLE':
             x0 = [np.mean(failures), np.std(failures, ddof=1)]
@@ -889,7 +917,7 @@ class Fit_Normal_2P(_FitResultMixin):
             self.mu, self.sigma = params
             self.method = 'MLE'
         else:
-            slope, intercept = _ls_fit('Normal_2P', failures, right_censored, method)
+            slope, intercept = _ls_fit('Normal_2P', failures, right_censored, method, rank_method=rank_method)
             if slope is not None and slope > 0:
                 self.sigma = 1.0 / slope
                 self.mu = -intercept / slope
@@ -940,10 +968,10 @@ class Fit_Normal_2P(_FitResultMixin):
 class Fit_Lognormal_2P(_FitResultMixin):
     """Fit a 2-parameter Lognormal distribution."""
 
-    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False, CI=0.95):
-        failures = np.asarray(failures, dtype=float)
-        if right_censored is not None:
-            right_censored = np.asarray(right_censored, dtype=float)
+    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False, CI=0.95, rank_method='benard'):
+        failures, right_censored, method = _validated_fit_inputs(
+            failures, right_censored, method, CI, rank_method)
+        self.rank_method = rank_method
 
         if method == 'MLE':
             log_f = np.log(failures[failures > 0])
@@ -954,7 +982,7 @@ class Fit_Lognormal_2P(_FitResultMixin):
             self.mu, self.sigma = params
             self.method = 'MLE'
         else:
-            slope, intercept = _ls_fit('Lognormal_2P', failures, right_censored, method)
+            slope, intercept = _ls_fit('Lognormal_2P', failures, right_censored, method, rank_method=rank_method)
             if slope is not None and slope > 0:
                 self.sigma = 1.0 / slope
                 self.mu = -intercept / slope
@@ -1006,15 +1034,15 @@ class Fit_Lognormal_2P(_FitResultMixin):
 class Fit_Lognormal_3P(_FitResultMixin):
     """Fit a 3-parameter Lognormal distribution using profile likelihood for gamma."""
 
-    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False, CI=0.95):
-        failures = np.asarray(failures, dtype=float)
-        if right_censored is not None:
-            right_censored = np.asarray(right_censored, dtype=float)
+    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False, CI=0.95, rank_method='benard'):
+        failures, right_censored, method = _validated_fit_inputs(
+            failures, right_censored, method, CI, rank_method)
+        self.rank_method = rank_method
 
         self.method = 'MLE'  # final parameters always come from the full MLE
         min_fail = np.min(failures)
         best_gamma, fit2p = _profile_gamma(
-            lambda f, rc: Fit_Lognormal_2P(f, rc, method=method, show_probability_plot=False),
+            lambda f, rc: Fit_Lognormal_2P(f, rc, method=method, show_probability_plot=False, rank_method=rank_method),
             failures, right_censored, min_fail)
         best_mu = fit2p.mu if fit2p is not None else float(np.mean(np.log(failures)))
         best_sigma = fit2p.sigma if fit2p is not None else float(np.std(np.log(failures)))
@@ -1049,10 +1077,10 @@ class Fit_Gamma_2P(_FitResultMixin):
     requested LS method falls back to MLE (reported via ``self.method``).
     """
 
-    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False, CI=0.95):
-        failures = np.asarray(failures, dtype=float)
-        if right_censored is not None:
-            right_censored = np.asarray(right_censored, dtype=float)
+    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False, CI=0.95, rank_method='benard'):
+        failures, right_censored, method = _validated_fit_inputs(
+            failures, right_censored, method, CI, rank_method)
+        self.rank_method = rank_method
         self.method = 'MLE'
 
         mean_f = np.mean(failures)
@@ -1079,10 +1107,10 @@ class Fit_Gamma_2P(_FitResultMixin):
 class Fit_Gamma_3P(_FitResultMixin):
     """Fit a 3-parameter Gamma distribution using profile likelihood for gamma."""
 
-    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False, CI=0.95):
-        failures = np.asarray(failures, dtype=float)
-        if right_censored is not None:
-            right_censored = np.asarray(right_censored, dtype=float)
+    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False, CI=0.95, rank_method='benard'):
+        failures, right_censored, method = _validated_fit_inputs(
+            failures, right_censored, method, CI, rank_method)
+        self.rank_method = rank_method
 
         self.method = 'MLE'  # final parameters always come from the full MLE
         min_fail = np.min(failures)
@@ -1115,17 +1143,17 @@ class Fit_Gamma_3P(_FitResultMixin):
 class Fit_Loglogistic_2P(_FitResultMixin):
     """Fit a 2-parameter Log-logistic distribution."""
 
-    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False, CI=0.95):
-        failures = np.asarray(failures, dtype=float)
-        if right_censored is not None:
-            right_censored = np.asarray(right_censored, dtype=float)
+    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False, CI=0.95, rank_method='benard'):
+        failures, right_censored, method = _validated_fit_inputs(
+            failures, right_censored, method, CI, rank_method)
+        self.rank_method = rank_method
 
         self.alpha = self.beta = None
         self.method = 'MLE'
 
         if method != 'MLE':
             # Logit paper: ln(F/(1-F)) = β·ln t - β·ln α.
-            slope, intercept = _ls_fit('Loglogistic_2P', failures, right_censored, method)
+            slope, intercept = _ls_fit('Loglogistic_2P', failures, right_censored, method, rank_method=rank_method)
             if slope is not None and slope > 0:
                 self.beta = slope
                 self.alpha = float(np.exp(-intercept / slope))
@@ -1169,10 +1197,10 @@ class Fit_Loglogistic_2P(_FitResultMixin):
 class Fit_Loglogistic_3P(_FitResultMixin):
     """Fit a 3-parameter Log-logistic distribution using profile likelihood for gamma."""
 
-    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False, CI=0.95):
-        failures = np.asarray(failures, dtype=float)
-        if right_censored is not None:
-            right_censored = np.asarray(right_censored, dtype=float)
+    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False, CI=0.95, rank_method='benard'):
+        failures, right_censored, method = _validated_fit_inputs(
+            failures, right_censored, method, CI, rank_method)
+        self.rank_method = rank_method
 
         self.method = 'MLE'  # final parameters always come from the full MLE
         min_fail = np.min(failures)
@@ -1210,10 +1238,10 @@ class Fit_Beta_2P(_FitResultMixin):
     method falls back to MLE (reported via ``self.method``).
     """
 
-    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False, CI=0.95):
-        failures = np.asarray(failures, dtype=float)
-        if right_censored is not None:
-            right_censored = np.asarray(right_censored, dtype=float)
+    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False, CI=0.95, rank_method='benard'):
+        failures, right_censored, method = _validated_fit_inputs(
+            failures, right_censored, method, CI, rank_method)
+        self.rank_method = rank_method
         self.method = 'MLE'
 
         mean_f = np.mean(failures)
@@ -1246,17 +1274,17 @@ class Fit_Beta_2P(_FitResultMixin):
 class Fit_Gumbel_2P(_FitResultMixin):
     """Fit a 2-parameter Gumbel distribution (minimum extreme value)."""
 
-    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False, CI=0.95):
-        failures = np.asarray(failures, dtype=float)
-        if right_censored is not None:
-            right_censored = np.asarray(right_censored, dtype=float)
+    def __init__(self, failures, right_censored=None, method='MLE', show_probability_plot=False, CI=0.95, rank_method='benard'):
+        failures, right_censored, method = _validated_fit_inputs(
+            failures, right_censored, method, CI, rank_method)
+        self.rank_method = rank_method
 
         self.mu = self.sigma = None
         self.method = 'MLE'
 
         if method != 'MLE':
             # Min-EV paper: ln(-ln(1-F)) = (t - mu)/sigma.
-            slope, intercept = _ls_fit('Gumbel_2P', failures, right_censored, method)
+            slope, intercept = _ls_fit('Gumbel_2P', failures, right_censored, method, rank_method=rank_method)
             if slope is not None and slope > 0:
                 self.sigma = 1.0 / slope
                 self.mu = -intercept / slope
@@ -1343,14 +1371,14 @@ class Fit_Everything:
                  show_probability_plot=False, show_histogram_plot=False,
                  show_PP_plot=False,
                  show_best_distribution_probability_plot=False,
-                 progress_callback=None):
+                 progress_callback=None, rank_method='benard'):
         # The show_* arguments are accepted for API compatibility with the
         # original `reliability` package but are intentionally no-ops here:
         # all plotting is done by the GUI from the returned results.
 
-        failures = np.asarray(failures, dtype=float)
-        if right_censored is not None:
-            right_censored = np.asarray(right_censored, dtype=float)
+        failures, right_censored, method = _validated_fit_inputs(
+            failures, right_censored, method, CI, rank_method)
+        self.rank_method = rank_method
 
         if distributions_to_fit is None:
             distributions_to_fit = list(ALL_FITTER_NAMES)
@@ -1370,11 +1398,12 @@ class Fit_Everything:
             fitter_cls = _FITTER_MAP[name]
             try:
                 fit = fitter_cls(failures=failures, right_censored=right_censored,
-                                 method=method, show_probability_plot=False, CI=CI)
+                                 method=method, show_probability_plot=False, CI=CI, rank_method=rank_method)
                 return name, fit, {
                     'Distribution': name, 'AICc': fit.AICc, 'BIC': fit.BIC,
                     'AD': fit.AD, 'Log-Likelihood': fit.loglik,
                     'Method': getattr(fit, 'method', method),
+                    'Rank Method': fit.rank_method,
                     'Converged': fit.converged,
                     'Fit Eligible': fit.fit_eligible,
                     'AICc Eligible': fit.aicc_eligible,
@@ -1391,7 +1420,7 @@ class Fit_Everything:
                 return name, None, {
                     'Distribution': name, 'AICc': np.inf, 'BIC': np.inf,
                     'AD': None, 'Log-Likelihood': -np.inf,
-                    'Method': attempted_method,
+                    'Method': attempted_method, 'Rank Method': rank_method,
                     'Converged': False, 'Fit Eligible': False,
                     'AICc Eligible': False,
                     'Eligibility Reasons': ['fit_failed'],

@@ -1,0 +1,365 @@
+{
+  "audit_date": "2026-11-21",
+  "repository_head": "1dd5c51",
+  "branch": "feat/standard-reliability-methods",
+  "baseline": "Existing local working tree including uncommitted changes; application code not changed by audit.",
+  "coverage": {
+    "calculators": 38,
+    "resource_entries": 4,
+    "ids": [
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "8a",
+      "9",
+      "10",
+      "11",
+      "12",
+      "13",
+      "14",
+      "15",
+      "16",
+      "17",
+      "18",
+      "18a",
+      "19",
+      "19a",
+      "20",
+      "20a",
+      "20b",
+      "21",
+      "22",
+      "23",
+      "24",
+      "25",
+      "26",
+      "27",
+      "28",
+      "28a",
+      "29",
+      "29a",
+      "30",
+      "31",
+      "32",
+      "33",
+      "34",
+      "35"
+    ]
+  },
+  "availability_and_poisson_thinning": {
+    "availability_inputs": {
+      "mtbf": 1000,
+      "mttr": 1,
+      "mtbm": 100,
+      "mean_maint_time": 10,
+      "admin_delay": 0,
+      "logistics_delay": 0
+    },
+    "availability_output": {
+      "inherent": 0.999000999000999,
+      "achieved": 0.9090909090909091,
+      "operational": 0.9900990099009901,
+      "mean_down_time": 1.0,
+      "downtime_breakdown": {
+        "repair": 1.0,
+        "admin_delay": 0.0,
+        "logistics_delay": 0.0
+      },
+      "analysis_basis": "steady_state_mean_uptime_downtime_ratio",
+      "assumption_note": "Closed-form availability uses stationary mean cycles and does not model finite-horizon initialization or non-exponential state dependence."
+    },
+    "lifetime_spares_oracle": {
+      "failure_mean": 87.6,
+      "condemnation_probability": 0.2,
+      "condemned_mean": 17.52,
+      "raw_failure_95_quantile": 103.0,
+      "condemned_95_quantile": 25.0,
+      "protection_at21": 0.830600419852968
+    }
+  },
+  "spares_curve": {
+    "expected_demand": 1000.0,
+    "required_spares": 1052,
+    "achieved_protection": 0.9506515224647402,
+    "max_spares": 50,
+    "curve_points": 1053
+  },
+  "system_checks": {
+    "independent_switches": {
+      "inputs": {
+        "active": 1,
+        "total": 3,
+        "rate_per_hour": 0.001,
+        "switch_success": 0.5,
+        "time_hours": 1000
+      },
+      "analytic_reliability": 0.5978040919035938,
+      "analytic_mttf_hours": 1750,
+      "perdura_reliability": 0.5954333333333333,
+      "perdura_reliability_wilson_95": [
+        0.5898675437521246,
+        0.6009746858290025
+      ],
+      "samples": 30000,
+      "seed": 20261121,
+      "toolkit_observed_reliability": 0.64378902,
+      "toolkit_observed_mttf_hours": 2000,
+      "toolkit_observed_expression": "exp(-x)*(1+P*x+P*x**2/2)",
+      "note": "P once can describe a common latent switch-ready variable; independent demand coverage requires P**k."
+    },
+    "active_repair_metric_distinction": {
+      "inputs": {
+        "active": 2,
+        "required": 1,
+        "rate_per_hour": 0.001,
+        "repair_rate_per_unit_hour": 0.01
+      },
+      "perdura_exact_first_failure_mean_hours": 6499.999999999997,
+      "perdura_stationary_full_cycle_hours": 6050.0,
+      "perdura_stationary_up_time_hours": 5999.999999999999,
+      "rome_eq1_approximate_first_failure_mean_hours": 5000
+    },
+    "validation_scope": "Two narrowly specified checks; not a comprehensive model or GUI validation."
+  },
+  "inference_checks": {
+    "field_800h_0fail_95pct": {
+      "MTBF": 267.04656055626737,
+      "test_duration": 800.0,
+      "number_of_failures": 0,
+      "CI": 0.95
+    },
+    "800h_2fails_90pct": {
+      "time_lower": 127.06896827442834,
+      "time_upper": 2251.228610625704,
+      "failure_lower": 168.63888015743993,
+      "failure_upper": 2251.228610625704
+    },
+    "binomial_20_4defects_90pct": {
+      "proportion": 0.2,
+      "lower": 0.07135388430861819,
+      "upper": 0.4010281173319745,
+      "trials": 20,
+      "successes": 4,
+      "CI": 0.9
+    },
+    "binomial_20_20success95pct": {
+      "two_sided": {
+        "proportion": 1.0,
+        "lower": 0.8315665290169147,
+        "upper": 1.0,
+        "trials": 20,
+        "successes": 20,
+        "CI": 0.95
+      },
+      "lower_one_sided": {
+        "test": "Binomial test",
+        "statistic": 1.0,
+        "p_value": 9.5367431640625e-07,
+        "df": null,
+        "effect_size": null,
+        "alpha": 0.05,
+        "reject_null": true,
+        "alternative": "greater",
+        "successes": 20,
+        "n": 20,
+        "p_null": 0.5,
+        "p_observed": 1.0,
+        "ci_lower": 0.8608916593316244,
+        "ci_upper": 1.0,
+        "ci_level": 0.95,
+        "ci_on": "proportion (Clopper-Pearson exact)",
+        "interpretation": "Reject H₀: significant result (binomial test)."
+      }
+    },
+    "n_sample_R95_C95": 59,
+    "parametric_roundtrip": {
+      "samples": {
+        "eta": 3080.782624761102,
+        "R_test": 0.9740037464252967,
+        "n": 149
+      },
+      "time": {
+        "eta": 3080.782624761102,
+        "R_test": 0.9741463374837395,
+        "T_test": 498.6086812016607
+      }
+    },
+    "acceptance": {
+      "n30p05c0": 0.21463876394293757,
+      "n30p05c2": 0.8121788131469607,
+      "n20p025c3": 0.9986272425539062
+    },
+    "sequential_n50": {
+      "acceptance": 1.0485100079769634,
+      "reject": 3.192750256844163,
+      "accept_log_LR": -2.251291798606496,
+      "reject_log_LR": 2.8903717578961636,
+      "expected_accept_logLR": -2.251291798606495,
+      "expected_reject_logLR": 2.8903717578961645
+    },
+    "growth_input_semantics": {
+      "perdura_instantaneous_m0_50_at1000": 84.91218262308722,
+      "RAT_avg_50_conversion_prediction": 110.27556184816521
+    },
+    "nist_growth": {
+      "beta": 0.4835059794307689,
+      "growth_rate": 0.5164940205692311,
+      "mtbf": 310.23401236235964
+    },
+    "normal_n31_mean100_sd10_95pct": {
+      "student_t": [
+        96.33197038665053,
+        103.66802961334947
+      ],
+      "normal_approx": [
+        96.47980076595083,
+        103.52019923404917
+      ]
+    },
+    "distributions": {
+      "normal_900_300_R700": 0.7475074624530771,
+      "exp_mtbf700_R700": 0.36787944117144233
+    }
+  },
+  "conditional_weibull_check": {
+    "eta": 13,
+    "beta": 2,
+    "survived_age": 6.5,
+    "mean_remaining_life": 7.09333769,
+    "median_remaining_life": 6.12504945,
+    "toolkit_observed_conditional_mean_age": 13.593338,
+    "verification": "Public calculator POST and independent incomplete-gamma/quantile formulas agree."
+  },
+  "provenance": {
+    "toolkit_home": "https://reliabilityanalyticstoolkit.appspot.com/",
+    "method": "Public pages, equation images, selected synthetic POSTs, independent formulas, local code and API probes. No toolkit server-source inspection."
+  },
+  "lifetime_buy_requests": [
+    {
+      "url": "https://reliabilityanalyticstoolkit.appspot.com/spares_lifetime_buy_solution",
+      "inputs": {
+        "rel_metric": "mtbf",
+        "dc_type": "dc_fract",
+        "rd": "0",
+        "nf": "100",
+        "rel_val": "50000",
+        "time_period": "5",
+        "dc_val": "1.0",
+        "ni": "0",
+        "repair_fraction": "0.8",
+        "inv_depletion": "expected_depletion",
+        "c": ".95"
+      },
+      "http_status": 200
+    },
+    {
+      "url": "https://reliabilityanalyticstoolkit.appspot.com/spares_lifetime_buy_solution",
+      "inputs": {
+        "rel_metric": "mtbf",
+        "dc_type": "dc_fract",
+        "rd": "0",
+        "nf": "100",
+        "rel_val": "50000",
+        "time_period": "5",
+        "dc_val": "1.0",
+        "ni": "0",
+        "repair_fraction": "0.0",
+        "inv_depletion": "expected_depletion",
+        "c": ".95"
+      },
+      "http_status": 200
+    },
+    {
+      "url": "https://reliabilityanalyticstoolkit.appspot.com/spares_lifetime_buy_solution",
+      "inputs": {
+        "rel_metric": "mtbf",
+        "dc_type": "dc_fract",
+        "rd": "0",
+        "nf": "100",
+        "rel_val": "50000",
+        "time_period": "5",
+        "dc_val": "1.0",
+        "ni": "0",
+        "repair_fraction": "0.8",
+        "inv_depletion": "spares_depletion",
+        "c": ".95"
+      },
+      "http_status": 200
+    },
+    {
+      "url": "https://reliabilityanalyticstoolkit.appspot.com/spares_lifetime_buy_solution",
+      "inputs": {
+        "rel_metric": "mtbf",
+        "dc_type": "dc_fract",
+        "rd": "0",
+        "nf": "100",
+        "rel_val": "50000",
+        "time_period": "5",
+        "dc_val": "1.0",
+        "ni": "0",
+        "repair_fraction": "1.0",
+        "inv_depletion": "spares_depletion",
+        "c": ".95"
+      },
+      "http_status": 200
+    }
+  ],
+  "source_files": {
+    "gui/backend/routers/ram.py": {
+      "sha256": "0599d56f56b2fe3fc106596704bbf4d663f3679d062df54f20ad2d4a7725182b"
+    },
+    "gui/frontend/src/components/Maintenance/Maintainability.tsx": {
+      "sha256": "fcf193def165dab42dcb81c7588f6fc48282f723c489663989483a4cb794bd9f"
+    },
+    "src/reliability/Reliability_testing.py": {
+      "sha256": "c7a0af00ad6c86a6fdc0c9061ad608e576bce1fc5e3d73635fde4094db5a39b9"
+    },
+    "src/reliability/Repairable_systems.py": {
+      "sha256": "f2a9085cf758c05d574d6b5af35465b6e5effa56fa6d7fdbce1a9b707857604b"
+    },
+    "src/reliability/Life_metrics.py": {
+      "sha256": "7cddf6412045b2ade3491d3891d37ce92641e7020499067fdb880fc1de10bf1b"
+    },
+    "src/reliability/Renewal.py": {
+      "sha256": "220c20dfb92e119136825514af2a4955a9631764f884a72f9519db8102eaa87b"
+    }
+  },
+  "additional_local_checks": {
+    "sprt_incoherent_risks": {
+      "p_good": 0.01,
+      "p_bad": 0.1,
+      "alpha": 0.8,
+      "beta": 0.8,
+      "n": 50,
+      "acceptance_boundary": 2.5655012631793985,
+      "rejection_boundary": 1.4092419579078468,
+      "both_accept_and_reject_at_defects_2": true
+    },
+    "age_replacement_tail": {
+      "eta": 1000000000000.0,
+      "beta": 2,
+      "replacement_age": 1,
+      "current_corrective_rate": 0.0,
+      "stable_small_probability": 1e-24
+    },
+    "maintainability_parser": {
+      "expression": "text.split(/[\\s,]+/).map(Number).filter(n => isFinite(n))",
+      "verified_inputs": {
+        "2 3\n": [
+          2,
+          3,
+          0
+        ],
+        "2 bad 3": [
+          2,
+          3
+        ]
+      }
+    }
+  }
+}

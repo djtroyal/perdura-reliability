@@ -43,7 +43,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "06dac8b8c12d2e928d37798836824f24aa403eb1c06820d376d0f2d20a6920ef",
+      "definition_sha256": "4ba3e2aa05877499696d0f4a8dc5adf364e94689614d43c124678c29245e6ff5",
       "id": "api.alt.POST./burn-in",
       "kind": "router_operation",
       "method": "POST",
@@ -400,6 +400,28 @@
       "source": "gui/backend/routers/capability.py",
       "surface": "api",
       "symbol": "analyze"
+    },
+    {
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "direct_tails",
+            "source_traceability"
+          ],
+          "procedure_id": "capability.adopted_distribution_specification_tails",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "f86711823292bdbaa3445b9caefadb07c00c965be101a71c947bcdf845f5436b",
+      "id": "api.capability.POST./spec-tail",
+      "kind": "router_operation",
+      "method": "POST",
+      "route": "/spec-tail",
+      "router": "capability",
+      "source": "gui/backend/routers/capability.py",
+      "surface": "api",
+      "symbol": "specification_tails"
     },
     {
       "assessment": "classification_pending",
@@ -821,9 +843,17 @@
           ],
           "procedure_id": "growth.mcf_nonparametric",
           "status": "needs_revision"
+        },
+        {
+          "claim_ids": [
+            "marked_mcf",
+            "cost_bootstrap"
+          ],
+          "procedure_id": "growth.mean_cumulative_cost",
+          "status": "needs_revision"
         }
       ],
-      "definition_sha256": "986f4a7a91863d0fcc11b4e775af8625b96d659b791e99075659607f1f7ff9d2",
+      "definition_sha256": "977ea1479d7a4cfeef0b58e2f669121e4a86a63fad8d939803b02aec9769e291",
       "id": "api.growth.POST./mcf",
       "kind": "router_operation",
       "method": "POST",
@@ -1109,6 +1139,118 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
+      "definition_sha256": "288307136eb58aa8b2828e35b5819bfa33dee9077e0918df6d093e409ec34b76",
+      "id": "api.inference_tools.POST./bernoulli-sprt",
+      "kind": "router_operation",
+      "method": "POST",
+      "route": "/bernoulli-sprt",
+      "router": "inference_tools",
+      "source": "gui/backend/routers/inference_tools.py",
+      "surface": "api",
+      "symbol": "sequential_bernoulli"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "d672ae647ffe00cd2393b26d285a3b29cd90aecd64fc5df4b05bcbfd6f65c99f",
+      "id": "api.inference_tools.POST./binomial-interval",
+      "kind": "router_operation",
+      "method": "POST",
+      "route": "/binomial-interval",
+      "router": "inference_tools",
+      "source": "gui/backend/routers/inference_tools.py",
+      "surface": "api",
+      "symbol": "proportion_interval"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "542a5d3890b2a0341a45f3e2ad387ae42bad36471253f68ee504fd5a3a841be8",
+      "id": "api.inference_tools.POST./discrete-probability",
+      "kind": "router_operation",
+      "method": "POST",
+      "route": "/discrete-probability",
+      "router": "inference_tools",
+      "source": "gui/backend/routers/inference_tools.py",
+      "surface": "api",
+      "symbol": "probability_explorer"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "aeb93eb37b1e7e464ee52dd3b2a3fc8640e32a8908e589946a9974d2b1c3b028",
+      "id": "api.inference_tools.POST./exponential-sprt",
+      "kind": "router_operation",
+      "method": "POST",
+      "route": "/exponential-sprt",
+      "router": "inference_tools",
+      "source": "gui/backend/routers/inference_tools.py",
+      "surface": "api",
+      "symbol": "sequential_exponential"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "5adf1fdd5adf4066807f6c029bdf02c11a4a6793d14b7c755839b4da02b33f30",
+      "id": "api.inference_tools.POST./growth-plan",
+      "kind": "router_operation",
+      "method": "POST",
+      "route": "/growth-plan",
+      "router": "inference_tools",
+      "source": "gui/backend/routers/inference_tools.py",
+      "surface": "api",
+      "symbol": "growth_phases"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "293a19acbf753c1e54acb001084241f3d77f695ef9f5764d07fc3971bc111842",
+      "id": "api.inference_tools.POST./mtbf-interval",
+      "kind": "router_operation",
+      "method": "POST",
+      "route": "/mtbf-interval",
+      "router": "inference_tools",
+      "source": "gui/backend/routers/inference_tools.py",
+      "surface": "api",
+      "symbol": "aggregate_mtbf"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "c4300b9ae225e6cee615d2e8a43e2c373a1c98c18989735d8146f1459b9e9c9c",
+      "id": "api.inference_tools.POST./normal-mean-interval",
+      "kind": "router_operation",
+      "method": "POST",
+      "route": "/normal-mean-interval",
+      "router": "inference_tools",
+      "source": "gui/backend/routers/inference_tools.py",
+      "surface": "api",
+      "symbol": "normal_summary"
+    },
+    {
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "method"
+          ],
+          "procedure_id": "maintenance.inventory_cost_allocation",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "1f5bc0b1b6654b5a0a97a0242d2ba8ce45d8de6d9bc7533bbbed1b374714a095",
+      "id": "api.inventory.POST./plan",
+      "kind": "router_operation",
+      "method": "POST",
+      "route": "/plan",
+      "router": "inventory",
+      "source": "gui/backend/routers/inventory.py",
+      "surface": "api",
+      "symbol": "plan"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
       "definition_sha256": "2efab8393db4dccb7f22512490ec6acdc1d63e14004d325ad07537513253c926",
       "id": "api.life_data.GET./distributions",
       "kind": "router_operation",
@@ -1120,9 +1262,17 @@
       "symbol": "list_distributions"
     },
     {
-      "assessment": "classification_pending",
-      "assurance_records": [],
-      "definition_sha256": "f6bb8d05ce488abf5de97f596243694c65d019561d61962bb4b1e295375786cc",
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "conditional_remaining_exposure"
+          ],
+          "procedure_id": "life_data.conditional_life_metrics",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "5042f60c1327c7a91d79d4cd6723a676eeff21c686cf4952b37236a9bf73c8cc",
       "id": "api.life_data.POST./calculate",
       "kind": "router_operation",
       "method": "POST",
@@ -1135,7 +1285,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "0618ce58217e811d040bae0953600cf1f31078be7c7239580bcb574ec581f5cf",
+      "definition_sha256": "5fb21e4fc5a0734fe99f54146b9ae69abd965058410d8ad5054d788078022563",
       "id": "api.life_data.POST./cfm-monte-carlo",
       "kind": "router_operation",
       "method": "POST",
@@ -1148,7 +1298,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "22a08b0cfe0f6e088619e160af4ec379632b9066b54877af160257c1aa7fa7a6",
+      "definition_sha256": "d9cafbc41249ea8cbdfec5558896e785e1319b754e1203cb9e633cba0eb24700",
       "id": "api.life_data.POST./compare",
       "kind": "router_operation",
       "method": "POST",
@@ -1174,7 +1324,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "f25f0e6309c4b81c873ff5703398c8a6d8d8cf955000150a6385a28c62b4033a",
+      "definition_sha256": "7ff797edccbdbfd1cc3d121be2e91894f5f31d8431dbd825c7e121ababf8e744",
       "id": "api.life_data.POST./evaluate",
       "kind": "router_operation",
       "method": "POST",
@@ -1185,8 +1335,17 @@
       "symbol": "evaluate_distribution"
     },
     {
-      "assessment": "classification_pending",
-      "assurance_records": [],
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "rank_conventions",
+            "rank_regression"
+          ],
+          "procedure_id": "life_data.standard_rank_regression",
+          "status": "needs_revision"
+        }
+      ],
       "definition_sha256": "8bf77217e2f461171ce86a91f2ecdb1f8117e36da6d1d999d19a598d52fd4112",
       "id": "api.life_data.POST./fit",
       "kind": "router_operation",
@@ -1213,7 +1372,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "fef034e58b97fe26ca547eef4c03850898e91a1318fb1f7dc1c725f0eada18a2",
+      "definition_sha256": "7200291df58e8548956db978e404f7aa7e1dc2e821e89260ede93d6f79266b84",
       "id": "api.life_data.POST./generate",
       "kind": "router_operation",
       "method": "POST",
@@ -1224,8 +1383,17 @@
       "symbol": "generate_samples"
     },
     {
-      "assessment": "classification_pending",
-      "assurance_records": [],
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "joint_likelihood",
+            "unit_jacobian"
+          ],
+          "procedure_id": "life_data.mixed_censoring_mle",
+          "status": "needs_revision"
+        }
+      ],
       "definition_sha256": "eba3cf9de451b594bb81163849b420f775c03aa3bab108c9cdcefd28d640a267",
       "id": "api.life_data.POST./grouped-fit",
       "kind": "router_operation",
@@ -1237,8 +1405,17 @@
       "symbol": "fit_grouped_distributions"
     },
     {
-      "assessment": "classification_pending",
-      "assurance_records": [],
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "joint_likelihood",
+            "unit_jacobian"
+          ],
+          "procedure_id": "life_data.mixed_censoring_mle",
+          "status": "needs_revision"
+        }
+      ],
       "definition_sha256": "31ae1c8ea9d12a220cf4840ecb5a5c5b7f1fc827805dd6d3396ad4959c8bb57e",
       "id": "api.life_data.POST./grouped-plot",
       "kind": "router_operation",
@@ -1252,7 +1429,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "498d235211f9af1b60ac04e7bd3645d71be5d9d5f73dde4724a838711f8701c4",
+      "definition_sha256": "c3f125022440ecfd96deb785467721a3f54102168b17947f34c8166c9b6e2897",
       "id": "api.life_data.POST./mc-equation",
       "kind": "router_operation",
       "method": "POST",
@@ -1278,7 +1455,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "534dddd67150af791678c3e22b67cd4e42f85ea69e3a6e72de3c6d033ec01d32",
+      "definition_sha256": "109aec98719d29555dcd19696779f8b9728fa2026f3dc482ae8fa1194375b1ed",
       "id": "api.life_data.POST./plot",
       "kind": "router_operation",
       "method": "POST",
@@ -1291,7 +1468,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "66380e31ad022e16821cc57923bf09a68ad5509024eca1a31ffe4eb3cb478a14",
+      "definition_sha256": "2361d9d3c84cdcfa64f47ce3075979ff0a05d13d3d493ca592e6009d42593a53",
       "id": "api.life_data.POST./spec-curves",
       "kind": "router_operation",
       "method": "POST",
@@ -1302,9 +1479,18 @@
       "symbol": "spec_curves"
     },
     {
-      "assessment": "classification_pending",
-      "assurance_records": [],
-      "definition_sha256": "8f9e1635704a3858b393bc737954cd0e2abc3b5b30e934f0077c80ee9fffaf39",
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "composite_survival",
+            "qualified_estimation"
+          ],
+          "procedure_id": "life_data.composite_weibull_mle",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "b4838d69f441a31a1f547e9657821d3df56ed247aba1d92a4a198b501d8ffba6",
       "id": "api.life_data.POST./special",
       "kind": "router_operation",
       "method": "POST",
@@ -1315,9 +1501,18 @@
       "symbol": "fit_special_model"
     },
     {
-      "assessment": "classification_pending",
-      "assurance_records": [],
-      "definition_sha256": "6f23e5e7b021b3a80a77edf8d5800f862bb723e980986db2181bbd3ad1815a3d",
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "independent_failure_probability",
+            "tail_resolution"
+          ],
+          "procedure_id": "life_data.stress_strength_interference",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "606a9031dc72427895a77ed2a6758ef95a121418a41a0251dd88c68ae45d49e3",
       "id": "api.life_data.POST./stress-strength",
       "kind": "router_operation",
       "method": "POST",
@@ -1393,9 +1588,17 @@
       "symbol": "calibrated_uncertainty_stream"
     },
     {
-      "assessment": "classification_pending",
-      "assurance_records": [],
-      "definition_sha256": "574f08db74dc8d92a923f455e57b1b00b71c24c3602c569123b5f8f68822d218",
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "normalized_power_sum"
+          ],
+          "procedure_id": "life_data.fixed_shape_weibull",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "ae4d7fa5f0e324d1fde975a40e7efca948696fcd2c60bb264644ef7528413f5e",
       "id": "api.life_data.POST./weibayes",
       "kind": "router_operation",
       "method": "POST",
@@ -1404,6 +1607,45 @@
       "source": "gui/backend/routers/life_data.py",
       "surface": "api",
       "symbol": "weibayes"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "d277ba3b87da4f2ad34d3d65e0b4167a4c058eb70105a20f0227ad1abdae470d",
+      "id": "api.life_tools.POST./inspection-prediction",
+      "kind": "router_operation",
+      "method": "POST",
+      "route": "/inspection-prediction",
+      "router": "life_tools",
+      "source": "gui/backend/routers/life_tools.py",
+      "surface": "api",
+      "symbol": "inspection"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "66bcada8d467866f87ed88e0a066b04556fdbe8fc3feaf31c18cde80948acd8b",
+      "id": "api.life_tools.POST./mechanical-rate",
+      "kind": "router_operation",
+      "method": "POST",
+      "route": "/mechanical-rate",
+      "router": "life_tools",
+      "source": "gui/backend/routers/life_tools.py",
+      "surface": "api",
+      "symbol": "mechanical"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "30a6bb4fe288d109c9533cd2b6bd64a43f829cd32667c77807161300fee7bad6",
+      "id": "api.life_tools.POST./survival-matrix",
+      "kind": "router_operation",
+      "method": "POST",
+      "route": "/survival-matrix",
+      "router": "life_tools",
+      "source": "gui/backend/routers/life_tools.py",
+      "surface": "api",
+      "symbol": "matrix"
     },
     {
       "assessment": "classification_pending",
@@ -1432,9 +1674,18 @@
       "symbol": "availability_sensitivity"
     },
     {
-      "assessment": "classification_pending",
-      "assurance_records": [],
-      "definition_sha256": "97a4e384d7d998d1d86079a4a555f6ddeab4d94a616217b32dbfff1cc0cfec14",
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "block_cost",
+            "qualified_search"
+          ],
+          "procedure_id": "maintenance.perfect_block_replacement",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "ce7adc73de30f22cfffc01d8bc7e7990c76bd481ea5407bf1f92c7689a345521",
       "id": "api.maintenance.POST./cost-forecast",
       "kind": "router_operation",
       "method": "POST",
@@ -1443,6 +1694,28 @@
       "source": "gui/backend/routers/maintenance.py",
       "surface": "api",
       "symbol": "cost_forecast"
+    },
+    {
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "renewal_measure",
+            "fleet_cohorts"
+          ],
+          "procedure_id": "maintenance.delayed_renewal_fleet",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "29ab47918b9a13fcc60993fbe84c200ce6e0e5308ad70efd245f2918fd656ff9",
+      "id": "api.maintenance.POST./fleet-forecast",
+      "kind": "router_operation",
+      "method": "POST",
+      "route": "/fleet-forecast",
+      "router": "maintenance",
+      "source": "gui/backend/routers/maintenance.py",
+      "surface": "api",
+      "symbol": "fleet_forecast"
     },
     {
       "assessment": "classification_pending",
@@ -1458,9 +1731,18 @@
       "symbol": "pm_interval"
     },
     {
-      "assessment": "classification_pending",
-      "assurance_records": [],
-      "definition_sha256": "110e2c39aa0ec87cdeed0f0d1f68fcd34737d094131c0dde3d3bd2e5b57609aa",
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "block_cost",
+            "qualified_search"
+          ],
+          "procedure_id": "maintenance.perfect_block_replacement",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "e1ef12b08ef6a1dff7e8078280b69f9ed6fea99ad62b0e16bcac31e3d1e74290",
       "id": "api.maintenance.POST./replacement-policy",
       "kind": "router_operation",
       "method": "POST",
@@ -1538,7 +1820,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "b001265b35d3b5877726df6b68a8d3ea34eb23301f28db8863dd9d843285b839",
+      "definition_sha256": "875af4b53b36291cff2a65355ccaa3b26fd685f92dab483c2dda84bc4ea37d11",
       "id": "api.markov.POST./analyze",
       "kind": "router_operation",
       "method": "POST",
@@ -2004,9 +2286,17 @@
       "symbol": "predict_batch"
     },
     {
-      "assessment": "classification_pending",
-      "assurance_records": [],
-      "definition_sha256": "0223193d5ebddbb0b4f3bc276b9d9f76521c3cd44646380d7bed2ccfe014f669",
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "method"
+          ],
+          "procedure_id": "ram.matched_availability",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "7039705b12c68b393374ec6300d7d3175df0f2da4f88d114bf6a8aa3c936426a",
       "id": "api.ram.POST./availability",
       "kind": "router_operation",
       "method": "POST",
@@ -2019,7 +2309,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "442e2789047b24feb634c6d7a753d8c5174e466e3d2379472881fdf13766db21",
+      "definition_sha256": "307da8167fa07a5ba809805b40c4ff49a6a750fa815050f4aa8838cf0e9b0734",
       "id": "api.ram.POST./maintainability",
       "kind": "router_operation",
       "method": "POST",
@@ -2032,7 +2322,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "bd542b0adc812a4b4c6528e824d50314ace8703455fdb502cc62ec53824ebe11",
+      "definition_sha256": "95080499649f54fe6fd9f15eebe23dcffb02cced154bdb823641946c9bec374d",
       "id": "api.ram.POST./spares",
       "kind": "router_operation",
       "method": "POST",
@@ -2041,6 +2331,32 @@
       "source": "gui/backend/routers/ram.py",
       "surface": "api",
       "symbol": "spares"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "f30d2e0a44fc79ade84d222c1d4e2e7274b7937d62d936340609ced4a62063b6",
+      "id": "api.references.GET./catalog",
+      "kind": "router_operation",
+      "method": "GET",
+      "route": "/catalog",
+      "router": "references",
+      "source": "gui/backend/routers/references.py",
+      "surface": "api",
+      "symbol": "catalog"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "79d9b40ce027a95ab383d340ab889a525b6ce4409cf749215a8b7c1d0f1f9228",
+      "id": "api.references.POST./search",
+      "kind": "router_operation",
+      "method": "POST",
+      "route": "/search",
+      "router": "references",
+      "source": "gui/backend/routers/references.py",
+      "surface": "api",
+      "symbol": "search"
     },
     {
       "assessment": "classification_pending",
@@ -2279,6 +2595,58 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
+      "definition_sha256": "70ea3c07a00a0955af8b4e43864c8019793985577ebefc25cba0ed46f4c41f5f",
+      "id": "api.system_tools.POST./redundancy",
+      "kind": "router_operation",
+      "method": "POST",
+      "route": "/redundancy",
+      "router": "system_tools",
+      "source": "gui/backend/routers/system_tools.py",
+      "surface": "api",
+      "symbol": "build_redundancy"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "6d4dfbd4aa3361bdf06baf2e2ecbe140daf8c92dd0193b59d5588547594f0676",
+      "id": "api.system_tools.POST./renewal",
+      "kind": "router_operation",
+      "method": "POST",
+      "route": "/renewal",
+      "router": "system_tools",
+      "source": "gui/backend/routers/system_tools.py",
+      "surface": "api",
+      "symbol": "analyze_renewal"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "4571653687f74924e388425828806457c21c28929440ada0bf21b127cf622a3c",
+      "id": "api.system_tools.POST./simulate",
+      "kind": "router_operation",
+      "method": "POST",
+      "route": "/simulate",
+      "router": "system_tools",
+      "source": "gui/backend/routers/system_tools.py",
+      "surface": "api",
+      "symbol": "analyze_simulation"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "e3fac43ada03c2389fb58b00f5585078e4fb76cbd223fc01eb1acc450349cd9b",
+      "id": "api.system_tools.POST./states",
+      "kind": "router_operation",
+      "method": "POST",
+      "route": "/states",
+      "router": "system_tools",
+      "source": "gui/backend/routers/system_tools.py",
+      "surface": "api",
+      "symbol": "analyze_states"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
       "definition_sha256": "f2f5e03766d6d849dac663b42823be41bacd8e17524b5a88cd053cec029004b4",
       "id": "api.warranty.POST./convert",
       "kind": "router_operation",
@@ -2382,9 +2750,17 @@
       "symbol": "allocate"
     },
     {
-      "assessment": "classification_pending",
-      "assurance_records": [],
-      "definition_sha256": "7811446939856ab800bc5d7420db754f7a9979118f6153a9f5a8d386ef3d6052",
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "normalized_power_sum"
+          ],
+          "procedure_id": "life_data.fixed_shape_weibull",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "81aaac1688d9e14acb5c2ad5790105e377c5a91e8d95abf73f60ecf9404a5d77",
       "id": "core.Bayesian.weibayes_fit",
       "kind": "callable",
       "source": "src/reliability/Bayesian.py",
@@ -4344,7 +4720,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "e9041615ceffa295ec6a526572ac7b0cd10e1f0318451eaad91e3568177f08cb",
+      "definition_sha256": "39f7da6ee4d964483dfed15d27cc5bfecc887c222cbb2e5f0ee76f43efb07119",
       "id": "core.Fitters.Fit_Beta_2P",
       "kind": "class",
       "source": "src/reliability/Fitters.py",
@@ -4354,7 +4730,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "31d252b47f24bb2d38fd4eff96525275d049b43ef4bb95479c1e0ad2d8fa3c57",
+      "definition_sha256": "40f02dd77bfd8e4613cbd35dc2996e0f982deb4331cc81d6634bd6fb30f97fcf",
       "id": "core.Fitters.Fit_Everything",
       "kind": "class",
       "source": "src/reliability/Fitters.py",
@@ -4364,7 +4740,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "21d91f17c72ca8920dd204b46452dd7770c5f1a8e8744cacbd81e87d44f883da",
+      "definition_sha256": "598beeecd0cacbb704041faac7e983b4a883f69d0d189ded11daabd79b30c6ae",
       "id": "core.Fitters.Fit_Exponential_1P",
       "kind": "class",
       "source": "src/reliability/Fitters.py",
@@ -4374,7 +4750,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "ad0873184019e8bd5ff1444c940128678d1edd6077ac7731e6e6ca681e2843ed",
+      "definition_sha256": "4f49e01a7941e63e63045e5b4221152d422a8a1c13b3e057adc108c18c2f5e4a",
       "id": "core.Fitters.Fit_Exponential_2P",
       "kind": "class",
       "source": "src/reliability/Fitters.py",
@@ -4384,7 +4760,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "709f534ac1e5c2e7a8b372b5873e66d58f046bc94fdb769a03f61a7261937a2d",
+      "definition_sha256": "f15ba3795436ade7ece9f4cb4242fa0093901752689ae06d954026036915a110",
       "id": "core.Fitters.Fit_Gamma_2P",
       "kind": "class",
       "source": "src/reliability/Fitters.py",
@@ -4394,7 +4770,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "abc4e7647e9c19336764faece54a89645014042397d437a74e5b6c6765577d8e",
+      "definition_sha256": "6ef437665efb9483e4059aade2af9fcb4867b00ac69411cef7720ed28b712d76",
       "id": "core.Fitters.Fit_Gamma_3P",
       "kind": "class",
       "source": "src/reliability/Fitters.py",
@@ -4404,7 +4780,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "82ce3dfd71dbe0a220f5df258868dd6d6f92dc97fdc9fcc8c4b2aca9bb50e65d",
+      "definition_sha256": "86f85b3cf040ba822006a57c9b233be6a3cd0e39bf635f7187205cceffec9e2d",
       "id": "core.Fitters.Fit_Gumbel_2P",
       "kind": "class",
       "source": "src/reliability/Fitters.py",
@@ -4414,7 +4790,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "90879668d13536cbea3367ef4f0ee329e4a1e10e732319c23ed63aed2ed3ed6f",
+      "definition_sha256": "32e412d7f7b0c89263549029ea56489903cc29657890076d0d3e0c8bd84181ea",
       "id": "core.Fitters.Fit_Loglogistic_2P",
       "kind": "class",
       "source": "src/reliability/Fitters.py",
@@ -4424,7 +4800,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "399c25395b2c98417db5ffe0c4efd04cd2da5976cf1639a9703cdec9ad9bfa6b",
+      "definition_sha256": "265f176a7245f45412fdfdf7da8c15d9872ec19985fd2813175c3bf203922a9c",
       "id": "core.Fitters.Fit_Loglogistic_3P",
       "kind": "class",
       "source": "src/reliability/Fitters.py",
@@ -4434,7 +4810,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "f765dee9d4c8053ef3a19491c7a5f94e728557d89adbb25b2c0cf0ef8045d5bb",
+      "definition_sha256": "e0896bcdb33c8f1141a09bff247e064a9db798341685695c264cf4c88e0112c7",
       "id": "core.Fitters.Fit_Lognormal_2P",
       "kind": "class",
       "source": "src/reliability/Fitters.py",
@@ -4444,7 +4820,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "4e3a970dbbf427fba4049d99b8180506b1120a67199e1afc923b1066d8775720",
+      "definition_sha256": "79b397d622ccad9b28edd5e6fc79bd22bf8f85687ac50576868316f35602579e",
       "id": "core.Fitters.Fit_Lognormal_3P",
       "kind": "class",
       "source": "src/reliability/Fitters.py",
@@ -4452,9 +4828,18 @@
       "symbol": "Fit_Lognormal_3P"
     },
     {
-      "assessment": "classification_pending",
-      "assurance_records": [],
-      "definition_sha256": "541f977109b0a43dd5470583b53fe90591fa3f4ec68380184f7dd400bdd5c7e8",
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "rank_conventions",
+            "rank_regression"
+          ],
+          "procedure_id": "life_data.standard_rank_regression",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "063d1c5edd01d2f5fdfdcc96d814c1af623685aae49ac283c61b202245b34eff",
       "id": "core.Fitters.Fit_Normal_2P",
       "kind": "class",
       "source": "src/reliability/Fitters.py",
@@ -4462,9 +4847,18 @@
       "symbol": "Fit_Normal_2P"
     },
     {
-      "assessment": "classification_pending",
-      "assurance_records": [],
-      "definition_sha256": "2f047d78e1871de679e8febc9d3a0f0ed38747cbd55dce424b85d622aaf7f74d",
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "rank_conventions",
+            "rank_regression"
+          ],
+          "procedure_id": "life_data.standard_rank_regression",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "15a77d6891839af4b907d192395eaa5b79e442dca5e80c74fac9db2614be9342",
       "id": "core.Fitters.Fit_Weibull_2P",
       "kind": "class",
       "source": "src/reliability/Fitters.py",
@@ -4474,7 +4868,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "0d4d1339e6a2b0c4f103db3ef84c1f4dee2dbbf76815f4c584e478cf8c1804e3",
+      "definition_sha256": "85fd514ffb5c9331487a124dcee9e8ecda59c9e25252246405b14ab28e4d5683",
       "id": "core.Fitters.Fit_Weibull_3P",
       "kind": "class",
       "source": "src/reliability/Fitters.py",
@@ -4526,13 +4920,40 @@
       "assurance_records": [
         {
           "claim_ids": [
+            "joint_likelihood",
+            "unit_jacobian"
+          ],
+          "procedure_id": "life_data.mixed_censoring_mle",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "e2b941512bd39130ad1d5a2e392ef4097bc4f592a665c8658e41534b10968c4a",
+      "id": "core.Grouped_life.MixedLifeObservation",
+      "kind": "class",
+      "source": "src/reliability/Grouped_life.py",
+      "surface": "core",
+      "symbol": "MixedLifeObservation"
+    },
+    {
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
             "stable_grouped_likelihood"
           ],
           "procedure_id": "life_data.grouped_lifetime_mle",
           "status": "needs_revision"
+        },
+        {
+          "claim_ids": [
+            "joint_likelihood",
+            "unit_jacobian"
+          ],
+          "procedure_id": "life_data.mixed_censoring_mle",
+          "status": "needs_revision"
         }
       ],
-      "definition_sha256": "974d88adc9173d547e2c664cdf2b908e4af0658d231764494e254e06e1c95f7e",
+      "definition_sha256": "81ff1c713bbc65b86a3aa287e969847b560e70387e47eae3c6ff7a5df71b9357",
       "id": "core.Grouped_life.fit_grouped_life",
       "kind": "callable",
       "source": "src/reliability/Grouped_life.py",
@@ -4624,6 +5045,25 @@
       "symbol": "validate_interval_observations"
     },
     {
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "joint_likelihood",
+            "unit_jacobian"
+          ],
+          "procedure_id": "life_data.mixed_censoring_mle",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "f659b7c4ff09caca362251ae04faa449aa7db79c6fd3384dd3c8a0b81a490cca",
+      "id": "core.Grouped_life.validate_mixed_observations",
+      "kind": "callable",
+      "source": "src/reliability/Grouped_life.py",
+      "surface": "core",
+      "symbol": "validate_mixed_observations"
+    },
+    {
       "assessment": "classification_pending",
       "assurance_records": [],
       "definition_sha256": "f3ecad24a2b3fd391da9d9570879efa3d10526b44e863b525a4da0e770685bff",
@@ -4636,7 +5076,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "c1757c3440a5b1ec680a501e1738f8a225c9421480a7cb2c2a8691ea348fb919",
+      "definition_sha256": "d125a069dfc24f5ec23e6f0c6ad8affdc52886fc9a1904ea1c26a706b6b68ab5",
       "id": "core.Growth_planning.plan_reliability_growth",
       "kind": "callable",
       "source": "src/reliability/Growth_planning.py",
@@ -4962,6 +5402,229 @@
       "source": "src/reliability/Hypothesis_tests.py",
       "surface": "core",
       "symbol": "wilcoxon_signed_rank"
+    },
+    {
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "method"
+          ],
+          "procedure_id": "alt.sequential_bernoulli",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "ac1bb223369c3361e49a65d3eef0a279a2d8bcf67402b944c08f31b8ed7ee24a",
+      "id": "core.Inference_tools.bernoulli_sprt",
+      "kind": "callable",
+      "source": "src/reliability/Inference_tools.py",
+      "surface": "core",
+      "symbol": "bernoulli_sprt"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "89af55ce27c0c03e79119217e5f02e6d4798fc0f1497442d2c3798c9921498cc",
+      "id": "core.Inference_tools.binomial_interval",
+      "kind": "callable",
+      "source": "src/reliability/Inference_tools.py",
+      "surface": "core",
+      "symbol": "binomial_interval"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "b5514135c4b5806d492c817b6e9ffcb736e705e896618e05f260adb765f837ee",
+      "id": "core.Inference_tools.discrete_probability",
+      "kind": "callable",
+      "source": "src/reliability/Inference_tools.py",
+      "surface": "core",
+      "symbol": "discrete_probability"
+    },
+    {
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "method"
+          ],
+          "procedure_id": "alt.sequential_exponential",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "d2aa94bae077ec4fbc47f8acbb49ac1f8eb83f143a352344a2e182ea19d6527d",
+      "id": "core.Inference_tools.exponential_sprt",
+      "kind": "callable",
+      "source": "src/reliability/Inference_tools.py",
+      "surface": "core",
+      "symbol": "exponential_sprt"
+    },
+    {
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "method"
+          ],
+          "procedure_id": "alt.aggregate_mtbf",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "e08412b15f4f2ac0fb0c3fd1ad71064ceb430c8c59d8940f2ba57b03caa198e0",
+      "id": "core.Inference_tools.mtbf_interval",
+      "kind": "callable",
+      "source": "src/reliability/Inference_tools.py",
+      "surface": "core",
+      "symbol": "mtbf_interval"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "4fd946d558c08297449c90f4089b7a393883305adb34ec48e184db537e7d31a6",
+      "id": "core.Inference_tools.normal_mean_interval",
+      "kind": "callable",
+      "source": "src/reliability/Inference_tools.py",
+      "surface": "core",
+      "symbol": "normal_mean_interval"
+    },
+    {
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "method"
+          ],
+          "procedure_id": "maintenance.lifetime_inventory",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "3a2b24d39c03c97c2f71ecdbec83f1f2f712ef428d478c12bbf83b5f8b870200",
+      "id": "core.Inventory.lifetime_inventory",
+      "kind": "callable",
+      "source": "src/reliability/Inventory.py",
+      "surface": "core",
+      "symbol": "lifetime_inventory"
+    },
+    {
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "conditional_remaining_exposure"
+          ],
+          "procedure_id": "life_data.conditional_life_metrics",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "ac92298a57407261e591dbd727308cbc191a136d38e42183e4c8a293d7c89f4f",
+      "id": "core.Life_metrics.conditional_survival",
+      "kind": "callable",
+      "source": "src/reliability/Life_metrics.py",
+      "surface": "core",
+      "symbol": "conditional_survival"
+    },
+    {
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "independent_failure_probability",
+            "tail_resolution"
+          ],
+          "procedure_id": "life_data.stress_strength_interference",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "aeb55b1643af25e42849f962803019426dbffacf7e00411b9e663841437ecaab",
+      "id": "core.Life_metrics.interference_probability",
+      "kind": "callable",
+      "source": "src/reliability/Life_metrics.py",
+      "surface": "core",
+      "symbol": "interference_probability"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "b09c4b8cb6a67b94a49791e608ea6256fa68ddc35ff03f3a6b857bbbdb8c14a2",
+      "id": "core.Life_metrics.mean_remaining_life",
+      "kind": "callable",
+      "source": "src/reliability/Life_metrics.py",
+      "surface": "core",
+      "symbol": "mean_remaining_life"
+    },
+    {
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "conditional_remaining_exposure"
+          ],
+          "procedure_id": "life_data.conditional_life_metrics",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "14f472c3c5df683583053c7d4b3a864675238e55d2608d281f300c2b3a9c083b",
+      "id": "core.Life_metrics.remaining_life",
+      "kind": "callable",
+      "source": "src/reliability/Life_metrics.py",
+      "surface": "core",
+      "symbol": "remaining_life"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "5bc68f2dea8d865b6cd96a3ac72006a99c6b879ac6b7f9357b1afa6927240186",
+      "id": "core.Life_metrics.weibull_age_replacement_metrics",
+      "kind": "callable",
+      "source": "src/reliability/Life_metrics.py",
+      "surface": "core",
+      "symbol": "weibull_age_replacement_metrics"
+    },
+    {
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "method"
+          ],
+          "procedure_id": "maintenance.inspection_prediction",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "1b7ea0d32df3a648d90f7b19db8ea226303c50ab9341a55ee2097913495b36b9",
+      "id": "core.Lifetime_tools.inspection_failure_prediction",
+      "kind": "callable",
+      "source": "src/reliability/Lifetime_tools.py",
+      "surface": "core",
+      "symbol": "inspection_failure_prediction"
+    },
+    {
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "method"
+          ],
+          "procedure_id": "maintenance.mechanical_rate",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "4a71b55d35575b491b40e4e50f90b8e74e205859d780033d4326c3121d98f8ae",
+      "id": "core.Lifetime_tools.mechanical_equivalent_rate",
+      "kind": "callable",
+      "source": "src/reliability/Lifetime_tools.py",
+      "surface": "core",
+      "symbol": "mechanical_equivalent_rate"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "dc71b6e729f0805e9ebc1d6fb8e8b6ff9b058b59fcd34ebf82fab75f3a3bccfa",
+      "id": "core.Lifetime_tools.survival_matrix",
+      "kind": "callable",
+      "source": "src/reliability/Lifetime_tools.py",
+      "surface": "core",
+      "symbol": "survival_matrix"
     },
     {
       "assessment": "classification_pending",
@@ -6514,14 +7177,42 @@
       "symbol": "Normal_probability_plot"
     },
     {
-      "assessment": "classification_pending",
-      "assurance_records": [],
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "rank_conventions",
+            "rank_regression"
+          ],
+          "procedure_id": "life_data.standard_rank_regression",
+          "status": "needs_revision"
+        }
+      ],
       "definition_sha256": "6f254e58cc6d107a6ebe26fbedb939d077aa552f0b2d02648770e474b5362fc9",
       "id": "core.Probability_plotting.Weibull_probability_plot",
       "kind": "callable",
       "source": "src/reliability/Probability_plotting.py",
       "surface": "core",
       "symbol": "Weibull_probability_plot"
+    },
+    {
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "direct_tails",
+            "source_traceability"
+          ],
+          "procedure_id": "capability.adopted_distribution_specification_tails",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "16961a5eb6c1610499c328f84b691a3f329a2f97144dbed42a6f347c1275729a",
+      "id": "core.Process_capability.distribution_specification_tails",
+      "kind": "callable",
+      "source": "src/reliability/Process_capability.py",
+      "surface": "core",
+      "symbol": "distribution_specification_tails"
     },
     {
       "assessment": "classification_pending",
@@ -7276,7 +7967,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "9e4ef5d10a24851b8ca0b6f0b962085b6b330be3f41bf8b51b481ea2a654d99a",
+      "definition_sha256": "44110f8d1c2e4f293dfcd01d69bc0b115f31553519d1a0371a2c24a029525341",
       "id": "core.Reliability_testing.one_sample_proportion",
       "kind": "callable",
       "source": "src/reliability/Reliability_testing.py",
@@ -7346,7 +8037,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "60220f90dd6b2bafa66d5f99a2ec3485d0548241c70bf995efb11f0ff1b3e6d5",
+      "definition_sha256": "93d769bccf6d6dbba0a34ed49c132a5d6ae029e836b95391616a7f3427c7675f",
       "id": "core.Reliability_testing.sequential_sampling_chart",
       "kind": "callable",
       "source": "src/reliability/Reliability_testing.py",
@@ -7372,6 +8063,111 @@
       "source": "src/reliability/Reliability_testing.py",
       "surface": "core",
       "symbol": "weibull_eta_from_requirement"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "181f7830a5caa15ff04a0baffe4679fe5873d4c4bc4b0ba7f50fbab162706caf",
+      "id": "core.Renewal.RenewalConvergenceError",
+      "kind": "class",
+      "source": "src/reliability/Renewal.py",
+      "surface": "core",
+      "symbol": "RenewalConvergenceError"
+    },
+    {
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "renewal_measure",
+            "fleet_cohorts"
+          ],
+          "procedure_id": "maintenance.delayed_renewal_fleet",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "b6ba756bd1063bd544fcb7f6aee846b5b1dd43ba614a48d9510cc7b708cfb801",
+      "id": "core.Renewal.conditional_log_survival",
+      "kind": "callable",
+      "source": "src/reliability/Renewal.py",
+      "surface": "core",
+      "symbol": "conditional_log_survival"
+    },
+    {
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "renewal_measure",
+            "fleet_cohorts"
+          ],
+          "procedure_id": "maintenance.delayed_renewal_fleet",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "22a5a2711dfab7f3bcdf0934e50458172d274e4a2ee11834d5485fe3021bf4df",
+      "id": "core.Renewal.fleet_forecast",
+      "kind": "callable",
+      "source": "src/reliability/Renewal.py",
+      "surface": "core",
+      "symbol": "fleet_forecast"
+    },
+    {
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "block_cost",
+            "qualified_search"
+          ],
+          "procedure_id": "maintenance.perfect_block_replacement",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "0866ad439a7062d64b8b8cffd8b237b472544e3827f20b0e07e9a42c186c2b8c",
+      "id": "core.Renewal.perfect_block_cost_forecast",
+      "kind": "callable",
+      "source": "src/reliability/Renewal.py",
+      "surface": "core",
+      "symbol": "perfect_block_cost_forecast"
+    },
+    {
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "block_cost",
+            "qualified_search"
+          ],
+          "procedure_id": "maintenance.perfect_block_replacement",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "7bc3827252fad2d3ac98059e3d66684667ba870f7b080828e5d8c4115d3b9dea",
+      "id": "core.Renewal.perfect_block_replacement",
+      "kind": "callable",
+      "source": "src/reliability/Renewal.py",
+      "surface": "core",
+      "symbol": "perfect_block_replacement"
+    },
+    {
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "renewal_measure",
+            "fleet_cohorts"
+          ],
+          "procedure_id": "maintenance.delayed_renewal_fleet",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "2fe0e67295872d155f961b903e33d666334aa3e5d7eaf053a3a6f0c12b50c23a",
+      "id": "core.Renewal.renewal_count",
+      "kind": "callable",
+      "source": "src/reliability/Renewal.py",
+      "surface": "core",
+      "symbol": "renewal_count"
     },
     {
       "assessment": "mapped",
@@ -7568,9 +8364,17 @@
           ],
           "procedure_id": "growth.mcf_nonparametric",
           "status": "needs_revision"
+        },
+        {
+          "claim_ids": [
+            "marked_mcf",
+            "cost_bootstrap"
+          ],
+          "procedure_id": "growth.mean_cumulative_cost",
+          "status": "needs_revision"
         }
       ],
-      "definition_sha256": "2b06e28126fca8e79dbe42b0b3bc60b97050e3a517af7d03e583f82ebb6ac21d",
+      "definition_sha256": "a12083c734f528649bc7433e4dd7401e6f8b3e25c09d2504bb5f214f29825966",
       "id": "core.Repairable_systems.MCF_nonparametric",
       "kind": "callable",
       "source": "src/reliability/Repairable_systems.py",
@@ -7610,7 +8414,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "ca617d298668455747563164c49d746f06f4ef42595d17fb9e16a5c0b29abd6a",
+      "definition_sha256": "2af9bab8202dcaec6d243af502a9d69a2e420ad6dc38ea096b3fbb3b3f89e265",
       "id": "core.Repairable_systems.maintenance_cost_forecast",
       "kind": "callable",
       "source": "src/reliability/Repairable_systems.py",
@@ -7620,7 +8424,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "101b3961ec80ef3de6f9615a215ced46397257d2d3383d653cd3466a3889a03d",
+      "definition_sha256": "3e5fe1802733cdaa7a33d370ebca14c6bd4ebb39d75c99cab6b0739b1fa454cd",
       "id": "core.Repairable_systems.optimal_replacement_time",
       "kind": "callable",
       "source": "src/reliability/Repairable_systems.py",
@@ -7630,7 +8434,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "659a7b7025bd7b5f865477317510a2db9f1a23c4dcea54a6a8c5815fbb5d27ed",
+      "definition_sha256": "998cdc0bb5d47e73d593b5f038ba200f153544429db33ffb35dafee3d0c51f7b",
       "id": "core.Repairable_systems.replacement_policy_comparison",
       "kind": "callable",
       "source": "src/reliability/Repairable_systems.py",
@@ -7778,6 +8582,25 @@
       "symbol": "Fit_Weibull_2P_grouped.confidence_bounds"
     },
     {
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "composite_survival",
+            "qualified_estimation"
+          ],
+          "procedure_id": "life_data.composite_weibull_mle",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "0cfe21acec8796c69d8376af372516ad4aae5de60c597908cdb42d5767bb37ef",
+      "id": "core.Special_models.Fit_Weibull_Bathtub",
+      "kind": "class",
+      "source": "src/reliability/Special_models.py",
+      "surface": "core",
+      "symbol": "Fit_Weibull_Bathtub"
+    },
+    {
       "assessment": "classification_pending",
       "assurance_records": [],
       "definition_sha256": "4aecb98d90ee3fbc0813d1676876f79f5b2e157810741d38437c41d93b5f719a",
@@ -7918,6 +8741,25 @@
       "symbol": "Fit_Weibull_Mixture.parametric_bootstrap_interval"
     },
     {
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "composite_survival",
+            "qualified_estimation"
+          ],
+          "procedure_id": "life_data.composite_weibull_mle",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "2daaf7fc46d4ffab47c4bc3a1b8869676d250a3710e462476984c255b41f0e24",
+      "id": "core.Special_models.Fit_Weibull_Partial_CR",
+      "kind": "class",
+      "source": "src/reliability/Special_models.py",
+      "surface": "core",
+      "symbol": "Fit_Weibull_Partial_CR"
+    },
+    {
       "assessment": "classification_pending",
       "assurance_records": [],
       "definition_sha256": "749ee74afef763aee45c093de888285349067669a4bf6eb1758b70871e0acd44",
@@ -7926,6 +8768,187 @@
       "source": "src/reliability/Special_models.py",
       "surface": "core",
       "symbol": "Fit_Weibull_ZI"
+    },
+    {
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "composite_survival",
+            "qualified_estimation"
+          ],
+          "procedure_id": "life_data.composite_weibull_mle",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "e0a28f76a8ba48165310c8bc01ab873a15aaa0fbb08a77b2c49aec117cf69476",
+      "id": "core.Special_models.Weibull_Bathtub",
+      "kind": "class",
+      "source": "src/reliability/Special_models.py",
+      "surface": "core",
+      "symbol": "Weibull_Bathtub"
+    },
+    {
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "composite_survival",
+            "qualified_estimation"
+          ],
+          "procedure_id": "life_data.composite_weibull_mle",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "0cbee4231f0f5f7a7f7bdaa2205fac7728276f895265d03c9296e201b2ee81c9",
+      "id": "core.Special_models.Weibull_Partial_CR",
+      "kind": "class",
+      "source": "src/reliability/Special_models.py",
+      "surface": "core",
+      "symbol": "Weibull_Partial_CR"
+    },
+    {
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "composite_survival",
+            "qualified_estimation"
+          ],
+          "procedure_id": "life_data.composite_weibull_mle",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "e4f56ffa9169b47ef0a75f4ddbb09d5f17b8e8607e7941125a1c3499b4775d56",
+      "id": "core.Special_models.Weibull_Partial_CR.CDF",
+      "kind": "callable",
+      "source": "src/reliability/Special_models.py",
+      "surface": "core",
+      "symbol": "Weibull_Partial_CR.CDF"
+    },
+    {
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "composite_survival",
+            "qualified_estimation"
+          ],
+          "procedure_id": "life_data.composite_weibull_mle",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "8f98e714d01f7bd9395b7d75e4f1e14f76baf26ec87da3ca9d76e29664af7acd",
+      "id": "core.Special_models.Weibull_Partial_CR.HF",
+      "kind": "callable",
+      "source": "src/reliability/Special_models.py",
+      "surface": "core",
+      "symbol": "Weibull_Partial_CR.HF"
+    },
+    {
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "composite_survival",
+            "qualified_estimation"
+          ],
+          "procedure_id": "life_data.composite_weibull_mle",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "1ce4907857a25b56c1556f43a2757b23e097d30e5ce852a30650ccb32e23dd0f",
+      "id": "core.Special_models.Weibull_Partial_CR.PDF",
+      "kind": "callable",
+      "source": "src/reliability/Special_models.py",
+      "surface": "core",
+      "symbol": "Weibull_Partial_CR.PDF"
+    },
+    {
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "composite_survival",
+            "qualified_estimation"
+          ],
+          "procedure_id": "life_data.composite_weibull_mle",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "f7e2967d82212a2bd51e72bb7c0a9f0e0c203912e02f307a898bc15b15327b1b",
+      "id": "core.Special_models.Weibull_Partial_CR.SF",
+      "kind": "callable",
+      "source": "src/reliability/Special_models.py",
+      "surface": "core",
+      "symbol": "Weibull_Partial_CR.SF"
+    },
+    {
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "composite_survival",
+            "qualified_estimation"
+          ],
+          "procedure_id": "life_data.composite_weibull_mle",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "71b37a287c1f925c63c0cf861ddd2178dbc95c4c6b4c347d86913dae2530808d",
+      "id": "core.Special_models.Weibull_Partial_CR.logPDF",
+      "kind": "callable",
+      "source": "src/reliability/Special_models.py",
+      "surface": "core",
+      "symbol": "Weibull_Partial_CR.logPDF"
+    },
+    {
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "composite_survival",
+            "qualified_estimation"
+          ],
+          "procedure_id": "life_data.composite_weibull_mle",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "c7a98600d7545fdd13d3eac25c97b0eb0f7ba6ce5ab91abf59cdbb571026e8a6",
+      "id": "core.Special_models.Weibull_Partial_CR.logSF",
+      "kind": "callable",
+      "source": "src/reliability/Special_models.py",
+      "surface": "core",
+      "symbol": "Weibull_Partial_CR.logSF"
+    },
+    {
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "composite_survival",
+            "qualified_estimation"
+          ],
+          "procedure_id": "life_data.composite_weibull_mle",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "41a0e23b826ef58453d4c77e34918da9e285ab0a3472596d2fe9754cc3c320dc",
+      "id": "core.Special_models.Weibull_Partial_CR.quantile",
+      "kind": "callable",
+      "source": "src/reliability/Special_models.py",
+      "surface": "core",
+      "symbol": "Weibull_Partial_CR.quantile"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "ef0f8716552d67f4d06d34d1251c5094b5ee67349c6692a8864089f00caaf544",
+      "id": "core.Special_models.Weibull_Partial_CR.random_samples",
+      "kind": "callable",
+      "source": "src/reliability/Special_models.py",
+      "surface": "core",
+      "symbol": "Weibull_Partial_CR.random_samples"
     },
     {
       "assessment": "classification_pending",
@@ -8338,6 +9361,200 @@
       "symbol": "verification_review_inputs"
     },
     {
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "method"
+          ],
+          "procedure_id": "markov.redundancy_builder",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "d6f9672beceaf75b26b5087fa3d4041bc864bbb4fb880d65808ba47c4acdc3ea",
+      "id": "core.System_models.redundancy_model",
+      "kind": "callable",
+      "source": "src/reliability/System_models.py",
+      "surface": "core",
+      "symbol": "redundancy_model"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "742f060e90479c30ec2605ae9c3a353e6838c444c36ffae0d966ceab7e350d3a",
+      "id": "core.System_models.redundancy_reference",
+      "kind": "callable",
+      "source": "src/reliability/System_models.py",
+      "surface": "core",
+      "symbol": "redundancy_reference"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "751e4300a3519c52b4ef3f2c97777b50f861aa2a735fa6f2a5470e48113ac60e",
+      "id": "core.System_renewal.Lifetime",
+      "kind": "class",
+      "source": "src/reliability/System_renewal.py",
+      "surface": "core",
+      "symbol": "Lifetime"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "dc85646e8ffa6fc50d6da66e26b2925ae234dffd0a21cf1eb55983c334ef5d1f",
+      "id": "core.System_renewal.Lifetime.cdf",
+      "kind": "callable",
+      "source": "src/reliability/System_renewal.py",
+      "surface": "core",
+      "symbol": "Lifetime.cdf"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "9db268ff4b95c78ddba93bd6564db47cdfb505ad939d758a5ba2adcdb772ce9b",
+      "id": "core.System_renewal.Lifetime.pdf",
+      "kind": "callable",
+      "source": "src/reliability/System_renewal.py",
+      "surface": "core",
+      "symbol": "Lifetime.pdf"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "d0428763ef8a0d5402d06d9203154962be0350e263cb17368721c4dae30c27c3",
+      "id": "core.System_renewal.Lifetime.sample",
+      "kind": "callable",
+      "source": "src/reliability/System_renewal.py",
+      "surface": "core",
+      "symbol": "Lifetime.sample"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "aade32afec33b8540c1ccade517d4dcaad2cfbb2c2896e536b45e7842fa5dddb",
+      "id": "core.System_renewal.Lifetime.scale",
+      "kind": "callable",
+      "source": "src/reliability/System_renewal.py",
+      "surface": "core",
+      "symbol": "Lifetime.scale"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "2b01af293c95d09fce4ed515543b468a82a8e234b69b7bf1c7aa3a2fc72eba98",
+      "id": "core.System_renewal.Lifetime.sf",
+      "kind": "callable",
+      "source": "src/reliability/System_renewal.py",
+      "surface": "core",
+      "symbol": "Lifetime.sf"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "40e39a73fa682c906beed84d985dcf79acd65668f30aa26fcf3f5a9c2cbdb178",
+      "id": "core.System_renewal.SystemStructure",
+      "kind": "class",
+      "source": "src/reliability/System_renewal.py",
+      "surface": "core",
+      "symbol": "SystemStructure"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "65e135442d446d9b2db184cdf24dc1e0041652d279e412a51f6ace026677325c",
+      "id": "core.System_renewal.SystemStructure.density",
+      "kind": "callable",
+      "source": "src/reliability/System_renewal.py",
+      "surface": "core",
+      "symbol": "SystemStructure.density"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "116a00412b837d266e7fa0b3dce2923fc6e285ab99f3f22c4c0691421c72c101",
+      "id": "core.System_renewal.SystemStructure.lifetime_probability",
+      "kind": "callable",
+      "source": "src/reliability/System_renewal.py",
+      "surface": "core",
+      "symbol": "SystemStructure.lifetime_probability"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "5c61a1cabc5d93e90707df05a3655aec94dad214c399d9418bf201f64e8c3dbd",
+      "id": "core.System_renewal.SystemStructure.lifetimes",
+      "kind": "callable",
+      "source": "src/reliability/System_renewal.py",
+      "surface": "core",
+      "symbol": "SystemStructure.lifetimes"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "ab576f49ffbd21ebaa71da1cc47e9f020289dea965cd12d9c812fb27679de281",
+      "id": "core.System_renewal.SystemStructure.probability",
+      "kind": "callable",
+      "source": "src/reliability/System_renewal.py",
+      "surface": "core",
+      "symbol": "SystemStructure.probability"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "7a1a18bea78d91f1dcc078eb1bff23d287dc534e7c56263e603cf68f4f1048bc",
+      "id": "core.System_renewal.SystemStructure.state_table",
+      "kind": "callable",
+      "source": "src/reliability/System_renewal.py",
+      "surface": "core",
+      "symbol": "SystemStructure.state_table"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "083cfd72f4122852415236c742bb321e377f7a037394825ac35b062e54b04c7b",
+      "id": "core.System_renewal.SystemStructure.succeeds",
+      "kind": "callable",
+      "source": "src/reliability/System_renewal.py",
+      "surface": "core",
+      "symbol": "SystemStructure.succeeds"
+    },
+    {
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "method"
+          ],
+          "procedure_id": "system_reliability.whole_system_renewal",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "ce2eea5a8333519641b5bffb6c008c469c5311e8909e2bf93c7714dcf775f455",
+      "id": "core.System_renewal.system_renewal",
+      "kind": "callable",
+      "source": "src/reliability/System_renewal.py",
+      "surface": "core",
+      "symbol": "system_renewal"
+    },
+    {
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "method"
+          ],
+          "procedure_id": "system_reliability.repairable_simulation",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "ed018bf2fb9a6b25f7472c52a9bea1251bcec11f2274830222aca335047feb66",
+      "id": "core.System_simulation.simulate_system",
+      "kind": "callable",
+      "source": "src/reliability/System_simulation.py",
+      "surface": "core",
+      "symbol": "simulate_system"
+    },
+    {
       "assessment": "classification_pending",
       "assurance_records": [],
       "definition_sha256": "356137bea09554493198beb3abf501f7f3611652292fa4845bc9931cdadceb00",
@@ -8590,7 +9807,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "cf58064da12fc8b7554cc366d1d41e36df58af145d25b17c952d3b76c3eb0b1c",
+      "definition_sha256": "21a0316b07a5ae7a99d1fc7d315457da2e3bf40d4c455b8b4b90204573157ece",
       "id": "core.Uncertainty.parametric_bootstrap_intervals",
       "kind": "callable",
       "source": "src/reliability/Uncertainty.py",
@@ -8600,7 +9817,7 @@
     {
       "assessment": "classification_pending",
       "assurance_records": [],
-      "definition_sha256": "682c974b546c9c6c40ae3cdcfd76133bf57c5c20240ed00fc8edb6e23a07ad3e",
+      "definition_sha256": "7150dbbd9b13a5f74f0744d72b9abd595c4115ee39241acd7b0b84c9f2a083e2",
       "id": "core.Uncertainty.parametric_bootstrap_package",
       "kind": "callable",
       "source": "src/reliability/Uncertainty.py",
@@ -8748,6 +9965,25 @@
       "symbol": "parameter_confidence_intervals"
     },
     {
+      "assessment": "mapped",
+      "assurance_records": [
+        {
+          "claim_ids": [
+            "rank_conventions",
+            "rank_regression"
+          ],
+          "procedure_id": "life_data.standard_rank_regression",
+          "status": "needs_revision"
+        }
+      ],
+      "definition_sha256": "396018678f96e9c8db87f8fcff1a95a9f157d36df3e8b60a91c7c7476e423eac",
+      "id": "core.Utils.plotting_positions",
+      "kind": "callable",
+      "source": "src/reliability/Utils.py",
+      "surface": "core",
+      "symbol": "plotting_positions"
+    },
+    {
       "assessment": "classification_pending",
       "assurance_records": [],
       "definition_sha256": "108e7dcc67ef0f5699499780cb8b850e2284519ff74517b089746f3119563c16",
@@ -8766,6 +10002,16 @@
       "source": "src/reliability/Utils.py",
       "surface": "core",
       "symbol": "select_best_optimizer_result"
+    },
+    {
+      "assessment": "classification_pending",
+      "assurance_records": [],
+      "definition_sha256": "f6c26c5d588e8e19416ab2a8790f20f1f2b841582725f1d042edf9720579e4f1",
+      "id": "core.Utils.validate_rank_method",
+      "kind": "callable",
+      "source": "src/reliability/Utils.py",
+      "surface": "core",
+      "symbol": "validate_rank_method"
     },
     {
       "assessment": "classification_pending",
@@ -8878,9 +10124,9 @@
   "model_inventory_complete": false,
   "schema_version": 1,
   "summary": {
-    "core_entries": 643,
-    "entries": 816,
-    "mapped_entries": 18,
-    "router_operations": 173
+    "core_entries": 698,
+    "entries": 890,
+    "mapped_entries": 67,
+    "router_operations": 192
   }
 }

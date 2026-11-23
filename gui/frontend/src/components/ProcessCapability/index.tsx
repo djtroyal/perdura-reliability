@@ -10,8 +10,11 @@ import DataGenerator from '../shared/DataGenerator'
 import ExportResultsButton from '../shared/ExportResultsButton'
 import ExampleButton from '../shared/ExampleButton'
 import { Card } from '../shared/ui'
-import { useModuleState } from '../../store/project'
-import { analyzeCapability, CapabilityResponse } from '../../api/capability'
+import { useModuleState, useStoreVersion, getProjectState } from '../../store/project'
+import { analyzeCapability, calculateSpecificationTails, CapabilityResponse } from '../../api/capability'
+import { capabilityModelSources, capabilityModelTailStatus, saveCapabilityModelTail, type SavedSpecificationTailResult } from './modelTails'
+import { engineRevisionFor } from '../../version'
+import { distributionLabel } from '../shared/distributionLabels'
 import {
   InfluenceOverlay,
   InfluenceScope,
@@ -37,6 +40,8 @@ interface PCState {
   stability: 'assess' | 'stable' | 'unstable' | 'not_assessed'
   bootstrapSamples: string
   result: CapabilityResponse | null
+  modelSourceId?: string
+  modelTailResult?: SavedSpecificationTailResult | null
 }
 
 const INITIAL: PCState = {
@@ -61,6 +66,39 @@ function ProcessCapabilityContent() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const resultsRef = useRef<HTMLDivElement>(null)
+  const tailRequest = useRef(0)
+  const [tailLoading, setTailLoading] = useState(false)
+  useStoreVersion()
+  const modelSources = capabilityModelSources(getProjectState())
+  const selectedModel = modelSources.find(source => source.id === s.modelSourceId)
+  const tailStatus = capabilityModelTailStatus(getProjectState(), s, engineRevisionFor('sixSigma.capability'))
+  const tailStale = tailStatus != null && tailStatus.status !== 'current'
+
+  const runModelTails = async () => {
+    if (!selectedModel) { setError('Choose a current adopted dataset distribution.'); return }
+    const lsl = s.lsl.trim() ? Number(s.lsl) : null
+    const usl = s.usl.trim() ? Number(s.usl) : null
+    if ((lsl == null && usl == null) || [lsl, usl].some(value => value != null && !Number.isFinite(value))) {
+      setError('Enter at least one finite specification limit.'); return
+    }
+    const request = ++tailRequest.current
+    const projectId = getProjectState().identity.projectId
+    setError(null); setTailLoading(true)
+    try {
+      const result = await calculateSpecificationTails({ distribution: selectedModel.model.distribution,
+        params: selectedModel.model.parameters, lsl, usl })
+      const current = capabilityModelSources(getProjectState()).find(source => source.id === selectedModel.id)
+      if (request !== tailRequest.current || getProjectState().identity.projectId !== projectId
+        || current?.fingerprint !== selectedModel.fingerprint) return
+      setS(state => state.modelSourceId === selectedModel.id
+        && (state.lsl.trim() ? Number(state.lsl) : null) === lsl
+        && (state.usl.trim() ? Number(state.usl) : null) === usl
+        ? { ...state, modelTailResult: saveCapabilityModelTail(result, selectedModel, engineRevisionFor('sixSigma.capability')) } : state)
+    } catch (e: unknown) {
+      setError((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+        || 'Could not evaluate specification tails.')
+    } finally { if (request === tailRequest.current) setTailLoading(false) }
+  }
 
   const values = () =>
     s.rows.map(r => parseFloat(r.x)).filter(v => !isNaN(v))
@@ -184,6 +222,24 @@ function ProcessCapabilityContent() {
 
         {error && <p className="text-xs text-red-600 bg-red-50 p-2 rounded">{error}</p>}
 
+        <div className="rounded-lg border border-slate-200 p-3 space-y-2">
+          <label className="block text-xs font-medium" htmlFor="capability-tail-source">Model-based specification PPM</label>
+          <select id="capability-tail-source" value={s.modelSourceId ?? ''}
+            onChange={e => { tailRequest.current++; setTailLoading(false); patch({ modelSourceId: e.target.value, modelTailResult: null }) }}
+            className="w-full text-xs border border-gray-300 rounded px-2 py-1.5">
+            <option value="">Choose adopted dataset distribution</option>
+            {s.modelSourceId && !selectedModel && <option value={s.modelSourceId}>Source unavailable or stale</option>}
+            {modelSources.map(source => <option key={source.id} value={source.id}>
+              {source.name} · {distributionLabel(source.model.distribution)} · {source.model.quantity.unit}
+            </option>)}
+          </select>
+          {selectedModel && <p className="text-xs text-slate-600">Enter limits in {selectedModel.model.quantity.unit}. Uses the adopted model; no measurement rows required.</p>}
+          <button type="button" onClick={runModelTails} disabled={tailLoading || !selectedModel}
+            className="w-full rounded border border-blue-300 px-2 py-1.5 text-xs text-blue-800 disabled:opacity-50">
+            {tailLoading ? 'Calculating…' : 'Calculate model PPM'}
+          </button>
+        </div>
+
         <button onClick={run} disabled={loading}
           data-shortcut-primary data-shortcut-label="Analyze process capability"
           title="Analyze process capability (Ctrl/⌘+Enter)"
@@ -194,14 +250,24 @@ function ProcessCapabilityContent() {
 
       {/* Main content */}
       <div className="flex-1 overflow-y-auto">
-        {!r ? (
+        {s.modelTailResult && <section aria-label="Adopted distribution specification tails" className="m-6 rounded-lg border border-slate-200 p-4">
+          <h3 className="text-sm font-semibold">Specification PPM · {s.modelTailResult.sourceName}</h3>
+          <p className="mt-1 text-xs text-slate-600">{distributionLabel(s.modelTailResult.distribution)} · limits in {s.modelTailResult.unit} · fixed model parameters</p>
+          {tailStale && <p role="status" className="mt-2 text-xs text-amber-800">Historical result: {tailStatus?.reason}</p>}
+          <div className="mt-3 grid grid-cols-3 gap-3">
+            <Card label="Below LSL (PPM)" value={fmt(s.modelTailResult.below_lsl)} />
+            <Card label="Above USL (PPM)" value={fmt(s.modelTailResult.above_usl)} />
+            <Card label="Total (PPM)" value={fmt(s.modelTailResult.total)} accent />
+          </div>
+        </section>}
+        {!r && !s.modelTailResult ? (
           <div className="h-full flex items-center justify-center text-gray-400">
             <div className="text-center">
               <p className="text-lg font-medium">No results yet</p>
               <p className="text-sm mt-1">Enter measurements and specification limits, then Analyze</p>
             </div>
           </div>
-        ) : (
+        ) : r ? (
           <div ref={resultsRef} className="p-6">
             <div className="flex justify-end mb-3">
               <ExportResultsButton getElement={() => resultsRef.current} baseName="process-capability" />
@@ -395,7 +461,7 @@ function ProcessCapabilityContent() {
               </ul>
             </div>
           </div>
-        )}
+        ) : null}
       </div>
     </>
   )
@@ -421,7 +487,7 @@ function fmt(v: number | null | undefined): string {
 }
 
 function Ppm({ label, d }: { label: string; d: { below_lsl: number | null; above_usl: number | null; total: number | null } }) {
-  const f = (v: number | null) => v == null ? '--' : v.toFixed(1)
+  const f = (v: number | null) => v == null ? '--' : v !== 0 && Math.abs(v) < .1 ? v.toExponential(3) : v.toFixed(1)
   return (
     <tr className="border-b border-gray-100 last:border-0">
       <td className="px-3 py-2 text-gray-800">{label}</td>

@@ -3415,35 +3415,11 @@ def burn_in(req: BurnInRequest):
     h_before = np.array([haz(t) for t in xs])
     h_after = np.array([haz(t + t_eff) for t in xs])
 
-    # Mean residual life after burn-in:
-    #   E[X-t | X>t] = integral_t^infinity S(u)du / S(t)
-    # For Weibull lifetimes this is an upper-incomplete-gamma expression.  It
-    # includes the full infinite tail; the plotted 0..2*eta window is only a
-    # visualisation range and must not truncate this expectation.
-    from scipy.special import gammaincc, gammaln
-    a = 1.0 / req.beta
-    upper_regularized = float(gammaincc(a, burn_in_cumulative_hazard))
-    if upper_regularized > 0.0:
-        log_mrl = (
-            math.log(req.eta / req.beta)
-            + float(gammaln(a))
-            + math.log(upper_regularized)
-            + burn_in_cumulative_hazard
-        )
-        mean_residual_life = math.exp(log_mrl)
-    else:
-        # gammaincc can underflow for an extreme cumulative hazard.  The first
-        # terms of exp(z) * Gamma(a, z) provide the correct scaled tail there.
-        z = burn_in_cumulative_hazard
-        terms = 1.0
-        term = 1.0
-        for k in range(1, 12):
-            term *= (a - k) / z
-            terms += term
-            if abs(term) <= abs(terms) * 1e-14:
-                break
-        log_mrl = math.log(req.eta / req.beta) + (a - 1.0) * math.log(z) + math.log(terms)
-        mean_residual_life = math.exp(log_mrl)
+    # Shared conditional mean integrates the full tail, independently of plots.
+    from reliability.Life_metrics import mean_remaining_life
+    from reliability.Distributions import Weibull_Distribution
+    mean_residual_life = mean_remaining_life(
+        Weibull_Distribution(eta=req.eta, beta=req.beta), t_eff)
 
     return {
         "effective_burn_in_time": round(t_eff, 3),

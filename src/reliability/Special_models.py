@@ -18,8 +18,8 @@ All fitters expose ``alpha``/``beta`` style parameters, ``loglik``, ``AICc``,
 import numpy as np
 import pandas as pd
 from scipy import stats as ss
-from scipy.optimize import minimize
-from scipy.special import expit
+from scipy.optimize import minimize, brentq
+from scipy.special import expit, logit, xlogy, logsumexp
 
 from reliability.Utils import (
     AICc, BIC, numerical_hessian, select_best_optimizer_result,
@@ -62,15 +62,291 @@ def _moment_init(times):
 
 
 def _information_condition(neg_ll, params):
-    """Condition number of the observed information, or infinity if singular."""
-    H = numerical_hessian(neg_ll, np.asarray(params, dtype=float))
+    """Condition in dimensionless local log coordinates, not physical units.
+
+    Every supplied parameter is positive (including free mixture weights).
+    Evaluating at ``params * exp(delta)`` with delta=0 makes a scale change
+    such as hours -> seconds an additive likelihood constant.  Taking the
+    condition of a raw dimensional Hessian incorrectly penalizes that change.
+    The final simplex weight remains enforced by the caller's likelihood.
+    """
+    params = np.asarray(params, dtype=float)
+    if np.any(~np.isfinite(params)) or np.any(params <= 0):
+        return np.inf
+    H = numerical_hessian(lambda delta: neg_ll(params * np.exp(delta)),
+                          np.zeros(len(params)))
     if H is None or np.any(~np.isfinite(H)):
         return np.inf
     try:
-        condition = float(np.linalg.cond(H))
+        eigenvalues = np.linalg.eigvalsh((H + H.T) * 0.5)
+        if eigenvalues[0] <= 0:
+            return np.inf
+        condition = float(eigenvalues[-1] / eigenvalues[0])
     except np.linalg.LinAlgError:
         return np.inf
     return condition if np.isfinite(condition) else np.inf
+
+
+class Weibull_Partial_CR:
+    """A susceptible Weibull risk plus an independent common Weibull risk.
+
+    R(t) = exp(-A2(t)) * (1-u + u*exp(-A1(t))).  The susceptible
+    fraction u is a population fraction, not an additive-mixture weight for
+    two mutually exclusive lifetimes.  At u=0 only the common risk remains;
+    at u=1 the model is an ordinary two-risk series system.
+    """
+
+    def __init__(self, alpha_1, beta_1, alpha_2, beta_2,
+                 susceptible_fraction, *, alpha_3=None, beta_3=None):
+        pairs = [(alpha_1, beta_1), (alpha_2, beta_2)]
+        if alpha_3 is not None or beta_3 is not None:
+            if alpha_3 is None or beta_3 is None:
+                raise ValueError('Both parameters of the third risk are required.')
+            pairs.append((alpha_3, beta_3))
+        if any(not np.isfinite(v) or v <= 0 for pair in pairs for v in pair):
+            raise ValueError('Weibull scales and shapes must be finite and positive.')
+        if not np.isfinite(susceptible_fraction) or not 0 <= susceptible_fraction <= 1:
+            raise ValueError('susceptible_fraction must be in [0, 1].')
+        self.risks = tuple((float(a), float(b)) for a, b in pairs)
+        self.susceptible_fraction = float(susceptible_fraction)
+        for i, (alpha, beta) in enumerate(self.risks, 1):
+            setattr(self, f'alpha_{i}', alpha)
+            setattr(self, f'beta_{i}', beta)
+
+    def _parts(self, t):
+        t = np.asarray(t, dtype=float)
+        hazards, cumulative = [], []
+        for alpha, beta in self.risks:
+            with np.errstate(over='ignore', invalid='ignore', divide='ignore'):
+                z = np.maximum(t, 0) / alpha
+                cumulative.append(z ** beta)
+                hazards.append(np.log(beta) - np.log(alpha) + xlogy(beta - 1, z))
+        u = self.susceptible_fraction
+        if u == 0:
+            batch = np.zeros_like(t)
+            susceptible_hazard = np.full_like(t, -np.inf)
+        elif u == 1:
+            batch = -cumulative[0]
+            susceptible_hazard = hazards[0]
+        else:
+            # log(1-u*(1-exp(-A))) retains both the exact origin and tiny
+            # early-life failure probabilities without subtracting two ones.
+            batch = np.log1p(u * np.expm1(-cumulative[0]))
+            with np.errstate(invalid='ignore'):
+                susceptible_hazard = (np.log(u) - cumulative[0] - batch
+                                      + hazards[0])
+            # A vanished susceptible tail contributes no survivor hazard.
+            susceptible_hazard = np.where(np.isposinf(cumulative[0]),
+                                          -np.inf, susceptible_hazard)
+        log_r = batch - np.sum(cumulative[1:], axis=0)
+        log_h = logsumexp(np.stack([susceptible_hazard, *hazards[1:]]), axis=0)
+        return t, log_r, log_h
+
+    def logSF(self, t):
+        t, log_r, _ = self._parts(t)
+        return np.where(t < 0, 0.0, log_r)
+
+    def SF(self, t):
+        return np.exp(self.logSF(t))
+
+    def CDF(self, t):
+        return -np.expm1(self.logSF(t))
+
+    def logPDF(self, t):
+        t, log_r, log_h = self._parts(t)
+        with np.errstate(invalid='ignore'):
+            value = log_r + log_h
+        return np.where((t < 0) | np.isneginf(log_r), -np.inf, value)
+
+    def PDF(self, t):
+        return np.exp(self.logPDF(t))
+
+    def HF(self, t):
+        t, _, log_h = self._parts(t)
+        with np.errstate(over='ignore'):
+            return np.where(t < 0, 0.0, np.exp(log_h))
+
+    _sf = SF
+    _cdf = CDF
+    _pdf = PDF
+    _logsf = logSF
+    _logpdf = logPDF
+    _hf = HF
+
+    def quantile(self, q):
+        values = np.asarray(q, dtype=float)
+        if np.any(~np.isfinite(values)) or np.any((values < 0) | (values > 1)):
+            raise ValueError('Quantiles require probabilities in [0, 1].')
+        # Solve for dimensionless time to retain relative accuracy in any unit.
+        scale = min(a for a, _ in self.risks[1:])
+        def solve(p):
+            if p == 0:
+                return 0.0
+            if p == 1:
+                return np.inf
+            target = np.log1p(-p)
+            upper = 1.0
+            for _ in range(1024):
+                if float(self.logSF(upper * scale)) <= target:
+                    break
+                upper *= 2.0
+            else:
+                raise ValueError('Could not bracket the composite-model quantile.')
+            return scale * brentq(lambda z: float(self.logSF(z * scale)) - target,
+                                  0.0, upper, xtol=np.nextafter(0.0, 1.0),
+                                  rtol=8 * np.finfo(float).eps)
+        result = np.array([solve(float(p)) for p in values.ravel()]).reshape(values.shape)
+        return float(result) if result.ndim == 0 else result
+
+    def random_samples(self, n, seed=None):
+        rng = np.random.default_rng(seed)
+        common = np.minimum.reduce([
+            a * rng.weibull(b, size=n) for a, b in self.risks[1:]])
+        susceptible = rng.random(n) < self.susceptible_fraction
+        a, b = self.risks[0]
+        optional = np.where(susceptible, a * rng.weibull(b, size=n), np.inf)
+        return np.minimum(common, optional)
+
+
+class Weibull_Bathtub(Weibull_Partial_CR):
+    """Three-risk model: one susceptible risk and two common Weibull risks.
+
+    R(t) = exp(-A2-A3) * (1-u+u*exp(-A1)).  Six free Weibull parameters
+    and one population fraction are supported.  A bathtub-shaped hazard is
+    possible, but is not asserted for every parameter combination.
+    """
+
+    def __init__(self, alpha_1, beta_1, alpha_2, beta_2, alpha_3, beta_3,
+                 susceptible_fraction):
+        super().__init__(alpha_1, beta_1, alpha_2, beta_2, susceptible_fraction,
+                         alpha_3=alpha_3, beta_3=beta_3)
+
+
+class _FitCompositeWeibull:
+    """Independent normalized multistart MLE; no legacy proprietary recipe."""
+    _risk_count = 2
+
+    def __init__(self, failures, right_censored=None, CI=0.95):
+        failures = np.asarray(failures, dtype=float)
+        rc = np.asarray([] if right_censored is None else right_censored, dtype=float)
+        k = 2 * self._risk_count + 1
+        if (failures.ndim != 1 or rc.ndim != 1 or len(failures) < k
+                or np.any(~np.isfinite(failures)) or np.any(failures <= 0)
+                or np.any(~np.isfinite(rc)) or np.any(rc <= 0)):
+            raise ValueError(f'This composite model requires at least {k} finite '
+                             'positive failures and finite positive suspensions.')
+        if not np.isfinite(CI) or not 0 < CI < 1:
+            raise ValueError('CI must be strictly between zero and one.')
+        scale = float(np.median(failures))
+        x, censored = failures / scale, rc / scale
+        # The finite, declared normalized search region prevents degeneracy
+        # from being mistaken for a meaningful interior component estimate.
+        bounds = [bound for _ in range(self._risk_count)
+                  for bound in [(-14.0, 14.0), (np.log(.05), np.log(100.0))]]
+        bounds += [(logit(.001), logit(.999))]
+
+        def decode(theta, unit_scale=1.0):
+            values = np.exp(theta[:-1]).reshape(self._risk_count, 2)
+            params = {key: float(value * unit_scale if name == 'alpha' else value)
+                      for i, pair in enumerate(values, 1)
+                      for name, value in zip(('alpha', 'beta'), pair)
+                      for key in [f'{name}_{i}']}
+            params['susceptible_fraction'] = float(expit(theta[-1]))
+            cls = Weibull_Partial_CR if self._risk_count == 2 else Weibull_Bathtub
+            return cls(**params), params
+
+        def objective(theta):
+            dist, _ = decode(theta)
+            logpdf = dist.logPDF(x)
+            logsf = dist.logSF(censored)
+            value = -float(np.sum(logpdf) + np.sum(logsf))
+            return value if np.isfinite(value) else 1e100
+
+        candidates = []
+        for infant_shape, common_shape in ((.55, 2.5), (1.2, 3.5), (2.5, 1.1)):
+            for fraction in (.25, .65):
+                pairs = [(.35, infant_shape), (1.5, common_shape)]
+                if self._risk_count == 3:
+                    pairs = [(.25, infant_shape), (2.5, .9), (1.8, common_shape)]
+                start = np.r_[np.log(np.asarray(pairs).ravel()), logit(fraction)]
+                result = minimize(objective, start, method='L-BFGS-B', bounds=bounds,
+                                  options={'maxiter': 1600, 'ftol': 1e-12, 'gtol': 1e-6})
+                candidates.append(('L-BFGS-B', result))
+        for _, preliminary in sorted(candidates, key=lambda item: item[1].fun)[:2]:
+            result = minimize(objective, preliminary.x, method='Nelder-Mead',
+                              bounds=bounds, options={'maxiter': 6000,
+                                                     'xatol': 1e-7, 'fatol': 1e-9})
+            candidates.append(('Nelder-Mead', result))
+        best, diagnostics = select_best_optimizer_result(candidates, objective, bounds=bounds)
+        theta = best.x.copy()
+        # Only the common risks are exchangeable; keep susceptible identity.
+        def canonical(v):
+            v = np.array(v, copy=True)
+            if self._risk_count == 3 and tuple(v[2:4]) > tuple(v[4:6]):
+                v[2:4], v[4:6] = v[4:6].copy(), v[2:4].copy()
+            return v
+        theta = canonical(theta)
+        self.distribution, self.params = decode(theta, scale)
+        for name, value in self.params.items():
+            setattr(self, name, value)
+        self.CI = float(CI)
+        self.loglik = -float(best.fun) - len(failures) * np.log(scale)
+        self.AICc, self.BIC = AICc(self.loglik, k, len(failures) + len(rc)), BIC(self.loglik, k, len(failures) + len(rc))
+        self._bootstrap_failures, self._bootstrap_right_censored = failures.copy(), rc.copy()
+        self.results = pd.DataFrame({'Parameter': list(self.params), 'Value': list(self.params.values())})
+        hessian = numerical_hessian(lambda delta: objective(theta + delta), np.zeros(k))
+        eigenvalues = (np.linalg.eigvalsh(hessian) if hessian is not None
+                       and np.all(np.isfinite(hessian)) else np.array([-1.0]))
+        condition = (float(eigenvalues[-1] / eigenvalues[0])
+                     if eigenvalues[0] > 0 else np.inf)
+        near = [canonical(result.x) for _, result in candidates if result.success
+                and np.isfinite(result.fun) and result.fun <= best.fun + 1e-4]
+        spread = max((float(np.max(np.abs(v - theta))) for v in near), default=np.inf)
+        boundary = any(min(abs(value - lo), abs(value - hi)) < 1e-4
+                       for value, (lo, hi) in zip(theta, bounds))
+        fraction = self.susceptible_fraction
+        identifiable = bool(not boundary and .05 < fraction < .95
+                            and condition < 1e8 and spread < .75
+                            and len(failures) * min(fraction, 1 - fraction) >= 5)
+        diagnostics.update({'normalization_scale': scale, 'objective': -self.loglik,
+                            'search_coordinates': 'log(scale/median), log(shape), logit(fraction)',
+                            'search_bounds': [list(b) for b in bounds]})
+        identification = {'identifiable': identifiable,
+                          'information_condition': condition if np.isfinite(condition) else None,
+                          'information_coordinates': 'dimensionless_log_parameters',
+                          'near_optimal_solution_count': len(near),
+                          'maximum_transformed_parameter_spread': spread,
+                          'at_search_boundary': boundary,
+                          'recommendation': None if identifiable else
+                          'Use a simpler model or cause-labelled data before interpreting individual risks.'}
+        _set_special_fit_status(self, diagnostics, identifiable, identification)
+        # This new composite likelihood has no qualified finite-sample
+        # bootstrap implementation yet. Do not advertise ordinary Wald or
+        # generic mixture bootstrap intervals as justified for this model.
+        self.parameter_ci_method = self.function_ci_method = 'unavailable_nonregular_composite_model'
+        self.uncertainty_warnings = ['composite_model_uncertainty_not_calibrated']
+        self.confidence_metadata.update({'reason': 'composite_model_uncertainty_not_calibrated',
+                                         'validation_status': 'withheld',
+                                         'warnings': list(self.uncertainty_warnings)})
+        self.results['CI Method'] = self.parameter_ci_method
+
+    def SF(self, t): return self.distribution.SF(t)
+    def CDF(self, t): return self.distribution.CDF(t)
+    def PDF(self, t): return self.distribution.PDF(t)
+    def HF(self, t): return self.distribution.HF(t)
+    def logSF(self, t): return self.distribution.logSF(t)
+    def logPDF(self, t): return self.distribution.logPDF(t)
+    def quantile(self, q): return self.distribution.quantile(q)
+
+
+class Fit_Weibull_Partial_CR(_FitCompositeWeibull):
+    """Five-parameter susceptible-plus-common-risk censored MLE."""
+    _risk_count = 2
+
+
+class Fit_Weibull_Bathtub(_FitCompositeWeibull):
+    """Seven-parameter susceptible-plus-two-common-risks censored MLE."""
+    _risk_count = 3
 
 
 def _component_separation(alpha1, beta1, alpha2, beta2):

@@ -5,6 +5,7 @@ import { LEGACY_OVERVIEW_TOPICS } from './content/adaptLegacy'
 import { OPERATIONS_HELP_TOPICS } from './content/operations'
 import { RELIABILITY_HELP_TOPICS } from './content/reliability'
 import { STATISTICS_HELP_TOPICS } from './content/statistics'
+import { TOOLKIT_EXTENSION_TOPICS } from './content/toolkitExtensions'
 import type { HelpTopic } from './types'
 
 const authored = [
@@ -12,6 +13,7 @@ const authored = [
   ...OPERATIONS_HELP_TOPICS,
   ...RELIABILITY_HELP_TOPICS,
   ...STATISTICS_HELP_TOPICS,
+  ...TOOLKIT_EXTENSION_TOPICS,
 ]
 
 /** Last definition wins, allowing a rich authored overview to replace the legacy adapter. */

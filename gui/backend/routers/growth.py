@@ -1191,6 +1191,8 @@ def rocof(req: ROCOFRequest):
 def mcf(req: MCFRequest):
     """Mean Cumulative Function (non-parametric, optionally parametric)."""
     try:
+        if req.measure == "cost" and req.parametric:
+            raise ValueError("Cost MCF supports the nonparametric estimator; a count NHPP likelihood does not model monetary marks.")
         records = ([record.model_dump() for record in req.records]
                    if req.records is not None else None)
         np_res = MCF_nonparametric(
@@ -1201,6 +1203,7 @@ def mcf(req: MCFRequest):
             interval_method=req.interval_method,
             bootstrap_samples=req.bootstrap_samples,
             seed=req.seed,
+            measure=req.measure,
         )
         out = {"nonparametric": np_res, "parametric": None}
         if req.parametric:
@@ -1216,7 +1219,9 @@ def mcf(req: MCFRequest):
         # This is deliberately descriptive. Parametric beta and its profile
         # interval are returned separately whenever the power-law fit is
         # requested; callers must not present this shape heuristic as a test.
-        out["trend"] = _mcf_trend(np_res["time"], np_res["MCF"])
+        out["trend"] = ({"trend": "not_assessed", "method": "not_applicable_to_monetary_marks",
+                         "detail": "Event costs do not identify a recurrence-rate trend.", "inferential": False}
+                        if req.measure == "cost" else _mcf_trend(np_res["time"], np_res["MCF"]))
         out["status"] = {
             "nonparametric_estimate": "available",
             "nonparametric_interval": np_res["interval_status"],
@@ -1228,7 +1233,8 @@ def mcf(req: MCFRequest):
         out["assumptions"] = [
             "System histories are independent sampling units and censoring is independent of the recurrence process.",
             "Events use a consistent recurrence/repair definition across systems; tied endpoint events occur before censoring.",
-            "The Nelson MCF estimates the population mean cumulative recurrence count without imposing a process shape.",
+            ("The cost MCF estimates mean accumulated cost per system; event costs share one currency and price basis."
+             if req.measure == "cost" else "The Nelson MCF estimates the population mean cumulative recurrence count without imposing a process shape."),
         ]
         if req.parametric:
             out["assumptions"].append(

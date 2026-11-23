@@ -22,8 +22,8 @@ export interface AdoptedDistribution extends FitProvenance {
 export interface LifeDataModelFolio {
   id: string; name?: string; dataFormat?: string; rows?: { time: string; state: string; id?: string }[]
   frequencyRows?: { time: string; state: string; count: string; id?: string }[]
-  intervalRows?: { lower: string; upper: string; count: string; id?: string }[]
-  quantity?: DatasetQuantity; method?: string; ci?: number; selectedDists?: string[]
+  intervalRows?: { lower: string; upper: string; count: string; id?: string; kind?: 'interval'|'exact' }[]
+  quantity?: DatasetQuantity; method?: string; rankMethod?: string; ci?: number; selectedDists?: string[]
   dataSource?: string; analysisMode?: string; dataSig?: string | null; setDist?: string | null
   spec?: { distribution: string; params: Record<string, string>; mcMode?: string }
   specResult?: { distribution: string; params: Record<string, number> } | null
@@ -79,6 +79,7 @@ export type LifeObservations =
   | { observation_model: 'individual'; failures: number[]; right_censored: number[] }
   | { observation_model: 'frequency_exact'; frequency_observations: { time: number; state: 'F'|'S'; count: number }[] }
   | { observation_model: 'interval_censored'; interval_observations: { lower: number|null; upper: number|null; count: number }[] }
+  | { observation_model: 'mixed'; mixed_observations: {kind: 'failure'|'right_censored'|'left_censored'|'interval_censored'; time?:number; lower?:number; upper?:number; count:number}[] }
 
 /** The same validated numbers feed the API and fingerprints; display IDs/blank rows do not. */
 export function extractLifeObservations(f: LifeDataModelFolio, groupId?: string): LifeObservations {
@@ -112,6 +113,30 @@ export function extractLifeObservations(f: LifeDataModelFolio, groupId?: string)
     return { observation_model: 'frequency_exact', frequency_observations: values.sort((a,b)=>a.time-b.time || (a.state < b.state ? -1 : a.state > b.state ? 1 : a.count-b.count)) }
   }
   if (format !== 'interval') throw new Error('Unsupported observation format.')
+  if ((f.intervalRows ?? []).some(row => row.kind === 'exact' && (row.lower.trim() || row.upper.trim()))) {
+    const values = (f.intervalRows ?? []).flatMap<Extract<LifeObservations,{observation_model:'mixed'}>['mixed_observations'][number]>((row,i) => {
+      if (!row.lower.trim() && !row.upper.trim()) {
+        if(row.id?.trim() || (row.count.trim() && Number(row.count)!==1)) throw new Error(`Row ${i+1} needs an observation.`)
+        return []
+      }
+      const lower = row.lower.trim() ? number(row.lower, `Row ${i+1} time/lower`) : undefined
+      const upper = row.upper.trim() ? number(row.upper, `Row ${i+1} upper`) : undefined
+      const frequency = count(row.count,`Row ${i+1} count`)
+      if (row.kind === 'exact') {
+        if (lower == null || lower <= 0 || upper != null) throw new Error(`Exact row ${i+1} needs a positive time and no upper bound.`)
+        return [{kind:'failure' as const,time:lower,count:frequency}]
+      }
+      if ((lower != null && lower < 0) || (upper != null && upper <= 0) || (lower != null && upper != null && lower >= upper)) throw new Error(`Row ${i+1} requires lower < upper.`)
+      if (lower == null) return [{kind:'left_censored' as const,upper,count:frequency}]
+      if (upper == null) {
+        if (lower <= 0) throw new Error(`Right-censored row ${i+1} needs a positive time.`)
+        return [{kind:'right_censored' as const,time:lower,count:frequency}]
+      }
+      return [{kind:'interval_censored' as const,lower,upper,count:frequency}]
+    })
+    values.sort((a,b)=>canonical(a).localeCompare(canonical(b)))
+    return {observation_model:'mixed',mixed_observations:values}
+  }
   for(const [i,row] of (f.intervalRows ?? []).entries()) {
     if(!row.lower.trim() && !row.upper.trim() && (row.id?.trim() || (row.count.trim() && Number(row.count)!==1))) throw new Error(`Interval row ${i+1} needs at least one bound.`)
   }
@@ -148,13 +173,13 @@ export function fitInputFingerprint(f: LifeDataModelFolio, options: SourceOption
     spec: f.dataSource === 'spec' ? { distribution: f.spec?.distribution,
       parameters: validateDistributionParameters(f.spec?.distribution ?? '', f.spec?.params ?? {}) } : null,
     method: f.dataSource === 'spec' ? 'specified' : (f.dataFormat ?? 'individual') === 'individual' ? f.method ?? 'MLE' : 'MLE',
-    confidence: f.ci ?? .95, quantity: folioQuantity(f,options), engineRevision: options.engineRevision ?? 2 })
+    rankMethod: f.rankMethod ?? 'benard', confidence: f.ci ?? .95, quantity: folioQuantity(f,options), engineRevision: options.engineRevision ?? 3 })
 }
 const specifiedFingerprint = (f:LifeDataModelFolio) => distributionFingerprint({distribution:f.spec?.distribution,
   parameters:validateDistributionParameters(f.spec?.distribution ?? '',f.spec?.params ?? {})})
 export function createFitProvenance(f: LifeDataModelFolio, options: SourceOptions = {}): FitProvenance {
   return { schemaVersion: 1, observationFingerprint: f.dataSource === 'spec' ? specifiedFingerprint(f) : lifeDataObservationSignature(f),
-    fitFingerprint: fitInputFingerprint(f, options), engineRevision: options.engineRevision ?? 2, quantity: folioQuantity(f,options) }
+    fitFingerprint: fitInputFingerprint(f, options), engineRevision: options.engineRevision ?? 3, quantity: folioQuantity(f,options) }
 }
 export function validateDistributionParameters(distribution: string, values: Record<string, unknown>): Record<string, number> {
   const fields = DISTRIBUTION_PARAMETERS[distribution]
@@ -182,7 +207,8 @@ export function isLifeDataObservationCurrent(f: LifeDataModelFolio): boolean {
 }
 export function isLifeDataFitCurrent(f: LifeDataModelFolio, options: SourceOptions = {}): boolean {
   try {
-    if (f.fitProvenance) return f.fitProvenance.engineRevision === (options.engineRevision ?? 2)
+    if (f.fitProvenance) return f.fitProvenance.engineRevision === (options.engineRevision ?? 3)
+      && f.fitProvenance.fitFingerprint === fitInputFingerprint(f,options)
       && f.fitProvenance.observationFingerprint === (f.dataSource === 'spec' ? specifiedFingerprint(f) : lifeDataObservationSignature(f))
       && canonical(f.fitProvenance.quantity) === canonical(folioQuantity(f,options))
     if (f.dataSource === 'spec') return !!f.specResult && f.spec?.mcMode !== 'equation'
@@ -221,7 +247,7 @@ export function resolveAdoptedDistribution(f: LifeDataModelFolio | undefined, op
     validateDistributionParameters(model.distribution, model.parameters)
     validateDatasetQuantity(model.quantity)
     const observationFingerprint = model.sourceKind === 'specified' ? specifiedFingerprint(f) : lifeDataObservationSignature(f)
-    if (model.engineRevision !== (options.engineRevision ?? 2) || model.observationFingerprint !== observationFingerprint
+    if (model.engineRevision !== (options.engineRevision ?? 3) || model.observationFingerprint !== observationFingerprint
         || canonical(model.quantity) !== canonical(folioQuantity(f,options))) {
       return {status:'stale',reason:'The source observations, units, or analysis engine changed. Refit and adopt a current model.',source,model}
     }

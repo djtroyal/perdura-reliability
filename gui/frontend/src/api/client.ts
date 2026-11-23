@@ -55,11 +55,14 @@ api.interceptors.response.use(
 
 // --- Life Data ---
 
+export type RankMethod = 'benard' | 'exact_median' | 'mean' | 'hazen' | 'blom' | 'kaplan_meier'
+
 export interface FitRequest {
   failures: number[]
   right_censored?: number[]
   distributions_to_fit?: string[]
   method?: string
+  rank_method?: RankMethod
   CI?: number
 }
 
@@ -88,6 +91,7 @@ export interface FitResult {
   // Fitting method actually used (may fall back to MLE when the requested
   // rank-regression method has no linearizing paper, e.g. Gamma/Beta).
   method?: string | null
+  rank_method?: RankMethod
   // Parameter point estimates plus CI fields ({name}_lower/_upper/_se)
   params?: Record<string, number | null>
   converged: boolean
@@ -167,7 +171,7 @@ export interface FitResponse {
   CI: number
   plots: Record<string, DistPlotData>
   available_distributions: string[]
-  observation_model?: 'individual' | 'frequency_exact' | 'interval_censored'
+  observation_model?: 'individual' | 'frequency_exact' | 'interval_censored' | 'mixed'
   n_failures?: number
   n_censored?: number
   empirical?: TurnbullResponse | null
@@ -262,6 +266,7 @@ export const fetchDistPlot = (req: {
   right_censored?: number[]
   distribution: string
   method?: string
+  rank_method?: RankMethod
   CI?: number
 }) => api.post<{ distribution: string; plot: DistPlotData }>('/life-data/plot', req).then(r => r.data)
 
@@ -280,9 +285,10 @@ export interface IntervalLifeObservation {
 }
 
 export interface GroupedLifeFitRequest {
-  observation_model: 'frequency_exact' | 'interval_censored'
+  observation_model: 'frequency_exact' | 'interval_censored' | 'mixed'
   frequency_observations?: FrequencyLifeObservation[]
   interval_observations?: IntervalLifeObservation[]
+  mixed_observations?: {kind:'failure'|'right_censored'|'left_censored'|'interval_censored';time?:number;lower?:number;upper?:number;count:number}[]
   distributions_to_fit?: string[]
   CI?: number
 }
@@ -405,6 +411,13 @@ export interface CalculatorResponse {
   reliable_life?: number | null
   bx_life?: number | null
   bx_percent?: number
+  remaining_life?: number | null
+  total_life_at_target?: number | null
+  remaining_reliability_target?: number
+  remaining_life_status?: string
+  conditional_status?: string
+  failure_rate_status?: 'finite'|'unbounded'|'undefined'
+  pdf_status?: 'finite'|'unbounded'|'undefined'
 }
 export const calculateMetrics = (req: {
   distribution: string; params: Record<string, number>
@@ -544,7 +557,8 @@ export interface WeibayesResponse {
   eta_upper: number | null
   r: number
   n_total: number
-  sum_tb: number
+  sum_tb: number | null
+  log_sum_tb: number
   CI: number
   zero_failure: boolean
   beta_assumption: 'fixed' | 'uncertain'
@@ -587,6 +601,7 @@ export interface CalibratedUncertaintyRequest {
   failures: number[]
   right_censored?: number[]
   estimator?: 'MLE' | 'RRX' | 'RRY'
+  rank_method?: RankMethod
   target: 'reliability' | 'quantile' | 'median' | 'mean'
   target_value?: number
   method: 'profile_likelihood' | 'parametric_bootstrap'
@@ -643,6 +658,7 @@ export interface UncertaintyPackageRequest {
   failures: number[]
   right_censored?: number[]
   estimator?: 'MLE' | 'RRX' | 'RRY'
+  rank_method?: RankMethod
   curve_x: number[]
   CI?: number
   n_bootstrap?: number
@@ -1913,9 +1929,13 @@ export const exportOpenPSAFaultTree = (
 export interface StressStrengthResponse {
   probability_of_failure: number
   reliability: number
+  log_probability_of_failure?: number | null
+  log_reliability?: number | null
+  method?: string
   curves: { x: number[]; stress_pdf: number[]; strength_pdf: number[] }
   evaluation_quantity?: { kind: string; unit: string } | null
   integration_error?: number
+  reliability_integration_error?: number
 }
 
 export const computeStressStrength = (req: {
@@ -3035,7 +3055,7 @@ export interface MCFAnalysisStatus {
 }
 
 export interface MCFTrendSummary {
-  trend: 'improving' | 'constant' | 'worsening'
+  trend: 'improving' | 'constant' | 'worsening' | 'not_assessed'
   detail: string
   method: string
   inferential: false
@@ -3043,6 +3063,9 @@ export interface MCFTrendSummary {
 
 export interface MCFResponse {
   nonparametric: {
+    measure?: 'events' | 'cost'
+    estimand?: string
+    total_observed_cost?: number | null
     time: number[]; MCF: number[]
     MCF_lower: (number | null)[]; MCF_upper: (number | null)[]
     variance: (number | null)[]; standard_error: (number | null)[]; at_risk: number[]
@@ -3102,21 +3125,28 @@ export interface PolicyResult {
   cm_per_time: number | null
   time: number[]
   cost: (number | null)[]
-  decision: 'preventive_replacement' | 'run_to_failure'
+  decision: 'preventive_replacement' | 'run_to_failure' | 'withheld'
   finite_optimum: boolean
   decision_reason: string
   boundary_minimum: boolean
   search_expanded: boolean
+  candidate_cost_lower?: number
+  candidate_cost_upper?: number
+  numerical?: {
+    method: string; cells: number; interval_grid_step: number | null
+    cost_lower: number[]; cost_upper: number[]
+  }
 }
 export interface ReplacementPolicyResponse {
   age: PolicyResult
   block: PolicyResult
   corrective_only_cost: number
   mttf: number
-  cheaper_policy: 'age' | 'block' | 'corrective'
+  cheaper_policy: 'age' | 'block' | 'corrective' | 'undetermined'
   recommendation: string
   analysis_basis?: string
   maintenance_assumptions?: Record<string, string>
+  block_repair_model?: 'minimal' | 'perfect'
 }
 export const computeReplacementPolicy = (req: {
   cost_PM: number; cost_CM: number; weibull_alpha: number; weibull_beta: number
@@ -3152,6 +3182,12 @@ export interface CostForecastResponse {
   analysis_basis?: string
   finite_horizon_transients_modeled?: boolean
   assumption_note?: string
+  block_repair_model?: 'minimal' | 'perfect' | null
+  expected_cm_lower?: number
+  expected_cm_upper?: number
+  cumulative_cost_lower?: number[]
+  cumulative_cost_upper?: number[]
+  numerical?: { method: string; cells: number; bounds: string; converged: boolean }
 }
 export const computeCostForecast = (req: {
   policy: string; cost_PM: number; cost_CM: number
@@ -3327,6 +3363,7 @@ export interface MarkovRequest {
   transitions: MarkovTransitionInput[]
   times?: number[]
   initial_state?: string
+  initial_probabilities?: Record<string, number>
   uncertainty_samples?: number
   uncertainty_ci?: number
   uncertainty_seed?: number
@@ -3729,7 +3766,11 @@ export interface AvailabilityResponse {
   achieved?: number | null
   operational?: number | null
   mean_down_time?: number | null
-  downtime_breakdown: { repair: number | null; admin_delay: number | null; logistics_delay: number | null }
+  downtime_breakdown: { repair: number | null; active_maintenance?: number | null; admin_delay: number | null; logistics_delay: number | null }
+  mean_uptime?: number | null
+  operational_basis?: 'all_maintenance' | 'corrective_only'
+  active_maintenance_label?: string
+  operational_unavailable_reason?: string
   analysis_basis?: string
   assumption_note?: string
 }
@@ -3738,22 +3779,26 @@ export const computeAvailability = (req: AvailabilityRequest) =>
   api.post<AvailabilityResponse>('/ram/availability', req).then(r => r.data)
 
 export interface MaintainabilityRequest {
-  mode: 'lognormal' | 'data'
+  mode: 'lognormal' | 'data' | 'frequency' | 'exponential'
   mu?: number | null
   sigma?: number | null
   samples?: number[] | null
+  frequencies?: number[] | null
+  estimator?: 'mle' | 'sample_log_sd'
+  mttr?: number | null
   percentile?: number
 }
 
 export interface MaintainabilityResponse {
-  mu: number
-  sigma: number
+  mu: number | null
+  sigma: number | null
   mct: number
   mmax: number
   median: number
   percentile: number
-  fitted?: { mu: number; sigma: number } | null
-  curve: { time: number[]; sf: number[] }
+  fitted?: { mu: number; sigma: number; sample_size?: number; estimator?: string } | null
+  model?: string
+  curve: { time: number[]; sf: number[]; cdf?: number[] }
 }
 
 export const computeMaintainability = (req: MaintainabilityRequest) =>
@@ -3767,6 +3812,7 @@ export interface SparesRequest {
   failure_rate?: number | null
   confidence: number
   max_spares?: number
+  curve_points?: number
   model?: 'poisson' | 'negative_binomial' | 'renewal_pipeline'
   dispersion?: number
   weibull_alpha?: number | null
