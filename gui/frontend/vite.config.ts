@@ -17,6 +17,8 @@ const PLOTLY_VERSION = JSON.parse(readFileSync(require.resolve('plotly.js/packag
 // exported documents paired with the exact reviewed runtime bytes.
 const PLOTLY_CDN_INTEGRITY = `sha384-${createHash('sha384')
   .update(readFileSync(require.resolve('plotly.js/dist/plotly.min.js'))).digest('base64')}`
+const KATEX_CDN_INTEGRITY = `sha384-${createHash('sha384')
+  .update(readFileSync(require.resolve('katex/dist/katex.min.css'))).digest('base64')}`
 const APP_VERSION = process.env.VITE_APP_VERSION || pkg.version || 'dev'
 const APP_COMMIT = process.env.VITE_APP_COMMIT || process.env.GITHUB_SHA || 'dev'
 const BUILD_TIMESTAMP = process.env.VITE_BUILD_TIMESTAMP || new Date().toISOString()
@@ -70,6 +72,7 @@ export default defineConfig({
   define: {
     __PLOTLY_VERSION__: JSON.stringify(PLOTLY_VERSION),
     __PLOTLY_CDN_INTEGRITY__: JSON.stringify(PLOTLY_CDN_INTEGRITY),
+    __KATEX_CDN_INTEGRITY__: JSON.stringify(KATEX_CDN_INTEGRITY),
     __APP_VERSION__: JSON.stringify(APP_VERSION),
     __APP_COMMIT__: JSON.stringify(APP_COMMIT),
     __BUILD_TIMESTAMP__: JSON.stringify(BUILD_TIMESTAMP),

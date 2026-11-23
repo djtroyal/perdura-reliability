@@ -455,11 +455,10 @@ jobs:
           node-version: '24'
           cache: npm
           cache-dependency-path: gui/frontend/package-lock.json
-      - name: Install locked application and browser dependencies
+      - name: Install locked application dependencies
         run: |
           uv sync --locked --python 3.13.14 --extra app --group dev
           npm ci --prefix gui/frontend
-          npx --prefix gui/frontend playwright install --with-deps chromium
           npm run build --prefix gui/frontend
       - name: Start the isolated full-stack application
         id: start-app

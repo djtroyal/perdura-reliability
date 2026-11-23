@@ -86,6 +86,9 @@ def test_security_and_performance_are_not_skipped_by_browser_journey_failures():
     for name in ("web-security", "dynamic-and-performance"):
         assert jobs[name]["needs"] == "scope"
     security = jobs["web-security"]["steps"]
+    assert not any('playwright install' in step.get('run', '') for step in security), (
+        'ZAP supplies its own browser; scanner startup must not depend on an unused Playwright install'
+    )
     baseline = next(step for step in security if step.get("uses", "").startswith("zaproxy/action-baseline@"))
     assert "zap_baseline_hooks.py" in baseline["with"]["cmd_options"]
     assert "--autooff" in baseline["with"]["cmd_options"]

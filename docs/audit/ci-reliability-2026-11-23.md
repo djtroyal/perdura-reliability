@@ -20,6 +20,22 @@ It reports the source failure once instead of repeating it across Python version
 The verification report requires the preflight evidence; skipped matrix work
 cannot produce a successful aggregate.
 
+The first hosted run with deterministic coverage fetched and hash-verified all
+107 built script/style assets and confirmed an empty passive queue. It found one
+additional missing integrity attribute on the exported report's KaTeX stylesheet,
+which previous crawls had missed. The stylesheet now uses a build-derived hash,
+and the real report-package browser check validates every external script and
+stylesheet against its installed bytes. Rule 90003 remains enabled.
+All 38 registered browser suites and the independent
+performance job passed that run.
+
+The exact package/lockfile changes from PR #292 were also applied to an isolated
+copy of this branch and installed with `npm ci`. Real generation qualification
+passed with `dependencyEnvironmentChanged: true`; both demos reproduced the
+reviewed SHA-256 `9ce01cba18b2996bcf081135428a8995c106de4b36ba136bc68be3b2884d2a36`.
+The website contract passed all 94 capture definitions. The two demo files and
+committed manifest remained byte-identical; no provenance was restamped.
+
 ## Failures that should remain failures
 
 - The scheduled November 17 OSV finding for `picomatch` was a dependency finding,

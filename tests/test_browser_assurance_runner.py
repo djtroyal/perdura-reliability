@@ -4,12 +4,14 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import socket
 import sys
 import time
 import xml.etree.ElementTree as ET
 
 import pytest
+import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,6 +27,21 @@ def test_repository_registry_explicitly_covers_all_assurance_scripts():
     # This entry point is an intentional alias, not an untested orphan script.
     alias = (RUNNER.FRONTEND / "tests/structuredArchitectureBrowser.mjs").read_text()
     assert "import('./simplifiedFunctionsBrowser.mjs')" in alias
+
+
+def test_every_registered_group_and_external_suite_has_a_workflow_executor():
+    registry = RUNNER.load_registry(RUNNER.REGISTRY, RUNNER.FRONTEND / 'package.json')
+    workflow = yaml.load((ROOT / '.github/workflows/product-assurance.yml').read_text(),
+                         Loader=yaml.BaseLoader)
+    jobs = workflow['jobs']
+    matrix_groups = set(jobs['browser-journeys']['strategy']['matrix']['group'])
+    assert matrix_groups | {'toolkit'} == set(registry['groups'])
+    toolkit_commands = '\n'.join(step.get('run', '') for step in jobs['toolkit-workflows']['steps'])
+    assert 'run_browser_assurance.py --group toolkit' in toolkit_commands
+    commands = '\n'.join(step.get('run', '') for job in jobs.values() for step in job.get('steps', []))
+    direct_suites = set(re.findall(r'\bnpm run (assurance:[a-z0-9-]+)', commands))
+    assert direct_suites == set(registry['externallyManaged'])
+    assert {'browser-journeys', 'toolkit-workflows', 'dynamic-and-performance'} <= set(jobs['assurance-gate']['needs'])
 
 
 def fixture_registry(tmp_path, *, scripts=None):

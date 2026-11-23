@@ -253,5 +253,6 @@ export function markdownPlainText(node: MarkdownNode): string {
 }
 
 export const KATEX_STYLESHEET_URL = `https://cdn.jsdelivr.net/npm/katex@${katex.version}/dist/katex.min.css`
+export const KATEX_STYLESHEET_TAG = `<link rel="stylesheet" href="${KATEX_STYLESHEET_URL}" integrity="${__KATEX_CDN_INTEGRITY__}" crossorigin="anonymous">`
 
 export type MarkdownChildren = ReactNode
