@@ -1,7 +1,6 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "authoringSources": {
-    "gui/frontend/package-lock.json": "5f5ce0ade8b21ce0bfe34ba1b330104b74f351924db837e835ffbd8ebcba9f84",
     "gui/frontend/scripts/adaptAircraftDemo.mjs": "e34487be5dc238e391a60bf7b3dbbef9a34f3c924b77c30b83f2153090c51175",
     "gui/frontend/scripts/materializeAircraftDemo.mjs": "086c2ff14c86e75144e71bc6fd218d3651e087680024f1f9c33230efb5afa84d",
     "gui/frontend/src/api/client.ts": "f8ba751c89c4a0d4bc01633db4587dc9e91b8c9373f0048f934f6a88771fc570",
@@ -30,7 +29,13 @@
     "gui/frontend/src/store/systemRequirements.ts": "0e6bf7243ede58cf90877fcfd8d9f43f82e84fa05a2b16dd1dd9f8cf33c11d24",
     "gui/frontend/src/version.ts": "bf6512f4601032e4254e7ec554164fc1f0de36be603521fdcd957f2972ccef03",
     "tools/build_aircraft_demo_model.py": "3f15d2a4a42e22968edc33c3fc55ae4b4a3ccde3e624b47755ef16dd994224ec",
-    "tools/refresh_demo_project.py": "0d6a20759cb92a96bba3dfd355f9a7be4ac06623360c18a700221c4ca8cf6439"
+    "tools/refresh_demo_project.py": "87433d5a5a10a7ef52fd64fb3fca0801b8b983a6efab4e27ba08772e8aa2233c"
+  },
+  "authoringEnvironment": {
+    "dependencyFiles": {
+      "gui/frontend/package.json": "7e20d0e2c61492bcdb77ecc3d539dd8969e765d6f14c36f050b7d9662097677f",
+      "gui/frontend/package-lock.json": "5f5ce0ade8b21ce0bfe34ba1b330104b74f351924db837e835ffbd8ebcba9f84"
+    }
   },
   "artifacts": {
     "gui/frontend/src/data/demoProject.json": "9ce01cba18b2996bcf081135428a8995c106de4b36ba136bc68be3b2884d2a36",

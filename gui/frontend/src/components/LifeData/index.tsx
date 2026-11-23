@@ -433,15 +433,16 @@ function buildEmpiricalLifeContext(failures: number[], rightCensored: number[]):
   return context
 }
 
-function CalcRow({ label, value, influences }: {
+function CalcRow({ label, value, influences, metric }: {
   label: string
   value: string
   influences?: string | readonly string[]
+  metric?: string
 }) {
   const row = (
-    <div className="flex justify-between border-b border-gray-100 last:border-0 py-0.5">
+    <div data-result-metric={metric} className="flex justify-between border-b border-gray-100 last:border-0 py-0.5">
       <span className="text-gray-500">{label}</span>
-      <span className="text-gray-800 font-semibold">{value}</span>
+      <span data-result-value={metric ? '' : undefined} className="text-gray-800 font-semibold">{value}</span>
     </div>
   )
   return influences ? <InfluenceTarget influences={influences} rounded="rounded-xs">{row}</InfluenceTarget> : row
@@ -4704,8 +4705,8 @@ export default function LifeData() {
                       {calcResult.prob_failure != null && <CalcRow influences="lda.calc.mission" label="F(t)" value={fmt(calcResult.prob_failure)} />}
                       {calcResult.conditional_reliability != null && <CalcRow influences={['lda.calc.mission', 'lda.calc.elapsed']} label="Conditional R" value={fmt(calcResult.conditional_reliability)} />}
                       {calcResult.conditional_prob_failure != null && <CalcRow influences={['lda.calc.mission', 'lda.calc.elapsed']} label="Conditional F" value={fmt(calcResult.conditional_prob_failure)} />}
-                      {calcResult.remaining_life != null && <CalcRow label={`Remaining exposure at R=${calcResult.remaining_reliability_target}`} value={fmtNum(calcResult.remaining_life)} />}
-                      {calcResult.total_life_at_target != null && <CalcRow label="Total age at target" value={fmtNum(calcResult.total_life_at_target)} />}
+                      {calcResult.remaining_life != null && <CalcRow metric="remaining_life" label={`Remaining exposure at R=${calcResult.remaining_reliability_target}`} value={fmtNum(calcResult.remaining_life)} />}
+                      {calcResult.total_life_at_target != null && <CalcRow metric="total_life_at_target" label="Total age at target" value={fmtNum(calcResult.total_life_at_target)} />}
                       {calcResult.mean_remaining_life != null && <CalcRow label="Mean remaining exposure" value={fmtNum(calcResult.mean_remaining_life)} />}
                       {calcResult.conditional_mean_age != null && <CalcRow label="Conditional mean age" value={fmtNum(calcResult.conditional_mean_age)} />}
                       {calcResult.mean_remaining_life_status && <p className="text-amber-800">{calcResult.mean_remaining_life_status}</p>}
@@ -5129,12 +5130,12 @@ export default function LifeData() {
                             {calcResult.conditional_prob_failure != null && <CalcRow influences={['lda.calc.mission', 'lda.calc.elapsed']} label="Cond. prob. of failure" value={fmt(calcResult.conditional_prob_failure)} />}
                             {calcResult.failure_rate_status === 'unbounded' && <CalcRow influences="lda.calc.mission" label="Failure rate at support boundary" value="∞ (unbounded)" />}
                             {calcResult.conditional_status && <p className="text-amber-800">{calcResult.conditional_status}</p>}
-                            {calcResult.remaining_life != null && <CalcRow influences={['lda.calc.elapsed','lda.calc.reliability']} label={`Remaining life at R=${calcResult.remaining_reliability_target} (${units})`} value={fmtNum(calcResult.remaining_life)} />}
+                            {calcResult.remaining_life != null && <CalcRow metric="remaining_life" influences={['lda.calc.elapsed','lda.calc.reliability']} label={`Remaining life at R=${calcResult.remaining_reliability_target} (${units})`} value={fmtNum(calcResult.remaining_life)} />}
                             {calcResult.mean_remaining_life != null && <CalcRow influences="lda.calc.elapsed" label={`Mean remaining exposure (${units})`} value={fmtNum(calcResult.mean_remaining_life)} />}
                             {calcResult.conditional_mean_age != null && <CalcRow influences="lda.calc.elapsed" label={`Conditional mean age (${units})`} value={fmtNum(calcResult.conditional_mean_age)} />}
                             {calcResult.mean_remaining_life_status && <p className="text-amber-800">{calcResult.mean_remaining_life_status}</p>}
                             {lifetimeQuantity && (calcResult.negative_support_probability ?? 0) > .001 && <p className="text-amber-800">This model assigns {fmt((calcResult.negative_support_probability ?? 0) * 100)}% probability below zero exposure; check its lifetime interpretation.</p>}
-                            {calcResult.total_life_at_target != null && <CalcRow influences={['lda.calc.elapsed','lda.calc.reliability']} label={`Total age at target (${units})`} value={fmtNum(calcResult.total_life_at_target)} />}
+                            {calcResult.total_life_at_target != null && <CalcRow metric="total_life_at_target" influences={['lda.calc.elapsed','lda.calc.reliability']} label={`Total age at target (${units})`} value={fmtNum(calcResult.total_life_at_target)} />}
                             {calcResult.remaining_life_status && <p className="text-amber-800">{calcResult.remaining_life_status}</p>}
                             {calcResult.failure_rate != null && <CalcRow influences="lda.calc.mission" label={`Failure rate h(t) (/${units.replace(/s$/, '')})`} value={fmt(calcResult.failure_rate)} />}
                             {calcResult.reliable_life != null && <CalcRow influences="lda.calc.reliability" label={`Reliable life (${units})`} value={fmtNum(calcResult.reliable_life)} />}

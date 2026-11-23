@@ -10,6 +10,7 @@ import json
 import re
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -38,8 +39,7 @@ def authoring_fingerprints() -> dict[str, str]:
     Python-only CI can verify the reviewed artifacts; authoring (--write) uses
     the application's real adapters after installing frontend dependencies.
     """
-    paths = {Path(__file__).resolve(), ROOT / "tools/build_aircraft_demo_model.py", CATALOG_PATH,
-             ROOT / "gui/frontend/package-lock.json"}
+    paths = {Path(__file__).resolve(), ROOT / "tools/build_aircraft_demo_model.py", CATALOG_PATH}
     pending = [ROOT / "gui/frontend/scripts/materializeAircraftDemo.mjs"]
     while pending:
         path = pending.pop()
@@ -64,10 +64,78 @@ def authoring_fingerprints() -> dict[str, str]:
             for path in sorted(paths)}
 
 
+def dependency_fingerprints() -> dict[str, str]:
+    """Record the dependency environment independently of authored data.
+
+    A changed lockfile must be qualified by executing the generator under the
+    candidate dependencies, not by relabelling the reviewed artifact manifest.
+    """
+    return {str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in (ROOT / "gui/frontend/package.json", ROOT / "gui/frontend/package-lock.json")}
+
+
 def demo_manifest() -> dict[str, Any]:
-    return {"schemaVersion": 1, "authoringSources": authoring_fingerprints(),
+    return {"schemaVersion": 2, "authoringSources": authoring_fingerprints(),
+            "authoringEnvironment": {"dependencyFiles": dependency_fingerprints()},
             "artifacts": {str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest()
                           for path in (DEMO_PATH, EXAMPLE_DEMO_PATH)}}
+
+
+def check_reviewed_artifacts() -> tuple[dict[str, Any], dict[str, Any]]:
+    """Verify reviewed bytes and local sources without requiring Node in pytest.
+
+    Dependency drift is deliberately not source drift. The required CI
+    generation check establishes whether candidate dependencies reproduce these
+    exact artifacts and records the candidate environment in separate evidence.
+    """
+    actual = json.loads(MANIFEST_PATH.read_text(encoding="utf-8")) if MANIFEST_PATH.exists() else None
+    current = demo_manifest()
+    if not isinstance(actual, dict) or actual.get("schemaVersion") != 2:
+        raise ValueError("Missing/current demo provenance required; run tools/refresh_demo_project.py --write --check.")
+    for key in ("authoringSources", "artifacts"):
+        if actual.get(key) != current[key]:
+            raise ValueError(
+                f"Demo {key} changed; install frontend dependencies and run "
+                "tools/refresh_demo_project.py --write --check. If demo inputs change, "
+                "regenerate affected website captures with website/seed-result-fixtures.mjs "
+                "--resume --refresh <capture IDs>; do not restamp computed results."
+            )
+    environment = actual.get("authoringEnvironment")
+    recorded = environment.get("dependencyFiles") if isinstance(environment, dict) else None
+    if (not isinstance(recorded, dict) or set(recorded) != set(current["authoringEnvironment"]["dependencyFiles"])
+            or any(not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value) for value in recorded.values())):
+        raise ValueError("Demo authoring dependency provenance is missing or malformed; regenerate the manifest.")
+    if DEMO_PATH.read_bytes() != EXAMPLE_DEMO_PATH.read_bytes():
+        raise ValueError("Bundled and downloadable demo bytes differ; run tools/refresh_demo_project.py --write --check.")
+    return actual, current
+
+
+def check_generated_artifacts() -> dict[str, Any]:
+    """Nonmutating qualification under the installed candidate dependencies."""
+    recorded, before = check_reviewed_artifacts()
+    generated = render(expected_demo()).encode("utf-8")
+    generated_hash = hashlib.sha256(generated).hexdigest()
+    for path in (DEMO_PATH, EXAMPLE_DEMO_PATH):
+        if path.read_bytes() != generated:
+            raise ValueError(
+                f"Candidate dependencies or authoring behavior change {path.relative_to(ROOT)}. "
+                "Review generated changes using tools/refresh_demo_project.py --write --check, "
+                "then regenerate affected website captures. The reviewed artifacts were not modified."
+            )
+    if demo_manifest() != before:
+        raise ValueError("Demo inputs, provenance or dependency files changed during generation qualification; rerun it.")
+    return {
+        "schema": "perdura.demo-generation-qualification/v1",
+        "status": "passed",
+        "generatedAt": datetime.now(timezone.utc).isoformat(),
+        "authoringSources": before["authoringSources"],
+        "candidateDependencies": before["authoringEnvironment"]["dependencyFiles"],
+        "recordedAuthoringDependencies": recorded["authoringEnvironment"]["dependencyFiles"],
+        "dependencyEnvironmentChanged": recorded["authoringEnvironment"] != before["authoringEnvironment"],
+        "artifacts": before["artifacts"],
+        "generatedSha256": generated_hash,
+        "qualification": "Candidate generator reproduces both reviewed demo artifacts byte for byte.",
+    }
 
 CANONICAL_EXAMPLES = [
     "nist-fuller2-life",
@@ -797,7 +865,7 @@ def expected_demo() -> dict[str, Any]:
     demo["modules"]["systemDefinition"]["model"] = build_aircraft_model(demo["modules"]["systemDefinition"]["model"])
     completed = subprocess.run(
         ["node", str(ROOT / "gui/frontend/scripts/materializeAircraftDemo.mjs")],
-        input=json.dumps(demo), text=True, capture_output=True, cwd=ROOT,
+        input=json.dumps(demo), text=True, capture_output=True, cwd=ROOT, timeout=120,
     )
     if completed.returncode:
         raise RuntimeError("Aircraft example materialization failed:\n" + completed.stderr)
@@ -816,26 +884,50 @@ def expected_example_demo(demo: dict[str, Any] | None = None) -> dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--write", action="store_true")
-    parser.add_argument("--check", action="store_true")
+    parser.add_argument("--check", action="store_true", help="Verify reviewed sources/artifacts without Node; CI separately qualifies candidate dependencies.")
+    parser.add_argument("--check-generated", action="store_true", help="After npm ci, reproduce reviewed artifacts with the candidate dependencies without modifying them.")
+    parser.add_argument("--evidence", "--output", dest="evidence", type=Path, help="Write generation qualification JSON, including failures.")
     args = parser.parse_args()
-    if not args.write and not args.check:
-        parser.error("choose --write and/or --check")
-    if args.write:
-        demo = expected_demo()
-        expected = render(demo)
-        example_expected = render(expected_example_demo(demo))
-        DEMO_PATH.write_text(expected, encoding="utf-8")
-        EXAMPLE_DEMO_PATH.write_text(example_expected, encoding="utf-8")
-        MANIFEST_PATH.write_text(render(demo_manifest()), encoding="utf-8")
-    if args.check:
-        actual = json.loads(MANIFEST_PATH.read_text(encoding="utf-8")) if MANIFEST_PATH.exists() else None
-        if actual != demo_manifest() or DEMO_PATH.read_bytes() != EXAMPLE_DEMO_PATH.read_bytes():
-            raise SystemExit(
-                "Demo project or its authoring sources changed; install frontend dependencies "
-                "and run tools/refresh_demo_project.py --write"
-            )
-    print("Aircraft demo is current: L4 system model, linked analyses, and 7 canonical NIST cases.")
-    return 0
+    if not (args.write or args.check or args.check_generated):
+        parser.error("choose --write, --check, or --check-generated")
+    if args.write and args.check_generated:
+        parser.error("--check-generated is nonmutating; run --write separately")
+    if args.evidence and not args.check_generated:
+        parser.error("--evidence requires --check-generated")
+    evidence = None
+    try:
+        if args.write:
+            previous = DEMO_PATH.read_bytes()
+            demo = expected_demo()
+            expected = render(demo)
+            example_expected = render(expected_example_demo(demo))
+            DEMO_PATH.write_text(expected, encoding="utf-8")
+            EXAMPLE_DEMO_PATH.write_text(example_expected, encoding="utf-8")
+            MANIFEST_PATH.write_text(render(demo_manifest()), encoding="utf-8")
+            if previous != DEMO_PATH.read_bytes():
+                print("Demo inputs changed: regenerate affected website captures with "
+                      "website/seed-result-fixtures.mjs --resume --refresh <capture IDs>, "
+                      "then run npm run test:website-resources. Do not restamp computed results.")
+        if args.check or args.check_generated:
+            actual, current = check_reviewed_artifacts()
+            print("Reviewed demo source and artifact hashes verified.")
+            if actual["authoringEnvironment"] != current["authoringEnvironment"]:
+                print("Candidate dependency environment differs from the recorded authoring environment. "
+                      "It requires --check-generated after npm ci; recorded provenance is unchanged.")
+        if args.check_generated:
+            evidence = check_generated_artifacts()
+            print("Candidate dependency generation qualified: both reviewed demo artifacts reproduced byte for byte.")
+        elif args.check:
+            print("This static check does not qualify candidate dependencies; CI also requires --check-generated.")
+        return 0
+    except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
+        evidence = {"schema": "perdura.demo-generation-qualification/v1", "status": "failed", "error": str(exc)}
+        print(str(exc), file=sys.stderr)
+        return 1
+    finally:
+        if args.evidence and evidence is not None:
+            args.evidence.parent.mkdir(parents=True, exist_ok=True)
+            args.evidence.write_text(render(evidence), encoding="utf-8")
 
 
 if __name__ == "__main__":

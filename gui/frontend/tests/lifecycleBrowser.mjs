@@ -93,13 +93,14 @@ const calculate = (kind, body) => new Promise((resolveCalculation, reject) => {
   pending.set(id, { resolve: resolveCalculation, reject, timer })
   child.stdin.write(JSON.stringify({ id, kind, body }) + '\n')
 })
-let browser, page
+let browser, context, page, failed = false
 const checks = [], errors = [], requests = []
 try {
   await ready
   await vite.listen()
   browser = await chromium.launch({ headless: true })
-  const context = await browser.newContext({ viewport: { width: 1600, height: 1100 }, reducedMotion: 'reduce' })
+  context = await browser.newContext({ viewport: { width: 1600, height: 1100 }, reducedMotion: 'reduce' })
+  await context.tracing.start({ screenshots: true, snapshots: true, sources: true })
   page = await context.newPage()
   page.setDefaultTimeout(20000)
   page.on('pageerror', error => errors.push(error.message))
@@ -129,7 +130,17 @@ try {
   assert.ok(first.total_expected_events > 0 && first.total_expected_events < 1200)
   assert.equal(first.cohorts.length, 2)
   assert.equal(first.cohorts[1].entry_time, 12)
-  await expect(page.getByText('Expected events', { exact: true }).first()).toBeVisible()
+  // Verify the numerical cohort output, not a summary-card wording choice.
+  const cohortTable = page.getByRole('table').filter({
+    has: page.getByRole('columnheader', { name: 'Expected events', exact: true }),
+  })
+  await expect(cohortTable).toBeVisible()
+  await expect(cohortTable.getByRole('row')).toHaveCount(first.cohorts.length + 1)
+  for (const cohort of first.cohorts) {
+    const row = cohortTable.getByRole('row').filter({ has: page.getByRole('cell', { name: cohort.id, exact: true }) })
+    const rendered = Number((await row.getByRole('cell').nth(2).innerText()).replaceAll(',', ''))
+    assert.ok(Math.abs(rendered - cohort.expected_events) <= Math.max(.01, Math.abs(cohort.expected_events) * 5e-4))
+  }
   checks.push('Default fleet example computes both installed-age and delivery cohorts with the real handler')
   await page.getByRole('combobox', { name: 'Fleet event model', exact: true }).selectOption('perfect_renewal')
   assert.equal((await fleet()).result, null)
@@ -161,6 +172,7 @@ try {
   await writeFile(join(output, 'report.json'), JSON.stringify({ status: 'passed', checks, browser: browser.version(), requests: requests.length }, null, 2))
   console.log(JSON.stringify({ status: 'passed', checks, output }, null, 2))
 } catch (error) {
+  failed = true
   await page?.screenshot({ path: join(output, 'failure.png'), fullPage: true }).catch(() => {})
   await writeFile(join(output, 'report.json'), JSON.stringify({ status: 'failed', error: String(error), errors, checks, requests,
     body: await page?.locator('body').innerText().catch(() => null) }, null, 2))
@@ -168,6 +180,7 @@ try {
 } finally {
   child.stdin.end()
   child.kill()
+  await context?.tracing.stop(failed ? { path: join(output, 'trace.zip') } : {}).catch(() => {})
   await browser?.close()
   await closeViteTestServer(vite, cache)
 }

@@ -107,27 +107,49 @@ const calculate = (kind, body) => new Promise((resolveCalculation, reject) => {
   pending.set(id, { resolve: resolveCalculation, reject, timer })
   child.stdin.write(JSON.stringify({ id, kind, body }) + '\n')
 })
-let browser, page
+let browser, context, page, failed = false
 const checks = [], errors = [], requests = []
+async function runCalculation(button, path) {
+  // Register before clicking so even a cached/fast handler cannot race the wait.
+  // A handler error should report its body, not turn into a missing-label timeout.
+  const [response] = await Promise.all([
+    page.waitForResponse(response => new URL(response.url()).pathname.endsWith(path)
+      && response.request().method() === 'POST', { timeout: 90000 }),
+    button.click(),
+  ])
+  assert.ok(response.ok(), `${path}: HTTP ${response.status()} ${await response.text()}`)
+}
+async function expectDisplayedMetric(metric, expected, expectedContext) {
+  const row = page.locator(`[data-result-metric="${metric}"]`)
+  await expect(row).toBeVisible()
+  for (const text of expectedContext) await expect(row).toContainText(text)
+  const displayed = Number((await row.locator('[data-result-value]').innerText()).replaceAll(',', ''))
+  assert.ok(Number.isFinite(displayed) && Math.abs(displayed - expected) <= Math.abs(expected) * 5e-4,
+    `${metric}: displayed ${displayed}, expected ${expected} within four-significant-digit display precision`)
+}
 try {
   await ready
   await vite.listen()
   browser = await chromium.launch({ headless: true })
-  const context = await browser.newContext({ viewport: { width: 1600, height: 1100 }, reducedMotion: 'reduce' })
+  context = await browser.newContext({ viewport: { width: 1600, height: 1100 }, reducedMotion: 'reduce' })
+  await context.tracing.start({ screenshots: true, snapshots: true, sources: true })
   page = await context.newPage()
   page.setDefaultTimeout(30000)
   page.on('pageerror', error => errors.push(error.message))
   await page.route(url => url.pathname.startsWith('/api/'), async route => {
     const path = new URL(route.request().url()).pathname
     const kind = path.endsWith('/fit/stream') ? 'fit' : path.split('/').at(-1)
-    const body = route.request().postDataJSON(), request = { kind, body }
+    const body = route.request().postDataJSON(), request = { kind, body, startedAt: Date.now() }
     requests.push(request)
     try {
       const result = await calculate(kind, body)
       request.result = result
+      request.durationMs = Date.now() - request.startedAt
       await route.fulfill({ status: 200, contentType: path.endsWith('/stream') ? 'application/x-ndjson' : 'application/json',
         body: path.endsWith('/stream') ? JSON.stringify({ type: 'result', data: result }) + '\n' : JSON.stringify(result) })
     } catch (error) {
+      request.error = String(error)
+      request.durationMs = Date.now() - request.startedAt
       errors.push(String(error))
       await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ detail: String(error) }) })
     }
@@ -140,7 +162,7 @@ try {
   const rank = page.getByRole('combobox', { name: 'Plotting positions', exact: true })
   await rank.selectOption('hazen')
   await page.getByRole('button', { name: 'RRY', exact: true }).click()
-  await run.click()
+  await runCalculation(run, '/fit/stream')
   await fitted('ranks')
   const rankFit = requests.find(request => request.kind === 'fit')
   assert.equal(rankFit.body.rank_method, 'hazen')
@@ -156,7 +178,7 @@ try {
   await page.getByRole('combobox', { name: 'Observation, row 1', exact: true }).selectOption('exact')
   await expect(page.getByRole('textbox', { name: 'Upper (hours), row 1', exact: true })).toBeDisabled()
   await expect(page.getByRole('textbox', { name: 'Upper (hours), row 1', exact: true })).toHaveValue('')
-  await run.click()
+  await runCalculation(run, '/grouped-fit')
   await fitted('mixed')
   const mixedFit = requests.find(request => request.kind === 'grouped-fit')
   assert.equal(mixedFit.body.observation_model, 'mixed')
@@ -171,7 +193,7 @@ try {
   console.log(checks.at(-1))
 
   await page.locator('[data-tab-id="precision"]').click()
-  await run.click()
+  await runCalculation(run, '/fit/stream')
   await fitted('precision')
   const bar = page.getByRole('region', { name: 'Dataset distribution selection' })
   await bar.getByRole('button', { name: 'Set as dataset distribution' }).click()
@@ -182,20 +204,28 @@ try {
   await page.getByRole('textbox', { name: 'Mission end (hours)', exact: true }).fill('3000000')
   await page.getByRole('textbox', { name: 'Elapsed (hours)', exact: true }).fill('2000000')
   await page.getByPlaceholder('0.9', { exact: true }).fill('0.9')
-  await page.getByRole('button', { name: 'Calculate', exact: true }).click()
-  await expect(page.getByText('Remaining life (hours)', { exact: true })).toBeVisible({ timeout: 90000 })
+  const calculateButton = page.getByRole('button', { name: 'Calculate', exact: true })
+  await runCalculation(calculateButton, '/calculate')
   const calculation = requests.find(request => request.kind === 'calculate')
   assert.equal(calculation.body.params.Lambda, 4e-7)
   const remaining = -Math.log(.9) / 4e-7
   assert.ok(Math.abs(calculation.result.remaining_life - remaining) < 1e-6)
   assert.ok(Math.abs(calculation.result.total_life_at_target - (2e6 + remaining)) < 1e-6)
+  await expectDisplayedMetric('remaining_life', remaining, ['R=0.9', '(hours)'])
+  await expectDisplayedMetric('total_life_at_target', 2e6 + remaining, ['(hours)'])
+  await page.getByPlaceholder('0.9', { exact: true }).fill('0.5')
+  await runCalculation(calculateButton, '/calculate')
+  const secondRemaining = -Math.log(.5) / 4e-7
+  await expectDisplayedMetric('remaining_life', secondRemaining, ['R=0.5', '(hours)'])
+  await expectDisplayedMetric('total_life_at_target', 2e6 + secondRemaining, ['(hours)'])
   await page.screenshot({ path: join(output, 'precise-rate-remaining-life.png'), fullPage: true })
-  checks.push('Adoption and calculator retain Lambda=4e-7 exactly; the real conditional calculator displays remaining life and total age at target')
+  checks.push('Adoption retains Lambda=4e-7 exactly; displayed remaining life and total age match independent arithmetic and update with the reliability target')
   console.log(checks.at(-1))
   assert.deepEqual(errors, [])
   await writeFile(join(output, 'report.json'), JSON.stringify({ status: 'passed', checks, browser: browser.version(), requests: requests.length }, null, 2))
   console.log(JSON.stringify({ status: 'passed', checks, output }, null, 2))
 } catch (error) {
+  failed = true
   await page?.screenshot({ path: join(output, 'failure.png'), fullPage: true }).catch(() => {})
   await writeFile(join(output, 'report.json'), JSON.stringify({ status: 'failed', error: String(error), errors, checks, requests,
     body: await page?.locator('body').innerText().catch(() => null) }, null, 2))
@@ -203,6 +233,7 @@ try {
 } finally {
   child.stdin.end()
   child.kill()
+  await context?.tracing.stop(failed ? { path: join(output, 'trace.zip') } : {}).catch(() => {})
   await browser?.close()
   await closeViteTestServer(vite, cache)
 }

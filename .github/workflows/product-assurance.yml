@@ -319,6 +319,7 @@ jobs:
           npx --prefix gui/frontend playwright install --with-deps chromium
           npm run build --prefix gui/frontend
       - name: Start the isolated full-stack application
+        id: start-app
         shell: bash
         run: |
           mkdir -p evidence/dynamic
@@ -331,157 +332,25 @@ jobs:
           cat ../../evidence/dynamic/server.log
           exit 1
       - name: Run axe browser journeys
+        if: ${{ !cancelled() && steps.start-app.outcome == 'success' }}
         run: >-
           npm run assurance:browser --prefix gui/frontend --
           --base-url http://127.0.0.1:8000
           --output ../../evidence/dynamic/browser-assurance.json
           --junit ../../evidence/dynamic/junit-browser-assurance.xml
       - name: Verify Plotly rendering and downloaded exports
+        if: ${{ !cancelled() && steps.start-app.outcome == 'success' }}
         run: >-
           npm run assurance:plotly --prefix gui/frontend --
           --base-url http://127.0.0.1:8000
           --output-dir ../../evidence/dynamic/plotly
-      - name: Verify Plotly migration and provenance-aware exports
-        run: >-
-          npm run assurance:plotly-migration --prefix gui/frontend --
-          --output-dir ../../evidence/dynamic/plotly-migration
       - name: Verify prediction mission result invalidation
+        if: ${{ !cancelled() && steps.start-app.outcome == 'success' }}
         run: >-
           npm run assurance:prediction --prefix gui/frontend --
           --base-url http://127.0.0.1:8000
-      - name: Verify closed-panel work and Plotly update contracts
-        run: >-
-          npm run assurance:performance --prefix gui/frontend --
-          --output-dir ../../evidence/dynamic/frontend-performance
-      - name: Verify shared controls and accessible chart data
-        run: >-
-          npm run assurance:shared-ui --prefix gui/frontend --
-          --output-dir ../../evidence/dynamic/shared-ui
-      - name: Verify step-stress input and result semantics
-        run: >-
-          npm run assurance:step-stress --prefix gui/frontend --
-          --output-dir ../../evidence/dynamic/step-stress
-      - name: Verify FTA library hierarchy, editing, and accessibility
-        run: >-
-          npm run assurance:fta-library --prefix gui/frontend --
-          --output-dir ../../evidence/dynamic/fta-library
-      - name: Verify FTA report diagrams and export provenance
-        run: >-
-          npm run assurance:fta-library-reports --prefix gui/frontend --
-          --output-dir ../../evidence/dynamic/fta-library-reports
-      - name: Verify adopted LDA distributions, SSI and Monte Carlo workflows
-        env:
-          PERDURA_PYTHON: ${{ github.workspace }}/.venv/bin/python
-        run: >-
-          npm run assurance:adopted-distribution --prefix gui/frontend --
-          --output-dir ../../evidence/dynamic/adopted-distribution
-      - name: Verify live distribution inputs across reliability consumers
-        env:
-          PERDURA_PYTHON: ${{ github.workspace }}/.venv/bin/python
-        run: >-
-          npm run assurance:reliability-sources --prefix gui/frontend --
-          --output-dir ../../evidence/dynamic/reliability-sources
-      - name: Verify standard lifetime fitting, mixed data, and remaining life
-        env:
-          PERDURA_PYTHON: ${{ github.workspace }}/.venv/bin/python
-        run: >-
-          npm run assurance:standard-life-methods --prefix gui/frontend --
-          --output-dir ../../evidence/dynamic/standard-life-methods
-      - name: Verify fleet renewal and monetary MCF workflows
-        env:
-          PERDURA_PYTHON: ${{ github.workspace }}/.venv/bin/python
-        run: >-
-          npm run assurance:lifecycle --prefix gui/frontend --
-          --output-dir ../../evidence/dynamic/lifecycle
-      - name: Verify shared System Definition and Prediction scenarios
-        run: >-
-          npm run assurance:shared-system --prefix gui/frontend --
-          --output-dir ../../evidence/dynamic/shared-system
-      - name: Verify deterministic layouts across all diagram canvases
-        run: >-
-          npm run assurance:diagram-layout --prefix gui/frontend --
-          --output-dir ../../evidence/dynamic/diagram-layout
-      - name: Verify full-screen diagram editing and keyboard behavior
-        run: >-
-          npm run assurance:diagram-fullscreen --prefix gui/frontend --
-          --output-dir ../../evidence/dynamic/diagram-fullscreen
-      - name: Verify project format isolation and incremental browser persistence
-        run: >-
-          npm run assurance:project-persistence --prefix gui/frontend --
-          --output-dir ../../evidence/dynamic/project-persistence
-      - name: Verify startup recovery with blank and file projects
-        run: >-
-          npm run assurance:startup-recovery --prefix gui/frontend --
-          --output-dir ../../evidence/dynamic/startup-recovery
-      - name: Verify display preferences and distribution labels
-        run: >-
-          npm run assurance:display-preferences --prefix gui/frontend --
-          --output-dir ../../evidence/dynamic/display-preferences
-      - name: Verify the bundled aircraft example and L4 diagram navigation
-        run: >-
-          npm run assurance:aircraft-example --prefix gui/frontend --
-          --output-dir ../../evidence/dynamic/aircraft-example
-      - name: Verify popup dismissal and simplified project units
-        run: >-
-          npm run assurance:popover-menus --prefix gui/frontend --
-          --output-dir ../../evidence/dynamic/popover-menus
-      - name: Verify RBD library navigation and linked analyses
-        run: >-
-          npm run assurance:rbd-library --prefix gui/frontend --
-          --output-dir ../../evidence/dynamic/rbd-library
-      - name: Verify Life Data placeholder rows and keyboard editing
-        run: >-
-          npm run assurance:life-data-entry --prefix gui/frontend --
-          --output-dir ../../evidence/dynamic/life-data-entry
-      - name: Verify Interfaces canvas editing and inspector controls
-        run: >-
-          npm run assurance:system-interfaces --prefix gui/frontend --
-          --output-dir ../../evidence/dynamic/system-interfaces
-      - name: Verify hierarchy visibility and interface display filters
-        run: >-
-          npm run assurance:interface-visibility --prefix gui/frontend --
-          --output-dir ../../evidence/dynamic/interface-visibility
-      - name: Verify live FMEA system editing and calculation inputs
-        run: >-
-          npm run assurance:shared-fmea --prefix gui/frontend --
-          --output-dir ../../evidence/dynamic/shared-fmea
-      - name: Verify focused FMEA interfaces and accessible diagram navigation
-        run: >-
-          npm run assurance:shared-fmea-diagram --prefix gui/frontend --
-          --output-dir ../../evidence/dynamic/shared-fmea-diagram
-      - name: Verify portable FMEA system bindings and engineering freshness
-        run: >-
-          npm run assurance:shared-fmea-persistence --prefix gui/frontend --
-          --output-dir ../../evidence/dynamic/shared-fmea-persistence
-      - name: Verify structured functions and explicit resource transfers
-        run: >-
-          npm run assurance:simplified-functions --prefix gui/frontend --
-          --output-dir ../../evidence/dynamic/simplified-functions
-      - name: Verify input selection and collapsed supplier dependencies
-        run: >-
-          npm run assurance:inherited-inputs --prefix gui/frontend --
-          --output-dir ../../evidence/dynamic/inherited-inputs
-      - name: Verify process external terminals and complementary functions
-        run: >-
-          npm run assurance:process-transfer-authoring --prefix gui/frontend --
-          --output-dir ../../evidence/dynamic/process-transfer-authoring
-      - name: Verify canonical FMEA prerequisites and read-only invalidation
-        run: >-
-          npm run assurance:canonical-fmea-workflow --prefix gui/frontend --
-          --output-dir ../../evidence/dynamic/canonical-fmea-workflow
-      - name: Verify FMEA readiness and controlled lifecycle against backend handlers
-        run: >-
-          npm run assurance:fmea-readiness --prefix gui/frontend --
-          --output-dir ../../evidence/dynamic/fmea-readiness
-      - name: Verify canonical requirements and explicit evidence review
-        run: >-
-          npm run assurance:system-requirements --prefix gui/frontend --
-          --output-dir ../../evidence/dynamic/system-requirements
-      - name: Verify shared requirement editors and persistence
-        run: >-
-          npm run assurance:shared-requirements --prefix gui/frontend --
-          --output-dir ../../evidence/dynamic/shared-requirements
       - name: Run Lighthouse laboratory profile
+        if: ${{ !cancelled() && steps.start-app.outcome == 'success' }}
         shell: bash
         run: |
           export CHROME_PATH="$(cd gui/frontend && node --input-type=module -e "import { chromium } from '@playwright/test'; console.log(chromium.executablePath())")"
@@ -494,15 +363,119 @@ jobs:
             --output ../../evidence/dynamic/lighthouse-summary.json \
             --junit ../../evidence/dynamic/junit-lighthouse.xml
       - name: Install k6
+        id: k6
+        if: ${{ !cancelled() && steps.start-app.outcome == 'success' }}
         uses: grafana/setup-k6-action@c47136d33d365efbeb9ae7266908b5dcf98cdece # v1
         with:
           # setup-k6-action adds the release tag's `v` prefix itself.
           k6-version: '2.1.0'
       - name: Run API performance profile
+        if: ${{ !cancelled() && steps.start-app.outcome == 'success' && steps.k6.outcome == 'success' }}
         env:
           PROFILE: ${{ github.event.inputs.load_profile || 'smoke' }}
           BASE_URL: http://127.0.0.1:8000
         run: k6 run --summary-export evidence/dynamic/k6-summary.json assurance/k6/perdura-api.js
+      - name: Retain browser and performance evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: Perdura-dynamic-performance-${{ github.sha }}
+          path: evidence/dynamic
+          retention-days: 90
+
+  browser-journeys:
+    needs: scope
+    if: needs.scope.outputs.run_assurance == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [analysis, system, architecture, workspace]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13.14'
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: '0.11.29'
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: gui/frontend/package-lock.json
+      - name: Install locked application and browser dependencies
+        run: |
+          uv sync --locked --python 3.13.14 --extra app --group dev
+          npm ci --prefix gui/frontend
+          npx --prefix gui/frontend playwright install --with-deps chromium
+          npm run build --prefix gui/frontend
+      - name: Run every declared browser suite and retain individual outcomes
+        env:
+          PERDURA_PYTHON: ${{ github.workspace }}/.venv/bin/python
+        run: >-
+          python3 tools/run_browser_assurance.py --group '${{ matrix.group }}'
+          --output-dir 'evidence/journeys/${{ matrix.group }}'
+      - name: Retain browser journey evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: Perdura-browser-journeys-${{ matrix.group }}-${{ github.sha }}
+          path: evidence/journeys
+          retention-days: 90
+
+  web-security:
+    needs: scope
+    if: needs.scope.outputs.run_assurance == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13.14'
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: '0.11.29'
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: gui/frontend/package-lock.json
+      - name: Install locked application and browser dependencies
+        run: |
+          uv sync --locked --python 3.13.14 --extra app --group dev
+          npm ci --prefix gui/frontend
+          npx --prefix gui/frontend playwright install --with-deps chromium
+          npm run build --prefix gui/frontend
+      - name: Start the isolated full-stack application
+        id: start-app
+        shell: bash
+        run: |
+          mkdir -p evidence/dynamic
+          cd gui/backend
+          nohup uv run --no-sync uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4 --no-access-log > ../../evidence/dynamic/server.log 2>&1 &
+          for attempt in $(seq 1 120); do
+            if curl --fail --silent http://127.0.0.1:8000/api/v1/health >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat ../../evidence/dynamic/server.log
+          exit 1
+      - name: Prepare deterministic passive-scan evidence
+        run: install -d -m 1777 evidence/dynamic/zap-baseline
       - name: Run OWASP ZAP passive browser scan
         uses: zaproxy/action-baseline@de8ad967d3548d44ef623df22cf95c3b0baf8b25 # v0.15.0
         with:
@@ -511,15 +484,15 @@ jobs:
           fail_action: true
           artifact_name: Perdura-ZAP-baseline-${{ github.sha }}
           rules_file_name: assurance/zap-rules.tsv
-          cmd_options: '-a -j'
+          cmd_options: '-a -j -T 10 --autooff --hook /zap/wrk/assurance/zap_baseline_hooks.py'
       - name: Prepare API scan evidence output
-        if: github.event_name != 'pull_request'
+        if: ${{ !cancelled() && steps.start-app.outcome == 'success' && github.event_name != 'pull_request' }}
         # The Docker action runs as ZAP's unprivileged user, not the runner.
         # Permit writes only in its dedicated evidence leaf. The hook proves
         # writability as that actual user before importing or scanning the API.
         run: install -d -m 1777 evidence/dynamic/zap-api
       - name: Run OWASP ZAP active OpenAPI scan
-        if: github.event_name != 'pull_request'
+        if: ${{ !cancelled() && steps.start-app.outcome == 'success' && github.event_name != 'pull_request' }}
         uses: zaproxy/action-api-scan@5158fe4d9d8fcc75ea204db81317cce7f9e5453d # v0.10.0
         with:
           target: http://127.0.0.1:8000/api/v1/openapi.json
@@ -531,11 +504,11 @@ jobs:
           # -T bounds startup/passive processing only. Explicit scanner limits
           # keep the active scan inside this job's 60-minute budget.
           cmd_options: '-T 10 -n assurance/zap-api.context --hook /zap/wrk/assurance/zap_api_hooks.py -z "-config scanner.maxScanDurationInMins=30 -config scanner.maxRuleDurationInMins=5"'
-      - name: Retain browser and performance evidence
+      - name: Retain security and scan-coverage evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: Perdura-dynamic-performance-${{ github.sha }}
+          name: Perdura-web-security-${{ github.sha }}
           path: evidence/dynamic
           retention-days: 90
 
@@ -568,13 +541,9 @@ jobs:
       - name: Verify toolkit workflows against real calculation handlers
         env:
           PERDURA_PYTHON: ${{ github.workspace }}/.venv/bin/python
-        run: |
-          npm run assurance:inference-tools --prefix gui/frontend -- --output-dir ../../evidence/toolkit/inference
-          npm run assurance:lifetime-tools --prefix gui/frontend -- --output-dir ../../evidence/toolkit/lifetime
-          npm run assurance:inventory-ram --prefix gui/frontend -- --output-dir ../../evidence/toolkit/inventory-ram
-          npm run assurance:system-lifecycle --prefix gui/frontend -- --output-dir ../../evidence/toolkit/systems
-          npm run assurance:prediction-comparison --prefix gui/frontend -- --output-dir ../../evidence/toolkit/comparison
-          npm run assurance:reference-library --prefix gui/frontend -- --output-dir ../../evidence/toolkit/references
+        run: >-
+          python3 tools/run_browser_assurance.py --group toolkit
+          --output-dir evidence/toolkit
       - name: Retain toolkit workflow evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -586,7 +555,7 @@ jobs:
   assurance-gate:
     name: Product assurance gate
     if: always()
-    needs: [scope, local-controls, dependency-review, osv, scorecard, candidate-scorecard, container, browser-compatibility, dynamic-and-performance, toolkit-workflows]
+    needs: [scope, local-controls, dependency-review, osv, scorecard, candidate-scorecard, container, browser-compatibility, dynamic-and-performance, browser-journeys, web-security, toolkit-workflows]
     runs-on: ubuntu-24.04
     permissions:
       contents: read
