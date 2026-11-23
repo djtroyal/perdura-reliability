@@ -74,6 +74,18 @@ _GROUPED_FIT_ERROR = (
 _TURNBULL_INPUT_ERROR = (
     'The interval observations do not define a valid Turnbull estimate.'
 )
+_MEAN_REMAINING_LIFE_ERROR = (
+    'Mean remaining life could not be calculated. Check the elapsed age and '
+    'model support; the conditional mean may be numerically unresolved.'
+)
+_CONDITIONAL_SURVIVAL_ERROR = (
+    'Conditional reliability could not be calculated. Require elapsed age <= '
+    'mission end and possible survival to the elapsed age.'
+)
+_REMAINING_LIFE_ERROR = (
+    'Remaining life could not be calculated. Check the elapsed age, reliability '
+    'target, and model support; the requested tail may exceed numerical range.'
+)
 
 # distribution name -> (Distribution class, ordered parameter names)
 _DIST_SPECS = {
@@ -1348,9 +1360,10 @@ def calculate_metrics(req: CalculatorRequest):
             out['conditional_mean_age'] = req.elapsed + residual if np.isfinite(residual) else None
             if not np.isfinite(residual):
                 out['mean_remaining_life_status'] = 'The conditional mean is infinite for this model.'
-        except ValueError as exc:
+        except ValueError:
+            logger.exception('Mean remaining life calculation failed.')
             out['mean_remaining_life'] = None
-            out['mean_remaining_life_status'] = str(exc)
+            out['mean_remaining_life_status'] = _MEAN_REMAINING_LIFE_ERROR
 
     # Mean life (always available).
     try:
@@ -1373,10 +1386,11 @@ def calculate_metrics(req: CalculatorRequest):
             try:
                 cr, cf = conditional_survival(dist, req.elapsed, req.mission_end)
                 out["conditional_reliability"], out["conditional_prob_failure"] = cr, cf
-            except ValueError as exc:
+            except ValueError:
+                logger.exception('Conditional reliability calculation failed.')
                 out["conditional_reliability"] = None
                 out["conditional_prob_failure"] = None
-                out["conditional_status"] = str(exc)
+                out["conditional_status"] = _CONDITIONAL_SURVIVAL_ERROR
 
     # Reliable life: time at which reliability = target (CDF = 1 - target).
     if req.reliability_target is not None and 0 < req.reliability_target < 1:
@@ -1390,9 +1404,10 @@ def calculate_metrics(req: CalculatorRequest):
                 out["remaining_life"] = delta
                 out["total_life_at_target"] = req.elapsed + delta
                 out["remaining_reliability_target"] = req.reliability_target
-            except ValueError as exc:
+            except ValueError:
+                logger.exception('Remaining life calculation failed.')
                 out["remaining_life"] = None
-                out["remaining_life_status"] = str(exc)
+                out["remaining_life_status"] = _REMAINING_LIFE_ERROR
 
     # BX% life: time by which X% have failed (CDF = X/100).
     if req.bx_percent is not None and 0 < req.bx_percent < 100:

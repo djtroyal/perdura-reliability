@@ -9,6 +9,7 @@ import hashlib
 import importlib.util
 from importlib import resources
 import json
+import logging
 import os
 from pathlib import Path
 import shutil
@@ -42,6 +43,44 @@ SELECTED_SOURCES = {
 }
 _cache = OrderedDict()
 _lock = threading.RLock()
+logger = logging.getLogger(__name__)
+
+_UNAVAILABLE_REASON = 'This reference could not be read. Check the local PDF and reference configuration.'
+_UNAVAILABLE_REASONS = {
+    'catalog_file_count': 'This search source requires one cataloged PDF.',
+    'catalog_filename': 'The catalog filename is outside the permitted PDF namespace.',
+    'outside_directory': 'Reference paths must remain inside the reference directory.',
+    'extraction_timeout': 'PDF extraction timed out; this document was not indexed.',
+    'extraction_failed': 'The PDF text extractor could not read this document.',
+    'text_too_large': 'Extracted text exceeds the local search size limit.',
+    'too_many_pages': 'The document exceeds the 2500-page search limit.',
+    'reader_failed': 'The installed PDF reader could not extract this document; source metadata remains available.',
+    'extractor_unavailable': 'Page search is unavailable: install pdftotext or provide an environment with pypdf. Source metadata remains available.',
+    'extracted_limits': 'The extracted document exceeds the local search limits.',
+    'no_text': 'No searchable text was found. This scan may require OCR; OCR is not performed here.',
+    'not_installed': 'The cataloged PDF is not installed locally.',
+    'pdf_too_large': 'PDF exceeds the 100 MB local search limit.',
+    'hash_mismatch': 'Local SHA-256 differs from the evidence catalog; page search withheld until identity is reviewed.',
+    'changed_during_index': 'The PDF changed during indexing; retry after the source is stable.',
+}
+
+
+class _ReferenceUnavailable(ValueError):
+    """A known failure identified by a code, never by third-party error text."""
+
+    def __init__(self, code):
+        self.code = code
+        super().__init__(_UNAVAILABLE_REASONS[code])
+
+
+def _public_unavailable_reason(exc):
+    # Only application-authored literals may cross the API boundary. Filesystem
+    # and PDF-reader exception strings can contain paths or document contents.
+    if isinstance(exc, _ReferenceUnavailable):
+        return _UNAVAILABLE_REASONS.get(exc.code, _UNAVAILABLE_REASON)
+    logger.error('Reference document could not be read.',
+                 exc_info=(type(exc), exc, exc.__traceback__))
+    return _UNAVAILABLE_REASON
 
 
 class ReferenceSearchRequest(BaseModel):
@@ -63,13 +102,13 @@ def _documents():
 def _path(row):
     files = row.get('local_files', [])
     if len(files) != 1:
-        raise ValueError('This search source requires one cataloged PDF.')
+        raise _ReferenceUnavailable('catalog_file_count')
     filename = files[0]['filename']
     if Path(filename).name != filename or Path(filename).suffix.lower() != '.pdf':
-        raise ValueError('The catalog filename is outside the permitted PDF namespace.')
+        raise _ReferenceUnavailable('catalog_filename')
     path = REFERENCE_DIRECTORY / filename
     if path.resolve().parent != REFERENCE_DIRECTORY.resolve():
-        raise ValueError('Reference paths must remain inside the reference directory.')
+        raise _ReferenceUnavailable('outside_directory')
     return path, files[0]['sha256']
 
 
@@ -93,11 +132,11 @@ def _extract_pages(path):
             process = subprocess.run([executable, '-layout', '-enc', 'UTF-8', str(path), '-'],
                                      capture_output=True, timeout=30, check=False)
         except subprocess.TimeoutExpired as exc:
-            raise ValueError('PDF extraction timed out; this document was not indexed.') from exc
+            raise _ReferenceUnavailable('extraction_timeout') from exc
         if process.returncode:
-            raise ValueError('The PDF text extractor could not read this document.')
+            raise _ReferenceUnavailable('extraction_failed')
         if len(process.stdout) > 32*1024*1024:
-            raise ValueError('Extracted text exceeds the local search size limit.')
+            raise _ReferenceUnavailable('text_too_large')
         pages = process.stdout.decode('utf-8', errors='replace').split('\f')
         if pages and not pages[-1].strip():
             pages.pop()
@@ -107,16 +146,16 @@ def _extract_pages(path):
         try:
             reader = PdfReader(path)
             if len(reader.pages) > 2500:
-                raise ValueError('The document exceeds the 2500-page search limit.')
+                raise _ReferenceUnavailable('too_many_pages')
             pages = [page.extract_text() or '' for page in reader.pages]
         except (PyPdfError, DependencyError, DeprecationError) as exc:
-            raise ValueError('The installed PDF reader could not extract this document; source metadata remains available.') from exc
+            raise _ReferenceUnavailable('reader_failed') from exc
     else:
-        raise ValueError('Page search is unavailable: install pdftotext or provide an environment with pypdf. Source metadata remains available.')
+        raise _ReferenceUnavailable('extractor_unavailable')
     if len(pages) > 2500 or sum(map(len, pages)) > 32*1024*1024:
-        raise ValueError('The extracted document exceeds the local search limits.')
+        raise _ReferenceUnavailable('extracted_limits')
     if not any(page.strip() for page in pages):
-        raise ValueError('No searchable text was found. This scan may require OCR; OCR is not performed here.')
+        raise _ReferenceUnavailable('no_text')
     return [' '.join(page.split()) for page in pages]
 
 
@@ -125,9 +164,9 @@ def _index(row):
     try:
         signature = _signature(path)
     except FileNotFoundError as exc:
-        raise ValueError('The cataloged PDF is not installed locally.') from exc
+        raise _ReferenceUnavailable('not_installed') from exc
     if signature[1] > 100*1024*1024:
-        raise ValueError('PDF exceeds the 100 MB local search limit.')
+        raise _ReferenceUnavailable('pdf_too_large')
     key = (str(path.resolve()), expected, signature)
     with _lock:
         if key in _cache:
@@ -140,10 +179,10 @@ def _index(row):
                 del _cache[old]
         actual = _sha256(path)
         if actual != expected:
-            raise ValueError('Local SHA-256 differs from the evidence catalog; page search withheld until identity is reviewed.')
+            raise _ReferenceUnavailable('hash_mismatch')
         pages = _extract_pages(path)
         if _signature(path) != signature:
-            raise ValueError('The PDF changed during indexing; retry after the source is stable.')
+            raise _ReferenceUnavailable('changed_during_index')
         value = {'sha256': actual, 'pages': pages}
         _cache[key] = value
         while len(_cache) > 3:
@@ -165,7 +204,7 @@ def _metadata(row):
                 if key in _cache:
                     item.update(status='hash_verified_indexed', pages=len(_cache[key]['pages']))
     except (ValueError, OSError) as exc:
-        item.update(status='unavailable', reason=str(exc))
+        item.update(available=False, status='unavailable', reason=_public_unavailable_reason(exc))
     return item
 
 
@@ -191,7 +230,7 @@ def search(req: ReferenceSearchRequest):
         try:
             indexed = _index(row)
         except (ValueError, OSError) as exc:
-            statuses.append({'id': key, 'status': 'unavailable', 'reason': str(exc)})
+            statuses.append({'id': key, 'status': 'unavailable', 'reason': _public_unavailable_reason(exc)})
             continue
         statuses.append({'id': key, 'status': 'searched', 'pages': len(indexed['pages']), 'sha256': indexed['sha256']})
         for page_number, text in enumerate(indexed['pages'], 1):

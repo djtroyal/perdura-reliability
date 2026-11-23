@@ -36,6 +36,20 @@ reviewed SHA-256 `9ce01cba18b2996bcf081135428a8995c106de4b36ba136bc68be3b2884d2a
 The website contract passed all 94 capture definitions. The two demo files and
 committed manifest remained byte-identical; no provenance was restamped.
 
+## Review findings and merge readiness
+
+A successful CodeQL workflow means analysis completed; it does not establish
+that every finding or review conversation is cleared. PR #294 still had a
+blocking thread for [alert 228](https://github.com/djtroyal/perdura-reliability/security/code-scanning/228),
+and inspecting its alert instances also found
+[alert 227](https://github.com/djtroyal/perdura-reliability/security/code-scanning/227).
+Both exposed raw exception messages in API responses. Reference-search/catalog
+errors now use fixed, application-authored reasons, and lifetime-calculator
+statuses use operation-specific guidance; unexpected diagnostics remain in
+server logs. HTTP regression tests inject private details and verify they do
+not enter responses. Merge-readiness verification must inspect new alert
+instances and unresolved review threads as well as check-run conclusions.
+
 ## Failures that should remain failures
 
 - The scheduled November 17 OSV finding for `picomatch` was a dependency finding,

@@ -5,6 +5,8 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from scipy import stats
 
@@ -14,6 +16,14 @@ from schemas import (CalculatorRequest, EvaluateRequest, GenerateRequest,
                      GroupedLifeFitRequest, LifeDataFitRequest, SingleDistPlotRequest)
 from reliability.Distributions import Normal_Distribution
 from reliability.Fitters import Fit_Normal_2P, Fit_Exponential_1P
+
+
+@pytest.fixture
+def calculator_client():
+    app = FastAPI()
+    app.include_router(life_data.router, prefix='/life-data')
+    with TestClient(app) as client:
+        yield client
 
 
 def test_small_fitted_rate_survives_adoption_and_evaluation_roundtrip():
@@ -64,6 +74,69 @@ def test_remaining_life_public_calculator_matches_reference():
         elapsed=24., reliability_target=.95))
     assert result['remaining_life'] == pytest.approx(6.673097508738255, rel=1e-12)
     assert result['total_life_at_target'] == pytest.approx(30.673097508738255)
+
+
+@pytest.mark.parametrize('helper,result_key,status_key,guidance', [
+    ('mean_remaining_life', 'mean_remaining_life', 'mean_remaining_life_status', 'model support'),
+    ('conditional_survival', 'conditional_reliability', 'conditional_status', 'mission end'),
+    ('remaining_life', 'remaining_life', 'remaining_life_status', 'reliability target'),
+])
+def test_calculator_http_hides_internal_metric_exceptions(
+        calculator_client, monkeypatch, caplog, helper, result_key, status_key, guidance):
+    private_detail = '/private/operator-home/internal-metric-sentinel'
+    private_cause = 'internal-solver-cause-sentinel'
+
+    def fail_metric(*_args):
+        try:
+            raise OSError(private_cause)
+        except OSError as exc:
+            raise ValueError(private_detail) from exc
+
+    monkeypatch.setattr(life_data, helper, fail_metric)
+    response = calculator_client.post('/life-data/calculate', json={
+        'distribution': 'Exponential_1P', 'params': {'Lambda': .2},
+        'elapsed': 2., 'mission_end': 3., 'reliability_target': .9,
+    })
+    assert response.status_code == 200
+    assert private_detail not in response.text
+    assert private_cause not in response.text
+    result = response.json()
+    assert result[result_key] is None
+    assert guidance in result[status_key]
+    assert result['reliability'] == pytest.approx(np.exp(-.6))
+    assert result['mean_life'] == 5.
+    assert private_detail in caplog.text
+    assert private_cause in caplog.text
+
+
+def test_calculator_http_rejects_impossible_conditioning_with_model_guidance(calculator_client):
+    response = calculator_client.post('/life-data/calculate', json={
+        'distribution': 'Beta_2P', 'params': {'alpha': 1., 'beta': 1.},
+        'elapsed': 1., 'mission_end': 1.1, 'reliability_target': .9,
+    })
+    assert response.status_code == 200
+    result = response.json()
+    assert result['mean_remaining_life'] is None
+    assert result['conditional_reliability'] is None
+    assert result['conditional_prob_failure'] is None
+    assert result['remaining_life'] is None
+    assert 'model support' in result['mean_remaining_life_status']
+    assert 'possible survival' in result['conditional_status']
+    assert 'model support' in result['remaining_life_status']
+
+
+def test_calculator_http_invalid_age_order_preserves_independent_results(calculator_client):
+    response = calculator_client.post('/life-data/calculate', json={
+        'distribution': 'Exponential_1P', 'params': {'Lambda': .2},
+        'elapsed': 4., 'mission_end': 3., 'reliability_target': .9,
+    })
+    assert response.status_code == 200
+    result = response.json()
+    assert result['conditional_reliability'] is None
+    assert result['conditional_prob_failure'] is None
+    assert 'elapsed age <= mission end' in result['conditional_status']
+    assert result['mean_remaining_life'] == 5.
+    assert result['remaining_life'] == pytest.approx(-np.log(.9) / .2)
 
 
 @pytest.mark.parametrize('offset,scale', [(100., 1.), (0., 1.), (100e6, 1e6), (1e-4, 1e-6)])

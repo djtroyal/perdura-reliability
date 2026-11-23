@@ -4,12 +4,26 @@ import json
 import shutil
 from importlib import resources
 import pytest
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
 from routers import references
 
 
 @pytest.fixture
-def source(tmp_path, monkeypatch):
+def reference_client():
+    app = FastAPI()
+    app.include_router(references.router, prefix='/references')
+    with TestClient(app) as client:
+        yield client
+
+
+@pytest.fixture
+def real_extract_pages():
+    return references._extract_pages
+
+
+@pytest.fixture
+def source(tmp_path, monkeypatch, real_extract_pages):
     folder = tmp_path / 'references'
     folder.mkdir()
     pdf = folder / 'selected.pdf'
@@ -143,3 +157,117 @@ def test_pypdf_fallback_reads_actual_controlled_pdf(monkeypatch):
     assert out['results'][0]['pdf_page'] >= 1
     assert out['results'][0]['sha256'] == rows['mil-hdbk-217f-notice-2']['local_files'][0]['sha256']
     references._cache.clear()
+
+
+@pytest.mark.parametrize('endpoint', ['catalog', 'search'])
+@pytest.mark.parametrize('error_type', [PermissionError, ValueError])
+def test_reference_http_errors_do_not_disclose_local_details(
+        source, reference_client, monkeypatch, caplog, endpoint, error_type):
+    private_path = '/private/operator-home/confidential/reference.pdf'
+    diagnostic = f'private-diagnostic-sentinel: could not read {private_path}'
+
+    def fail_signature(_path):
+        raise error_type(diagnostic)
+
+    monkeypatch.setattr(references, '_signature', fail_signature)
+    response = (reference_client.get('/references/catalog') if endpoint == 'catalog'
+                else reference_client.post('/references/search', json={
+                    'query': 'failure', 'document_ids': ['selected']}))
+    assert response.status_code == 200
+    assert private_path not in response.text
+    assert 'private-diagnostic-sentinel' not in response.text
+    document = response.json()['documents'][0]
+    assert document['status'] == 'unavailable'
+    assert document['reason'] == (
+        'This reference could not be read. Check the local PDF and reference configuration.')
+    if endpoint == 'catalog':
+        assert document['available'] is False
+    else:
+        assert response.json()['results'] == []
+    assert diagnostic in caplog.text
+
+
+def test_search_http_hides_unexpected_extractor_exception_and_cause(
+        source, reference_client, monkeypatch, caplog):
+    cause_detail = '/private/extractor/runtime/private-cause-sentinel'
+    extractor_detail = 'private-extractor-sentinel: malformed internal object'
+
+    def fail_extraction(_path):
+        try:
+            raise OSError(cause_detail)
+        except OSError as exc:
+            raise ValueError(extractor_detail) from exc
+
+    monkeypatch.setattr(references, '_extract_pages', fail_extraction)
+    response = reference_client.post('/references/search', json={
+        'query': 'failure', 'document_ids': ['selected']})
+    assert response.status_code == 200
+    assert cause_detail not in response.text
+    assert extractor_detail not in response.text
+    assert response.json()['documents'][0]['reason'] == (
+        'This reference could not be read. Check the local PDF and reference configuration.')
+    assert response.json()['results'] == []
+    assert references._cache == {}
+    assert cause_detail in caplog.text
+    assert extractor_detail in caplog.text
+
+
+@pytest.mark.parametrize('failure', ['missing_pdf', 'hash_mismatch'])
+def test_search_http_preserves_actionable_controlled_failures(
+        source, reference_client, failure):
+    pdf, _, _, _ = source
+    if failure == 'missing_pdf':
+        pdf.unlink()
+        expected = 'The cataloged PDF is not installed locally.'
+    else:
+        pdf.write_bytes(b'unreviewed replacement document')
+        expected = ('Local SHA-256 differs from the evidence catalog; page search '
+                    'withheld until identity is reviewed.')
+    response = reference_client.post('/references/search', json={
+        'query': 'failure', 'document_ids': ['selected']})
+    assert response.status_code == 200
+    assert response.json()['documents'][0]['reason'] == expected
+    assert response.json()['results'] == []
+
+
+def test_pdf_reader_error_keeps_actionable_message_without_private_cause(
+        source, reference_client, real_extract_pages, monkeypatch):
+    pypdf = pytest.importorskip('pypdf')
+    from pypdf.errors import PdfReadError
+
+    private_detail = '/private/operator-home/private-pdf-reader-sentinel.pdf'
+
+    def fail_reader(_path):
+        raise PdfReadError(private_detail)
+
+    monkeypatch.setattr(references.shutil, 'which', lambda _: None)
+    monkeypatch.setattr(pypdf, 'PdfReader', fail_reader)
+    monkeypatch.setattr(references, '_extract_pages', real_extract_pages)
+    with pytest.raises(ValueError) as failure:
+        references._extract_pages(source[0])
+    assert isinstance(failure.value.__cause__, PdfReadError)
+    assert private_detail in str(failure.value.__cause__)
+    public_reason = references._public_unavailable_reason(failure.value)
+    assert public_reason == (
+        'The installed PDF reader could not extract this document; source metadata remains available.')
+    assert private_detail not in public_reason
+    response = reference_client.post('/references/search', json={
+        'query': 'failure', 'document_ids': ['selected']})
+    assert response.status_code == 200
+    assert response.json()['documents'][0]['reason'] == public_reason
+    assert response.json()['results'] == []
+    assert private_detail not in response.text
+
+
+def test_search_http_preserves_unavailable_extractor_reason(
+        source, reference_client, real_extract_pages, monkeypatch):
+    monkeypatch.setattr(references, '_extract_pages', real_extract_pages)
+    monkeypatch.setattr(references.shutil, 'which', lambda _: None)
+    monkeypatch.setattr(references.importlib.util, 'find_spec', lambda _: None)
+    response = reference_client.post('/references/search', json={
+        'query': 'failure', 'document_ids': ['selected']})
+    assert response.status_code == 200
+    assert response.json()['documents'][0]['reason'] == (
+        'Page search is unavailable: install pdftotext or provide an environment '
+        'with pypdf. Source metadata remains available.')
+    assert response.json()['results'] == []
