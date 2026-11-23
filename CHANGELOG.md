@@ -25,6 +25,8 @@ versions in the `0.x` series as defined in [VERSIONING.md](VERSIONING.md).
 
 ### Fixed
 
+- Verify Plotly CDN runtime integrity in exported HTML charts and reports,
+  deriving the version and hash from the installed dependency.
 - Match operational availability to its maintenance basis; reject invalid repair
   observations; prevent overlapping sequential decision boundaries; bound spares
   display grids without changing sizing; preserve tiny age-replacement tails.
