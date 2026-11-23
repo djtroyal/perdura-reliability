@@ -17,6 +17,17 @@ from scipy import integrate, stats
 from reliability.FaultTreeAdvanced import BDDManager, compile_graph, evaluate_static
 
 
+class _SystemLifecycleInputError(ValueError):
+    """Coded lifecycle constraints with ValueError compatibility for callers."""
+
+    def __init__(self, code):
+        self.code = code
+        super().__init__({
+            'positive_conditioning_required': 'A duration model with negative support requires explicit conditioning on positive time; clipping is not allowed.',
+            'dynamic_fta': 'Repairable simulation accepts static FTA success logic; dynamic SPARE/PAND/SEQ/FDEP remains in the existing mission analysis.',
+        }[code])
+
+
 class Lifetime:
     """SciPy lifetime with explicit conditioning for real-support durations."""
     def __init__(self, kind, params, *, condition_positive=False, exposure_scale=1., require_positive=True):
@@ -63,7 +74,7 @@ class Lifetime:
                 raise ValueError("Invalid or degenerate lifetime parameters.")
             low, _ = self.frozen.support()
             if low < 0 and not condition_positive and require_positive:
-                raise ValueError("A duration model with negative support requires explicit conditioning on positive time; clipping is not allowed.")
+                raise _SystemLifecycleInputError('positive_conditioning_required')
 
     def sf(self, time):
         x = np.asarray(time) * self.exposure_scale
@@ -143,7 +154,7 @@ class SystemStructure:
                             if (n.get("data") or {}).get("event_key") else {})}} for n in nodes]
             graph = compile_graph(normalized, edges)
             if graph.dynamic:
-                raise ValueError("Repairable simulation accepts static FTA success logic; dynamic SPARE/PAND/SEQ/FDEP remains in the existing mission analysis.")
+                raise _SystemLifecycleInputError('dynamic_fta')
             evaluated = evaluate_static(graph, {k: .5 for k in self.keys}, max_conditions=0)
             self.manager = evaluated.manager
             # FTA variables mean failure. Convert each variable to success so

@@ -16,6 +16,10 @@ class RenewalConvergenceError(ValueError):
     """The requested deterministic discretization accuracy was not achieved."""
 
 
+class FleetRangeError(ValueError):
+    """Fleet event counts or costs exceed the numerical representation."""
+
+
 def _positive(value, label, *, zero=False):
     if isinstance(value, (bool, np.bool_)):
         raise ValueError(f'{label} must be numeric.')
@@ -243,7 +247,7 @@ def fleet_forecast(distribution, cohorts, horizon, *, model='first_failure',
             upper += count * high
             monetary_upper = cost * upper
         if np.any(~np.isfinite(upper)) or np.any(~np.isfinite(monetary_upper)):
-            raise ValueError('Fleet event counts or costs exceed floating-point range; rescale the cost basis or shorten the horizon.')
+            raise FleetRangeError('Fleet event counts or costs exceed floating-point range; rescale the cost basis or shorten the horizon.')
         summaries.append({'id': key, 'count': count, 'age': age, 'entry_time': entry,
                           'exit_time': end, 'expected_events': float(count * values[-1]),
                           'expected_cost': float(cost * count * values[-1]),

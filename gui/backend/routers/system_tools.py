@@ -5,9 +5,10 @@ import hashlib
 import json
 from typing import Any, Literal
 from fastapi import APIRouter, HTTPException
+from api_contract import public_error_message
 from pydantic import BaseModel, ConfigDict, Field
 from reliability.System_models import redundancy_model, redundancy_reference
-from reliability.System_renewal import Lifetime, SystemStructure, system_renewal
+from reliability.System_renewal import Lifetime, SystemStructure, system_renewal, _SystemLifecycleInputError
 from reliability.System_simulation import simulate_system
 from schemas import RBDRequest, validate_distribution_params
 from .system_reliability import _rbd_validation
@@ -117,6 +118,15 @@ def _provenance(request, result):
     return safe(result)
 
 
+def _lifecycle_error_message(exc, *, fallback):
+    if isinstance(exc, _SystemLifecycleInputError):
+        if exc.code == 'positive_conditioning_required':
+            return public_error_message(exc, message='A duration model with negative support requires explicit conditioning on positive time; clipping is not allowed.')
+        if exc.code == 'dynamic_fta':
+            return public_error_message(exc, message='Repairable simulation accepts static FTA success logic; dynamic SPARE/PAND/SEQ/FDEP remains in the existing mission analysis.')
+    return public_error_message(exc, message=fallback)
+
+
 @router.post("/redundancy")
 def build_redundancy(req: RedundancyRequest):
     try:
@@ -130,7 +140,7 @@ def build_redundancy(req: RedundancyRequest):
                              "rate": t.rate, "label": t.label, "rate_cv": 0.} for i, t in enumerate(mc.transitions)],
             "initial_probabilities": initial, "assumptions": assumptions, "no_repair_reference": reference})
     except (ValueError, KeyError, OverflowError) as exc:
-        raise HTTPException(422, str(exc)) from exc
+        raise HTTPException(422, public_error_message(exc, message='The redundancy model is invalid. Check required/total units, failure and repair rates, coverage, and standby settings.')) from exc
 
 
 @router.post("/renewal")
@@ -142,7 +152,7 @@ def analyze_renewal(req: RenewalRequest):
                                include_mttf=req.include_mttf, rtol=req.rtol)
         return _provenance(req, result)
     except (ValueError, KeyError, OverflowError) as exc:
-        raise HTTPException(422, str(exc)) from exc
+        raise HTTPException(422, _lifecycle_error_message(exc, fallback='The system renewal analysis could not be calculated. Check diagram connectivity, lifetime parameters, renewal policy, interval, and downtime.')) from exc
 
 
 def _python_expression(structure, life):
@@ -214,7 +224,7 @@ def analyze_states(req: StateRequest):
             result["python_expression"] = _python_expression(structure, structure.lifetimes(req.diagram.mission_time, require_positive=False))
         return _provenance(req, result)
     except (ValueError, KeyError, OverflowError) as exc:
-        raise HTTPException(422, str(exc)) from exc
+        raise HTTPException(422, _lifecycle_error_message(exc, fallback='The system state table could not be calculated. Check diagram connectivity, component distributions, and state overrides.')) from exc
 
 
 @router.post("/simulate")
@@ -226,4 +236,4 @@ def analyze_simulation(req: SimulationRequest):
                    **req.model_dump(exclude={"diagram", "policies", "condition_positive_lifetimes"}))
         return _provenance(req, result)
     except (ValueError, KeyError, OverflowError) as exc:
-        raise HTTPException(422, str(exc)) from exc
+        raise HTTPException(422, _lifecycle_error_message(exc, fallback='The system simulation could not be completed. Check diagram connectivity, lifetime and repair parameters, maintenance policy, and supply constraints.')) from exc

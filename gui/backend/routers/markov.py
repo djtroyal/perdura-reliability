@@ -3,6 +3,7 @@
 import sys
 import numpy as np
 from fastapi import APIRouter, HTTPException
+from api_contract import public_error_message
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
@@ -293,7 +294,7 @@ def analyze(req: MarkovRequest):
         )
         result['validation'] = validation
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=public_error_message(e, message='The Markov model could not be analyzed. Check state definitions, transition rates, initial probabilities, and mission time.'))
 
     return result
 

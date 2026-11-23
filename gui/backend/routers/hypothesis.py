@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException
+from api_contract import public_error_message
 from pydantic import BaseModel
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
@@ -156,9 +157,9 @@ def run_test(req: RunRequest):
         result = handler(req)
         return _safe(result)
     except (ValueError, TypeError) as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=public_error_message(e, message='The test inputs are invalid. Check sample sizes, group pairing, count totals, and assumptions for the selected hypothesis test.'))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Computation error: {e}")
+        raise HTTPException(status_code=500, detail=public_error_message(e, message='The hypothesis test could not be completed.'))
 
 
 @router.post("/anova")
@@ -178,9 +179,9 @@ def run_anova(req: AnovaRequest):
         )
         return _safe(result)
     except (ValueError, TypeError) as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=public_error_message(e, message='Factorial ANOVA inputs are invalid. Check equal response/factor lengths, factor levels, and replication.'))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Computation error: {e}")
+        raise HTTPException(status_code=500, detail=public_error_message(e, message='Factorial ANOVA could not be completed.'))
 
 
 @router.post("/rm-anova")
@@ -194,9 +195,9 @@ def run_rm_anova(req: RMAnovaRequest):
         result = repeated_measures_anova(req.data, alpha=req.alpha)
         return _safe(result)
     except (ValueError, TypeError) as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=public_error_message(e, message='Repeated-measures ANOVA inputs are invalid. Supply a complete subject-by-condition matrix with sufficient subjects and conditions.'))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Computation error: {e}")
+        raise HTTPException(status_code=500, detail=public_error_message(e, message='Repeated-measures ANOVA could not be completed.'))
 
 
 @router.post("/mixed-anova")
@@ -217,6 +218,6 @@ def run_mixed_anova(req: MixedAnovaRequest):
         )
         return _safe(result)
     except (ValueError, TypeError) as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=public_error_message(e, message='Mixed ANOVA inputs are invalid. Check matched values, subject identities, group assignments, and repeated conditions.'))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Computation error: {e}")
+        raise HTTPException(status_code=500, detail=public_error_message(e, message='Mixed ANOVA could not be completed.'))

@@ -15,6 +15,11 @@ from typing import Optional, Union
 import numpy as np
 from scipy import optimize, stats
 
+
+class _TwoLevelFactorError(ValueError):
+    """The requested two-level analysis received a different factor design."""
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
@@ -1014,7 +1019,7 @@ def analyze_factorial(runs: list[dict], responses: list[float],
             raise ValueError(f"Factor '{f}' contains a non-finite level.")
         levels = np.unique(v)
         if len(levels) != 2:
-            raise ValueError(
+            raise _TwoLevelFactorError(
                 f"Two-level factorial analysis requires exactly 2 levels for "
                 f"factor '{f}'; found {len(levels)}. Use a general categorical "
                 "or response-surface analysis for multi-level factors.")

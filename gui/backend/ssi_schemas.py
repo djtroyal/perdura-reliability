@@ -2,6 +2,10 @@
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, model_validator
+if __package__:
+    from .public_validation import PublicValidationError
+else:
+    from public_validation import PublicValidationError
 
 UNIT_FACTORS = {
     'time': {'seconds': 1, 'minutes': 60, 'hours': 3600, 'days': 86400,
@@ -25,16 +29,16 @@ class DatasetQuantity(BaseModel):
     def valid_unit(self):
         self.unit = self.unit.strip()
         if not self.unit or (self.kind != 'custom' and self.unit not in UNIT_FACTORS[self.kind]):
-            raise ValueError('Choose a supported quantity unit or a nonempty custom unit.')
+            raise PublicValidationError('Choose a supported quantity unit or a nonempty custom unit.')
         return self
 
 
 def quantity_factor(source: DatasetQuantity, target: DatasetQuantity) -> float:
     if source.kind != target.kind:
-        raise ValueError('Stress and strength must have compatible quantities.')
+        raise PublicValidationError('Stress and strength must have compatible quantities.')
     if source.kind == 'custom':
         if source.unit != target.unit:
-            raise ValueError('Custom quantities require the exact same unit label.')
+            raise PublicValidationError('Custom quantities require the exact same unit label.')
         return 1.0
     return UNIT_FACTORS[source.kind][source.unit] / UNIT_FACTORS[target.kind][target.unit]
 
@@ -53,10 +57,10 @@ class StressStrengthRequest(BaseModel):
     def compatible_quantities(self):
         if self.stress_quantity is None and self.strength_quantity is None:
             if self.evaluation_quantity is not None:
-                raise ValueError('Supply both source quantities when choosing an evaluation unit.')
+                raise PublicValidationError('Supply both source quantities when choosing an evaluation unit.')
             return self
         if self.stress_quantity is None or self.strength_quantity is None:
-            raise ValueError('Supply both stress and strength quantities.')
+            raise PublicValidationError('Supply both stress and strength quantities.')
         target = self.evaluation_quantity or self.stress_quantity
         quantity_factor(self.stress_quantity, target)
         quantity_factor(self.strength_quantity, target)

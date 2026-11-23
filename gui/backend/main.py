@@ -25,6 +25,7 @@ from api_contract import (
     complete_openapi_contract,
     error_payload,
     http_error_response,
+    public_error_message,
     validation_error_response,
 )
 from project_api import router as project_router
@@ -244,7 +245,8 @@ async def _value_error_handler(request: Request, exc: ValueError):
     boilerplate `except ValueError: raise HTTPException(400, ...)` wrapper."""
     return JSONResponse(
         status_code=400,
-        content=error_payload(request, code="invalid_model_input", message=str(exc)),
+        content=error_payload(request, code="invalid_model_input", message=public_error_message(
+            exc, message="The selected model could not use these inputs. Review the analysis settings and required values.")),
     )
 
 

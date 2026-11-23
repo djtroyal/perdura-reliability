@@ -8,11 +8,13 @@ from fastapi.testclient import TestClient
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'src'))
 from routers import inference_tools
+from api_contract import public_error_message
 app = FastAPI()
 app.include_router(inference_tools.router, prefix='/inference-tools')
 @app.exception_handler(ValueError)
 def invalid(request: Request, error: ValueError):
-    return JSONResponse({'detail': str(error)}, status_code=400)
+    return JSONResponse({'detail': public_error_message(
+        error, message='The test design is invalid. Review the selected model and input constraints.')}, status_code=400)
 client = TestClient(app)
 @pytest.mark.parametrize('route,payload,field', [
     ('mtbf-interval', {'failures':0,'total_exposure':800,'sides':'lower'}, 'mtbf_lower'),

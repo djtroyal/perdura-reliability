@@ -1,8 +1,12 @@
 """Lifetime planning tools with explicit renewal and predictive semantics."""
 from typing import Literal
 from fastapi import APIRouter, HTTPException
+from api_contract import public_error_message
 from pydantic import BaseModel, ConfigDict, Field
-from reliability.Lifetime_tools import survival_matrix, mechanical_equivalent_rate, inspection_failure_prediction
+from reliability.Lifetime_tools import (
+    survival_matrix, mechanical_equivalent_rate, inspection_failure_prediction,
+    _LifetimeInputError,
+)
 from routers.life_data import _build_distribution
 from routers.maintenance import _build_dist
 from utils import safe
@@ -49,8 +53,14 @@ def _call(function, **kwargs):
     try:
         # Preserve small tail probabilities; sanitize nonfinite values only.
         return safe(function(**kwargs))
+    except _LifetimeInputError as exc:
+        if exc.code == 'scale_out_of_range':
+            message = 'The fitted Weibull scale is outside floating-point range; revise the fixed shape or exposure units.'
+        else:
+            message = 'The lifetime calculation could not be completed. Check distribution parameters, exposure basis, ordered ages, and inspection counts.'
+        raise HTTPException(400, public_error_message(exc, message=message)) from exc
     except (ValueError, OverflowError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=public_error_message(exc, message='The lifetime calculation could not be completed. Check distribution parameters, exposure basis, ordered ages, and inspection counts.')) from exc
 
 
 @router.post('/survival-matrix')

@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from api_contract import public_error_message
+
 from reliability.RADC_TR_85_91 import (
     REPORT_EDITION,
     UnsupportedRADCModelError,
@@ -478,12 +480,21 @@ def calculate_nonoperating(spec: Any, context: Mapping[str, Any]) -> dict[str, A
         })
         return result
     except (UnsupportedRADCModelError, ValueError, TypeError) as exc:
+        # Select guidance from the request and the reviewed mapping catalog,
+        # never from a library exception message.
+        explicit = spec.nonoperating_params or {}
+        if explicit.get('environment', context.get('nonoperating_environment')) == 'SF':
+            reason = 'RADC-TR-85-91 Section 4.5 excludes Space, Flight. Select an applicable nonoperating environment or a reviewed override.'
+        elif not explicit.get('model') and spec.category not in AUTOMATIC_MODEL_INPUTS:
+            reason = 'This category has no exact RADC-TR-85-91 mapping. Select an explicit supported nonoperating model or a reviewed override.'
+        else:
+            reason = 'Nonoperating prediction is unavailable for these inputs. Select a supported RADC-TR-85-91 model and supply its required parameters.'
         return {
             "status": "unavailable",
             "source": REPORT_EDITION,
             "failure_rate": None,
             "model": (spec.nonoperating_params or {}).get("model"),
-            "reason": str(exc),
+            "reason": public_error_message(exc, message=reason),
             "factors": {},
             "steps": [],
             "assumptions": [],

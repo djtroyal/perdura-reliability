@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import List, Optional, Literal
 
 from fastapi import APIRouter, HTTPException
+from api_contract import public_error_message
 from pydantic import BaseModel, ConfigDict
 
 # Bootstrap the reliability src package path
@@ -70,7 +71,7 @@ def analyze(req: CapabilityRequest):
             seed=req.seed,
         )
     except (ValueError, FloatingPointError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=public_error_message(exc, message='Process capability could not be calculated. Check the observations, specification limits, subgroup size, and bootstrap settings.')) from exc
     return _safe(result)
 
 
@@ -89,5 +90,5 @@ def specification_tails(req: SpecificationTailRequest):
         distribution = cls(**req.params)
         result = distribution_specification_tails(distribution, req.lsl, req.usl)
     except (ValueError, TypeError, FloatingPointError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=public_error_message(exc, message='Specification tails could not be calculated. Check the distribution parameters and ordered specification limits.')) from exc
     return {**result, 'distribution': req.distribution, 'params': dict(req.params)}

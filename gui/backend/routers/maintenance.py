@@ -38,7 +38,7 @@ from reliability.Maintenance_task_analysis import (
     analyze_maintenance_task_analysis,
 )
 
-from api_contract import stream_error_event, stream_result_event
+from api_contract import stream_error_event, stream_result_event, public_error_message
 from utils import safe as _safe
 
 router = APIRouter()
@@ -438,7 +438,7 @@ def _build_dist(kind: str, p: Dict[str, float]):
             )
     except KeyError as exc:
         raise HTTPException(status_code=400,
-                            detail=f"Missing parameter {exc} for '{kind}' distribution.")
+                            detail=public_error_message(exc, message="Required lifetime-distribution parameters are missing. Review the selected distribution's parameter fields.")) from exc
     raise HTTPException(status_code=400, detail=f"Unsupported distribution '{kind}'.")
 
 
@@ -467,7 +467,7 @@ def replacement_policy(req: ReplacementPolicyRequest):
             block_repair_model=req.block_repair_model,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=public_error_message(exc, message='Replacement policies could not be compared. Review Weibull parameters, maintenance costs, and the block-repair model.')) from exc
     return _safe(res)
 
 
@@ -528,22 +528,25 @@ def cost_forecast(req: CostForecastRequest):
             block_repair_model=req.block_repair_model,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=public_error_message(exc, message='Maintenance cost forecasting could not use these inputs. Review the policy, interval, horizon, costs, and lifetime parameters.')) from exc
     return _safe(res)
 
 
 @router.post("/fleet-forecast")
 def fleet_forecast(req: FleetForecastRequest):
     """Finite-horizon cohort events with explicit first-failure/repair semantics."""
-    from reliability.Renewal import fleet_forecast as calculate_fleet
+    from reliability.Renewal import FleetRangeError, fleet_forecast as calculate_fleet
     try:
         distribution = _build_dist(req.dist, req.dist_params)
         result = calculate_fleet(distribution, [row.model_dump() for row in req.cohorts],
                                  req.horizon, model=req.model, cost_per_event=req.cost_per_event,
                                  n_points=req.n_points, rtol=req.relative_tolerance,
                                  atol=req.absolute_tolerance)
+    except FleetRangeError as exc:
+        raise HTTPException(status_code=400, detail=public_error_message(
+            exc, message='Fleet event counts or costs exceed floating-point range; rescale the cost basis or shorten the horizon.')) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=public_error_message(exc, message='Fleet forecasting could not use these inputs. Review cohort quantities and ages, lifetime parameters, and the repair model.')) from exc
     return result
 
 
@@ -553,7 +556,7 @@ def virtual_age_simulation(req: VirtualAgeSimulationRequest):
     try:
         result = simulate_virtual_age_maintenance(**req.model_dump())
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=public_error_message(exc, message='Virtual-age simulation could not use these inputs. Review lifetime parameters, maintenance intervals, repair effectiveness, and the simulation horizon.')) from exc
     return _safe(result)
 
 
@@ -670,9 +673,14 @@ def _run_task_analysis(
             cancel_check=cancel_check,
         )
     except MaintenanceTaskAnalysisError as exc:
+        message = (
+            'A maintenance task contains a dependency cycle. Review predecessor links so every step can run.'
+            if exc.code == 'dependency_cycle' else
+            'The maintenance task model is invalid. Review task logic, durations, resources, calendars, and cost inputs.'
+        )
         raise HTTPException(status_code=400, detail={
             "code": "maintenance_task_analysis_model_error",
-            "message": str(exc),
+            "message": public_error_message(exc, message=message),
         }) from exc
 
 

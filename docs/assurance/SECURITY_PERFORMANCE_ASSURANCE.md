@@ -28,9 +28,39 @@ into a blanket claim that the product is secure or fast in every environment.
 
 ## Automated security profiles
 
+### API error contract
+
+Exception text is server diagnostic data, not a public error message. API code
+must not put `str(exc)`, `repr(exc)`, interpolated exceptions, exception arguments,
+or tracebacks into HTTP errors, successful-result diagnostics, or streaming
+events. Catching `ValueError` does not make its message safe: numerical libraries,
+file readers, and custom validators may include internal paths or other details.
+
+Use `api_contract.public_error_message(exc, message="...reviewed guidance...")`
+to retain the original exception in server logs while returning an authored,
+operation-specific message. Preserve public status codes and structured model
+issues; select detailed guidance by explicit error codes and fixed message maps.
+Do not parse an unexpected exception into a new public message or concatenate its
+text with otherwise safe guidance. Request IDs connect public errors to logs.
+
+Application-authored schema constraints use `PublicValidationError` with an
+authored template and explicitly public input context. Its constructor is a
+public boundary checked by the source guard. It preserves useful validator
+guidance without treating ordinary `ValueError` or third-party validator text
+as public. Never convert an arbitrary exception message into this type.
+
+`tools/check_api_error_disclosure.py` runs in required repository preflight and
+the test suite. It checks local exception-data flows into responses, including
+aliases, nested payloads, interpolation, and streaming returns. This bounded
+source guard supplements CodeQL and HTTP fault-injection regressions; it is not
+a replacement for reviewing helper boundaries or public structured-error fields.
+
+### Profiles
+
 | Profile | Frequency | Evidence | Release effect |
 |---|---|---|---|
 | Local assurance policy | Every CI run | Security policy, ASVS tracker integrity, workflow SHA pins, proxy headers, container boundary | Required |
+| API exception-disclosure guard | Every CI run, before the Python matrix | Source findings and HTTP regression tests | Raw exception text in responses fails |
 | Dependency review | Pull requests | Newly introduced vulnerable dependencies | Required when GitHub supports the repository feature |
 | OSV lock scan | Pull requests, main, weekly and manual | `uv.lock` and `package-lock.json` vulnerability results | Unsuppressed findings fail |
 | CodeQL | Pull requests, `main`, weekly | Python and JavaScript/TypeScript SARIF | Independently required |

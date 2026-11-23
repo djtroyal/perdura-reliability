@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
 
-from api_contract import stream_error_event, stream_result_event
+from api_contract import stream_error_event, stream_result_event, public_error_message
 
 from reliability.Fitters import (
     Fit_Everything, _FITTER_MAP, ALL_FITTER_NAMES,
@@ -124,7 +124,7 @@ def _build_distribution(name: str, params: dict):
     try:
         return cls(**kwargs)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=public_error_message(e, message='The distribution parameters are invalid. Review the required scale, shape, location, and support values.'))
 
 router = APIRouter()
 
@@ -154,7 +154,8 @@ def _validate_equation(equation: str, var_names: set[str]):
     try:
         tree = ast.parse(equation, mode='eval')
     except SyntaxError as exc:
-        raise ValueError(f"Syntax error in equation: {exc}")
+        raise ValueError(public_error_message(
+            exc, message="The equation has invalid syntax. Review its operators and parentheses.")) from exc
 
     for node in ast.walk(tree):
         if not isinstance(node, _ALLOWED_NODE_TYPES):
@@ -409,7 +410,7 @@ def _run_fit(req: LifeDataFitRequest, progress_callback=None) -> dict:
                 progress_callback=progress_callback,
             )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=public_error_message(e, message='The selected distributions could not be fitted. Review the observations and fitting settings.'))
 
     # Build results rows
     results = []
@@ -563,7 +564,7 @@ def single_distribution_plot(req: SingleDistPlotRequest):
                 failures=failures, right_censored=rc,
                 method=req.method, rank_method=req.rank_method, CI=req.CI, show_probability_plot=False)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=public_error_message(e, message='The distribution plot could not be generated. Review the observations, selected distribution, and fitting settings.'))
     payload = _dist_plot_payload(fit, req.distribution, failures, req.right_censored)
     if payload is None:
         raise HTTPException(status_code=400,
@@ -967,9 +968,9 @@ def _run_calibrated_uncertainty(req: UncertaintyRequest, progress_callback=None)
                 ),
             )
     except (ValueError, UncertaintyEstimationError) as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
+        raise HTTPException(status_code=422, detail=public_error_message(exc, message='Calibrated uncertainty is unavailable for this fit. Review fit eligibility, the target, and the censoring design.'))
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=public_error_message(exc, message='The uncertainty calculation failed. Review the fit and uncertainty settings, then retry.'))
 
     return {
         "distribution": req.distribution,
@@ -1093,7 +1094,7 @@ def _run_uncertainty_package(req: UncertaintyPackageRequest, progress_callback=N
             progress_callback=progress_callback,
         )
     except (ValueError, UncertaintyEstimationError) as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from None
+        raise HTTPException(status_code=422, detail=public_error_message(exc, message='The uncertainty package could not be generated. Review fit eligibility, bootstrap settings, and the censoring design.')) from None
     return {"distribution": req.distribution, **package}
 
 
@@ -1206,7 +1207,7 @@ def nonparametric(req: NonparametricRequest):
                 "confidence": est.confidence_metadata,
             }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=public_error_message(e, message='The nonparametric estimate could not be calculated. Review the failure and censoring observations.'))
 
 
 @router.get("/distributions")
@@ -1252,7 +1253,7 @@ def mc_equation(req: MCEquationRequest):
     try:
         _validate_equation(req.equation, var_names)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=public_error_message(exc, message='The equation is invalid. Use supported arithmetic functions and the defined variable names.'))
 
     rng = np.random.default_rng(req.seed)
     var_arrays: dict[str, np.ndarray] = {}
@@ -1272,7 +1273,8 @@ def mc_equation(req: MCEquationRequest):
     try:
         result = _eval_equation_vectorized(req.equation, var_arrays)
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Equation evaluation failed: {exc}")
+        raise HTTPException(status_code=400, detail=public_error_message(
+            exc, message="The equation could not be evaluated. Review variable domains, supported functions, and arithmetic operations.")) from exc
 
     finite_mask = np.isfinite(result)
     n_valid = int(finite_mask.sum())
@@ -1821,7 +1823,7 @@ def stress_strength(req: StressStrengthRequest):
     try:
         probability = interference_probability(stress_dist, strength_dist, stress_scale, strength_scale)
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from None
+        raise HTTPException(status_code=422, detail=public_error_message(exc, message='Stress-strength interference could not be calculated. Review both distributions, their parameters, and quantity units.')) from None
 
     # Narrower range for display curves (keeps the plot readable)
     plot_lo = min(float(stress_dist.quantile(0.001)) * stress_scale, float(strength_dist.quantile(0.001)) * strength_scale)
@@ -2150,9 +2152,9 @@ def fit_special_model(req: SpecialModelRequest):
     except HTTPException:
         raise
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=public_error_message(e, message='The special Weibull model could not use these observations. Review the model, failure counts, and censoring data.'))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=public_error_message(e, message='The special Weibull model could not be fitted. Review the observations and model settings.'))
 
     params = [{"name": str(p), "value": _safe(v)}
               for p, v in zip(fit.results["Parameter"], fit.results["Value"])]
@@ -2283,9 +2285,9 @@ def weibayes(req: WeibayesRequest):
             seed=req.seed,
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=public_error_message(e, message='The Weibayes estimate could not be calculated. Review the assumed shape, failure times, and censoring observations.'))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=public_error_message(e, message='The Weibayes calculation failed. Review the analysis inputs and retry.'))
 
     def _safe_list(lst):
         if lst is None:
@@ -2470,7 +2472,7 @@ def competing_failure_modes(req: CompetingFailureModesRequest):
                 "mode": mode,
                 "n_failures": len(mode_failures),
                 "n_suspensions": len(mode_rc) if mode_rc is not None else 0,
-                "error": str(e),
+                "error": public_error_message(e, message='This failure-mode distribution could not be fitted. Review its observations, censoring data, and selected distribution.'),
                 "params": {},
                 "gof": {},
                 "probability_plot": None,
@@ -2615,7 +2617,7 @@ def cfm_monte_carlo(req: CFMMonteCarloRequest):
             dist = _build_distribution(req.distribution, base_params)
         except Exception as e:
             raise HTTPException(status_code=400,
-                                detail=f"Cannot build distribution for mode '{mode_name}': {e}")
+                                detail=public_error_message(e, message="A failure-mode distribution could not be built. Review each mode's distribution and required parameters.")) from e
         mode_dists.append((mode_name, dist))
 
     mode_names = [m for m, _ in mode_dists]

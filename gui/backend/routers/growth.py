@@ -4,6 +4,7 @@ import sys
 import math
 import numpy as np
 from fastapi import APIRouter, HTTPException
+from api_contract import public_error_message
 from pathlib import Path
 from scipy.stats import chi2, gamma as gamma_distribution, poisson
 
@@ -934,9 +935,9 @@ def fit_growth(req: GrowthRequest):
             )
             termination = "time"
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=public_error_message(e, message='The growth model could not be fitted. Check failure times, observation design, and censoring limits for the selected model.'))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=public_error_message(e, message='Reliability growth fitting could not be completed.'))
 
     n = _failure_count(fit)
     T = float(fit.T)
@@ -1165,9 +1166,9 @@ def optimal_replacement(req: OptimalReplacementRequest):
             q=req.q,
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=public_error_message(e, message='The replacement interval could not be calculated. Check the Weibull parameters and preventive/corrective costs.'))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=public_error_message(e, message='Replacement-interval optimization could not be completed.'))
     return res
 
 
@@ -1181,15 +1182,17 @@ def rocof(req: ROCOFRequest):
             test_end=req.test_end, CI=req.CI,
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=public_error_message(e, message='The failure trend could not be calculated. Check ordered failure times, interarrival times, and the observation end.'))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=public_error_message(e, message='Failure-trend analysis could not be completed.'))
     return res
 
 
 @router.post("/mcf")
 def mcf(req: MCFRequest):
     """Mean Cumulative Function (non-parametric, optionally parametric)."""
+    if req.records is None and req.observation_ends is None:
+        raise HTTPException(400, 'observation_ends is required. The last event time is not an assumed retirement time; provide the end of observation for every system.')
     try:
         if req.measure == "cost" and req.parametric:
             raise ValueError("Cost MCF supports the nonparametric estimator; a count NHPP likelihood does not model monetary marks.")
@@ -1241,6 +1244,6 @@ def mcf(req: MCFRequest):
                 "The optional parametric curve assumes a shared power-law NHPP mean function and minimal repair within the modeled phase.")
         return out
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=public_error_message(e, message='The cumulative function could not be calculated. Check each system history, retirement time, and any event costs.'))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=public_error_message(e, message='Mean cumulative function analysis could not be completed.'))

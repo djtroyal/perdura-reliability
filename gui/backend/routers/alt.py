@@ -17,7 +17,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
 
-from api_contract import stream_error_event, stream_result_event
+from api_contract import stream_error_event, stream_result_event, public_error_message
 
 from reliability.ALT_fitters import Fit_Everything_ALT, ALL_SINGLE_STRESS_NAMES
 from reliability.Step_stress import fit_step_stress
@@ -186,9 +186,9 @@ def goodness_of_fit_ep(req: GoodnessOfFitRequest):
         res["distribution"] = req.distribution
         return res
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=public_error_message(e, message='The goodness-of-fit test could not use these inputs. Review observations, distribution, bin settings, and bootstrap design.'))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=public_error_message(e, message='The goodness-of-fit calculation failed. Review the fit and test settings, then retry.'))
 
 
 def _build_life_stress_plot(model, s_range, obs_stress, obs_life, use_level_stress):
@@ -267,7 +267,7 @@ def _run_alt_fit(req: ALTFitRequest, bootstrap_progress_callback=None):
                 sort_by=req.sort_by,
             )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=public_error_message(e, message='The accelerated-life models could not be fitted. Review failure times, stress levels, and selected models.'))
 
     results = []
     for _, row in fe.results.iterrows():
@@ -345,7 +345,7 @@ def _run_alt_fit(req: ALTFitRequest, bootstrap_progress_callback=None):
         except Exception as exc:
             bootstrap_by_model[fe.best_model_name] = {
                 'method': 'parametric_bootstrap_refit', 'status': 'failed',
-                'reason': str(exc), 'requested': req.n_bootstrap,
+                'reason': public_error_message(exc, message='Bootstrap uncertainty is unavailable for this accelerated-life fit. Review fit eligibility, stress coverage, and bootstrap settings.'), 'requested': req.n_bootstrap,
                 'successful': 0, 'failed': req.n_bootstrap,
                 'CI': req.uncertainty_CI, 'lower': None, 'upper': None,
             }
@@ -624,9 +624,9 @@ def sample_size(req: SampleSizeRequest):
     except HTTPException:
         raise
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=public_error_message(e, message='The reliability test plan could not use these inputs. Review reliability, confidence, duration, and allowed failures.'))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=public_error_message(e, message='The reliability test-plan calculation failed. Review the planning inputs and retry.'))
 
 
 @router.post("/acceleration-factor")
@@ -2088,7 +2088,7 @@ def _hierarchical_degradation(req, groups):
     try:
         fitted = _fit_hierarchical_nlme(units, direction_sign)
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        raise HTTPException(status_code=422, detail=public_error_message(exc, message='Hierarchical degradation could not be fitted. Review independent unit histories, time coverage, and the failure threshold.')) from exc
     if not fitted["converged"]:
         raise HTTPException(
             status_code=422,
@@ -2784,10 +2784,10 @@ def step_stress_v2(req: StepStressV2Request):
             use_level_stress=req.use_level_stress, CI=req.confidence,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=public_error_message(exc, message='The step-stress model is invalid or unidentified. Review step chronology, failure exposure, stress variation, and the fixed exponent.')) from exc
     except FitConvergenceError as exc:
         raise HTTPException(status_code=422, detail={
-            "status": "fit_unavailable", "reason": str(exc),
+            "status": "fit_unavailable", "reason": public_error_message(exc, message='The step-stress fit did not converge. Review the observations, stress coverage, and model assumptions.'),
             "method": "joint_weibull_inverse_power_mle",
         }) from exc
 
@@ -2886,7 +2886,7 @@ def step_stress(req: StepStressRequest):
     try:
         fit = _fit_life_distribution(equiv.tolist(), dist_name)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=public_error_message(e, message='The equivalent-time distribution could not be fitted. Review failure times, stress steps, and the assumed acceleration model.'))
 
     # Cumulative-failure step plot.
     order = np.argsort(ft)

@@ -4,6 +4,7 @@ import hashlib
 import json
 import math
 from fastapi import APIRouter, HTTPException
+from api_contract import public_error_message
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from reliability.Inventory import lifetime_inventory
 import numpy as np
@@ -160,9 +161,9 @@ def plan(req: InventoryRequest):
                 result = lifetime_inventory(item, req.horizon, service, trials=req.simulations, seed=seed)
             else:
                 if item["cohorts"] or item["storage_failure_rate"] or item["repair_probability"]:
-                    raise ValueError("Cohort, repair-yield and storage-loss models require Lifetime procurement mode.")
+                    raise HTTPException(422, "Cohort, repair-yield and storage-loss models require Lifetime procurement mode.")
                 if item["model"] == "negative_binomial" and item["include_pipeline"]:
-                    raise ValueError("Negative-binomial period demand does not define event times. Choose Poisson or Weibull for pipeline simulation.")
+                    raise HTTPException(422, "Negative-binomial period demand does not define event times. Choose Poisson or Weibull for pipeline simulation.")
                 model = "renewal_pipeline" if item["include_pipeline"] or item["model"] == "weibull" else item["model"]
                 r = spares(SparesRequest(quantity=item["quantity"], op_hours=req.horizon, failure_rate=item["failure_rate"],
                     duty_cycle=item["duty_cycle"], confidence=service, model=model, dispersion=item["dispersion"],
@@ -181,13 +182,13 @@ def plan(req: InventoryRequest):
                          "initial_stock": item["initial_stock"], "unit_cost": item["unit_cost"],
                          "purchase_cost": result["purchase_quantity"] * item["unit_cost"]})
     except (ValueError, OverflowError) as exc:
-        raise HTTPException(422, str(exc)) from exc
+        raise HTTPException(422, public_error_message(exc, message='Inventory demand could not be calculated. Check item lifetimes, cohort timing, and replenishment assumptions for the procurement mode.')) from exc
     optimization = None
     if req.allocation == "minimum_cost":
         try:
             optimization = _cost_allocation(req, groups, rows)
         except ValueError as exc:
-            raise HTTPException(422, str(exc)) from exc
+            raise HTTPException(422, public_error_message(exc, message='A feasible minimum-cost stock allocation could not be found. Check service probability, item costs, and maximum stock.')) from exc
     probabilities = [row["achieved_protection"] for row in rows]
     independent = req.dependence == "independent"
     simultaneous_lower = []

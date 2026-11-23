@@ -11,6 +11,16 @@ from reliability.Life_metrics import weibull_age_replacement_metrics
 from reliability.Renewal import conditional_log_survival
 
 
+class _LifetimeInputError(ValueError):
+    """Known input conditions identified without parsing exception text."""
+
+    def __init__(self, code):
+        self.code = code
+        super().__init__({
+            'scale_out_of_range': 'The fitted Weibull scale is outside floating-point range; revise the fixed shape or exposure units.',
+        }[code])
+
+
 def survival_matrix(distribution, ages, durations):
     ages, durations = np.asarray(ages, dtype=float), np.asarray(durations, dtype=float)
     if (ages.ndim != 1 or durations.ndim != 1 or not len(ages) or not len(durations)
@@ -156,7 +166,7 @@ def inspection_failure_prediction(n, failures, first_age, second_age, betas, *, 
         if 0 < failures < n:
             log_eta = math.log(first_age) - math.log(-math.log1p(-failures/n)) / beta
             if not math.log(np.nextafter(0., 1.)) <= log_eta <= math.log(np.finfo(float).max):
-                raise ValueError('The fitted Weibull scale is outside floating-point range; revise the fixed shape or exposure units.')
+                raise _LifetimeInputError('scale_out_of_range')
             eta = math.exp(log_eta)
         plugin_probability = -math.expm1(exponent * math.log1p(-failures/n)) if failures < n else 1.
         log_moment = _log_beta_survival_moment(a, b, exponent)

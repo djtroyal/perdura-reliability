@@ -23,6 +23,7 @@ from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator, model_validator
 
 from api_catalog import MODULES, build_catalog, public_routes, route_module, route_project_runnable
+from api_contract import public_error_message
 from reliability._build import PROJECT_SCHEMA_VERSION
 
 
@@ -327,7 +328,7 @@ def _project_runs(req: ProjectRunRequest) -> list[ProjectRunItem]:
             except Exception as exc:
                 raise HTTPException(400, {
                     "code": "invalid_project_recipe",
-                    "message": f"Project module '{key}' is not a valid API run recipe: {exc}",
+                    "message": public_error_message(exc, message="The project API run recipe is invalid. Review its operation IDs, inputs, and dependencies."),
                 }) from exc
     return []
 
@@ -614,7 +615,8 @@ def validate_project(req: ProjectRunRequest, request: Request) -> ProjectValidat
                 _validate_route_input(route, item.input)
             except Exception as exc:
                 issues.append(ProjectIssue(
-                    code="invalid_analysis_input", message=str(exc), analysis_id=item.id,
+                    code="invalid_analysis_input", message=public_error_message(
+                        exc, message="The analysis inputs do not satisfy the selected operation. Review its required fields and value constraints."), analysis_id=item.id,
                 ))
     return ProjectValidationResponse(
         valid=not issues, schema_version=req.project.schema_version, analyses=len(items),

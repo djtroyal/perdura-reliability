@@ -73,6 +73,9 @@ jobs:
           python tools/check_version_consistency.py
           python tools/check_product_assurance.py --output evidence/preflight/local-controls.json
           python tools/run_browser_assurance.py --validate-only
+      - name: Reject exception details in API responses
+        id: api-errors
+        run: python tools/check_api_error_disclosure.py --output evidence/preflight/api-error-disclosure.json
       - name: Install the candidate authoring dependencies
         id: install
         run: npm ci --prefix gui/frontend
@@ -91,7 +94,7 @@ jobs:
         run: |
           mkdir -p evidence/preflight
           FILE_ARGS=()
-          for spec in controls=local-controls.json demo-generation=demo-generation.json; do
+          for spec in controls=local-controls.json demo-generation=demo-generation.json api-error-disclosure=api-error-disclosure.json; do
             name="${spec%%=*}"
             path="evidence/preflight/${spec#*=}"
             if [ -f "$path" ]; then FILE_ARGS+=(--file "$name=$path"); fi
@@ -101,6 +104,7 @@ jobs:
             --id repository-preflight --kind generated-artifact-qualification \
             --job-name 'Repository preflight' \
             --result policy=${{ steps.policy.outcome }} \
+            --result api-errors=${{ steps.api-errors.outcome }} \
             --result install=${{ steps.install.outcome }} \
             --result demo=${{ steps.demo.outcome }} \
             --result fixtures=${{ steps.fixtures.outcome }} \

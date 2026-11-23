@@ -23,7 +23,7 @@ from fastapi.responses import StreamingResponse
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
 
-from api_contract import stream_error_event, stream_result_event
+from api_contract import public_error_message, stream_error_event, stream_result_event
 
 from reliability.Dependencies import beta_factor_decomposition
 from reliability.FaultTreeAdvanced import (
@@ -62,6 +62,20 @@ _FAULT_TREE_INPUT_MESSAGE = (
 _FAULT_TREE_INTERNAL_MESSAGE = (
     "Fault-tree analysis failed unexpectedly. Review the model or server logs."
 )
+_OPENPSA_MESSAGES = {
+    'OPENPSA_INVALID': 'The OpenPSA document is invalid. Check its XML syntax, gate definitions, and references.',
+    'OPENPSA_UNSAFE_XML': 'OpenPSA XML must not contain DTDs or entity declarations.',
+    'OPENPSA_COMPLEXITY_LIMIT': 'The OpenPSA document exceeds the import complexity limit. Reduce its size or nesting.',
+    'OPENPSA_TREE_NOT_FOUND': 'The selected fault tree was not found in the OpenPSA document. Check the tree name.',
+    'OPENPSA_TOP_NOT_FOUND': 'The selected top event was not found in the fault tree. Check the top-event name.',
+    'OPENPSA_UNRESOLVED_REFERENCE': 'An OpenPSA reference has no matching definition. Check gate and event names.',
+    'OPENPSA_UNSUPPORTED_CONSTRUCT': 'The document contains an unsupported OpenPSA construct. Use supported Boolean gates and event probabilities.',
+    'OPENPSA_CAUSAL_CYCLE': 'The OpenPSA fault tree contains a causal cycle. Remove circular references.',
+    'OPENPSA_EXPORT_UNSUPPORTED': 'This fault tree contains constructs unsupported by OpenPSA export. Review its gates and event sources.',
+    'OPENPSA_EXPORT_DUPLICATE_NAME': 'OpenPSA export requires unique gate and event names.',
+    'OPENPSA_EXPORT_SOURCE_REQUIRED': 'OpenPSA export requires an explicit probability source for every basic event.',
+    'OPENPSA_EXPORT_INVALID': 'The fault tree cannot be exported. Review its gate definitions and connections.',
+}
 
 _EVENT_TYPES = {"basic", "undeveloped", "conditioning", "external", "house"}
 _STOCHASTIC_EVENT_TYPES = _EVENT_TYPES - {"house"}
@@ -533,12 +547,12 @@ def _analyze(req: FaultTreeRequest,
     except FaultTreeValidationError as exc:
         raise HTTPException(status_code=422, detail={
             "code": "FAULT_TREE_VALIDATION",
-            "message": str(exc),
+            "message": public_error_message(exc, message=_FAULT_TREE_INPUT_MESSAGE),
             "issues": exc.issues,
         }) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail={
-            "code": "FAULT_TREE_INPUT", "message": str(exc)
+            "code": "FAULT_TREE_INPUT", "message": public_error_message(exc, message=_FAULT_TREE_INPUT_MESSAGE)
         }) from exc
 
     methods = req.methods or (["simulation"] if graph.dynamic else ["exact"])
@@ -660,7 +674,8 @@ def _analyze(req: FaultTreeRequest,
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail={
-                "code": "DYNAMIC_MODEL_INVALID", "message": str(exc)
+                "code": "DYNAMIC_MODEL_INVALID", "message": public_error_message(
+                    exc, message='Dynamic fault-tree analysis could not evaluate this model. Check mission time, failure-time distributions, and dynamic gate constraints.')
             }) from exc
         node_results = [
             {
@@ -752,11 +767,13 @@ def _analyze(req: FaultTreeRequest,
         )
     except BDDStateLimitError as exc:
         raise HTTPException(status_code=422, detail={
-            "code": "FAULT_TREE_EXACT_LIMIT", "message": str(exc)
+            "code": "FAULT_TREE_EXACT_LIMIT", "message": public_error_message(
+                exc, message='The fault tree exceeds the exact-analysis state limit. Reduce model complexity or increase the configured BDD node limit.')
         }) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail={
-            "code": "FAULT_TREE_DEPENDENCY", "message": str(exc)
+            "code": "FAULT_TREE_DEPENDENCY", "message": public_error_message(
+                exc, message='The fault-tree dependency model is invalid. Review event probabilities and common-cause group definitions.')
         }) from exc
 
     method_values = _static_method_values(evaluation, methods)
@@ -975,7 +992,8 @@ def derive_exponential(req: FTExponentialConversionRequest):
         rate = exponential_rate_from_mission_probability(req.probability, req.mission_time)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail={
-            "code": "EXPONENTIAL_CONVERSION", "message": str(exc)
+            "code": "EXPONENTIAL_CONVERSION", "message": public_error_message(
+                exc, message='Exponential conversion requires a finite probability from zero up to, but not including, one and a positive finite mission time.')
         }) from exc
     return {
         "distribution": "exponential",
@@ -993,8 +1011,9 @@ def import_openpsa_model(req: FTOpenPSAImportRequest):
         return import_openpsa(
             req.xml, tree_name=req.tree_name, top_event=req.top_event)
     except OpenPSAError as exc:
+        code = exc.code if exc.code in _OPENPSA_MESSAGES else 'OPENPSA_INVALID'
         raise HTTPException(status_code=422, detail={
-            "code": exc.code, "message": str(exc),
+            "code": code, "message": public_error_message(exc, message=_OPENPSA_MESSAGES[code]),
         }) from exc
 
 
@@ -1008,9 +1027,12 @@ def export_openpsa_model(req: FTOpenPSAExportRequest):
             tree_name=req.tree_name,
         )
     except (OpenPSAError, FaultTreeValidationError) as exc:
+        code = getattr(exc, 'code', 'OPENPSA_EXPORT_INVALID')
+        if code not in _OPENPSA_MESSAGES:
+            code = 'OPENPSA_EXPORT_INVALID'
         detail: dict[str, Any] = {
-            "code": getattr(exc, "code", "OPENPSA_EXPORT_INVALID"),
-            "message": str(exc),
+            "code": code,
+            "message": public_error_message(exc, message=_OPENPSA_MESSAGES[code]),
         }
         if isinstance(exc, FaultTreeValidationError):
             detail["issues"] = exc.issues

@@ -2,6 +2,7 @@
 
 import sys
 from fastapi import APIRouter, HTTPException
+from api_contract import public_error_message
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
@@ -29,9 +30,9 @@ def convert_nevada(req: WarrantyConvertRequest):
     try:
         grouped = nevada_to_grouped_life_data(req.quantities, req.returns)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=public_error_message(e, message='The Nevada chart is invalid. Check production quantities, nonnegative return counts, and cohort/period alignment.'))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=public_error_message(e, message='The warranty chart could not be converted.'))
 
     return {
         "n_failures": grouped["n_failures"],
@@ -66,9 +67,9 @@ def forecast(req: WarrantyForecastRequest):
             CI=req.CI,
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=public_error_message(e, message='The warranty forecast inputs are invalid. Check the Nevada chart, selected distribution, and forecast periods.'))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=public_error_message(e, message='The warranty forecast could not be completed.'))
 
     if not fit.converged:
         raise HTTPException(
@@ -87,9 +88,9 @@ def forecast(req: WarrantyForecastRequest):
             n_draws=req.n_parameter_draws, CI=req.CI, seed=req.seed,
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=f"Forecast error: {e}")
+        raise HTTPException(status_code=400, detail=public_error_message(e, message='The warranty forecast inputs are invalid. Check the Nevada chart, selected distribution, and forecast periods.'))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Forecast error: {e}")
+        raise HTTPException(status_code=500, detail=public_error_message(e, message='The warranty forecast could not be completed.'))
 
     return {
         "distribution": req.distribution,

@@ -16,6 +16,7 @@ from typing import List, Optional
 import numpy as np
 from reliability._demand import NegativeBinomialDemand
 from fastapi import APIRouter, HTTPException
+from api_contract import public_error_message
 from pydantic import BaseModel, ConfigDict, Field
 
 # Bootstrap the reliability src package path
@@ -298,7 +299,7 @@ def spares(req: SparesRequest):
             demand = NegativeBinomialDemand(lam, size)
             required = demand.ppf(req.confidence)
         except ValueError as exc:
-            raise HTTPException(422, str(exc)) from exc
+            raise HTTPException(422, public_error_message(exc, message='The negative-binomial stock target could not be calculated. Check demand, positive dispersion, and the service probability.')) from exc
         levels = _stock_grid(required, req.max_spares, req.curve_points)
         protection = demand.cdf(levels).tolist()
         return _safe({

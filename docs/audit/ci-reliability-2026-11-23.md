@@ -50,6 +50,21 @@ server logs. HTTP regression tests inject private details and verify they do
 not enter responses. Merge-readiness verification must inspect new alert
 instances and unresolved review threads as well as check-run conclusions.
 
+The subsequent API-wide audit found the same pattern in older routers, project
+validation, and the global `ValueError` handler. The repair removes raw exception
+serialization at those boundaries, including partial-result and streaming
+errors. Known conditions retain specific guidance through explicit error codes
+and authored message maps. A shared helper logs private diagnostics and returns
+only the supplied public message. Custom validator exception text is also kept
+out of HTTP validation responses.
+
+The required preflight now runs `tools/check_api_error_disclosure.py` and retains
+its JSON evidence. Its per-function AST checks cover aliases, formatting,
+tracebacks, mutated payloads, response constructors, returns and yields. Against
+the previous PR revision `73f071d`, it detects 109 findings across 28 production
+files. It has no legacy suppression baseline. HTTP injection tests and CodeQL
+remain required complements to this bounded source guard.
+
 ## Failures that should remain failures
 
 - The scheduled November 17 OSV finding for `picomatch` was a dependency finding,
