@@ -138,7 +138,7 @@
     "test:system-lifecycle": "node tests/systemLifecycleContracts.test.mjs"
   },
   "dependencies": {
-    "@xyflow/react": "^12.12.1",
+    "@xyflow/react": "^13.0.3",
     "axios": "^1.21.1",
     "buffer": "^6.0.3",
     "fflate": "^0.8.3",
