@@ -146,7 +146,7 @@
     "jspdf": "^4.2.1",
     "katex": "0.19.1",
     "lucide-animated": "^1.0.5",
-    "lucide-react": "^1.77.0",
+    "lucide-react": "^1.79.0",
     "papaparse": "^5.7.1",
     "plotly.js": "^4.3.0",
     "re2js": "^2.10.0",
@@ -166,7 +166,7 @@
     "unified": "^11.0.5"
   },
   "devDependencies": {
-    "@axe-core/playwright": "4.14.0",
+    "@axe-core/playwright": "4.14.1",
     "@mixmark-io/domino": "^2.2.0",
     "@playwright/test": "^1.65.1",
     "@tailwindcss/vite": "4.3.5",
